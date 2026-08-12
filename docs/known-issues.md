@@ -8,7 +8,21 @@ forever.
 
 ## Blocking before v1 ships
 
-### Two divergent `natural_key` implementations
+### ~~Two divergent `natural_key` implementations~~ — FIXED
+
+Resolved by `src/domain/natural-key.ts`, now the single definition used by both subsystems, with
+a conformance test that computes a key through each call path and asserts they match. The date
+parameter is a local calendar date and the function throws on an ISO instant, so the worst of the
+four divergences cannot be reintroduced silently.
+
+One residual, by design rather than oversight: the shared function deliberately refuses to derive
+a calendar date from an instant, because the correct basis differs by source. Exchanges timestamp
+in UTC and their exports agree, so `exchangeLocalDate` slices the instant; statements state a
+local date and must never be sliced from UTC. Each caller now names its choice in code.
+
+The original description is kept below, because the failure mode is worth recognising again.
+
+### Two divergent `natural_key` implementations (historical)
 
 Ingestion and the exchange adapters each compute `txn.natural_key` independently, and they do not
 agree:
