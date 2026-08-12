@@ -1,0 +1,24 @@
+{
+  "timezone": "UTC",
+  "serverTime": 1755000000000,
+  "rateLimits": [
+    {"rateLimitType":"REQUEST_WEIGHT","interval":"MINUTE","intervalNum":1,"limit":6000},
+    {"rateLimitType":"ORDERS","interval":"SECOND","intervalNum":10,"limit":100}
+  ],
+  "symbols": [
+    {"symbol":"BTCUSDT","status":"TRADING","baseAsset":"BTC","baseAssetPrecision":8,
+     "quoteAsset":"USDT","quotePrecision":8,
+     "filters":[{"filterType":"LOT_SIZE","minQty":"0.00001000","maxQty":"9000.00000000","stepSize":"0.00001000"}]},
+    {"symbol":"BTCTUSD","status":"TRADING","baseAsset":"BTC","baseAssetPrecision":8,
+     "quoteAsset":"TUSD","quotePrecision":8,
+     "filters":[{"filterType":"LOT_SIZE","minQty":"0.00001000","maxQty":"9000.00000000","stepSize":"0.00001000"}]},
+    {"symbol":"WBTCBTC","status":"TRADING","baseAsset":"WBTC","baseAssetPrecision":8,
+     "quoteAsset":"BTC","quotePrecision":8,
+     "filters":[{"filterType":"LOT_SIZE","minQty":"0.00010000","maxQty":"1000.00000000","stepSize":"0.00010000"}]},
+    {"symbol":"ETHBTC","status":"TRADING","baseAsset":"ETH","baseAssetPrecision":8,
+     "quoteAsset":"BTC","quotePrecision":8,
+     "filters":[{"filterType":"LOT_SIZE","minQty":"0.00010000","maxQty":"1000.00000000","stepSize":"0.00010000"}]},
+    {"symbol":"DELISTEDUSDT","status":"BREAK","baseAsset":"DELISTED","baseAssetPrecision":8,
+     "quoteAsset":"USDT","quotePrecision":8,"filters":[]}
+  ]
+}

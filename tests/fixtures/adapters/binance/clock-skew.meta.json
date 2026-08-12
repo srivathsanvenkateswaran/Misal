@@ -1,0 +1,8 @@
+{
+  "method": "GET",
+  "path": "/sapi/v1/account/apiRestrictions",
+  "status": 400,
+  "headers": {
+    "content-type": "application/json"
+  }
+}

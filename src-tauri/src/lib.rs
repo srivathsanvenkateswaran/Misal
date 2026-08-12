@@ -1,5 +1,6 @@
 pub mod db;
 pub mod error;
+pub mod exchange_guard;
 pub mod secrets;
 
 use error::Result;

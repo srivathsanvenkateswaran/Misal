@@ -1,0 +1,17 @@
+[
+  {"coindcx_name":"BTCINR","symbol":"BTCINR","pair":"I-BTC_INR","ecode":"I",
+   "base_currency_short_name":"INR","target_currency_short_name":"BTC",
+   "base_currency_name":"Indian Rupee","target_currency_name":"Bitcoin",
+   "min_quantity":1e-05,"max_quantity":100,"step":1e-05,
+   "target_currency_precision":8,"base_currency_precision":2},
+  {"coindcx_name":"USDTINR","symbol":"USDTINR","pair":"I-USDT_INR","ecode":"I",
+   "base_currency_short_name":"INR","target_currency_short_name":"USDT",
+   "base_currency_name":"Indian Rupee","target_currency_name":"Tether",
+   "min_quantity":1,"max_quantity":100000,"step":0.01,
+   "target_currency_precision":2,"base_currency_precision":2},
+  {"coindcx_name":"ETHBTC","symbol":"ETHBTC","pair":"B-ETH_BTC","ecode":"B",
+   "base_currency_short_name":"BTC","target_currency_short_name":"ETH",
+   "base_currency_name":"Bitcoin","target_currency_name":"Ethereum",
+   "min_quantity":0.001,"max_quantity":1000,"step":0.0001,
+   "target_currency_precision":4,"base_currency_precision":8}
+]

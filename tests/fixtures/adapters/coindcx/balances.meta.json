@@ -1,0 +1,10 @@
+{
+  "method": "POST",
+  "path": "/exchange/v1/users/balances",
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "date": "Sat, 12 Aug 2026 10:00:00 GMT",
+    "ratelimit": "limit=5000, remaining=4996, reset=42"
+  }
+}
