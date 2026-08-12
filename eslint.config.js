@@ -50,7 +50,13 @@ export default tseslint.config(
   { ignores: ['dist', 'node_modules', 'src-tauri/target', 'docs/design/mockups'] },
 
   js.configs.recommended,
-  ...tseslint.configs.recommendedTypeChecked,
+
+  // Type-aware rules apply only to files inside the TypeScript project. Applying them to
+  // config files such as this one fails, because they are not in tsconfig's `include`.
+  ...tseslint.configs.recommendedTypeChecked.map((config) => ({
+    ...config,
+    files: ['**/*.{ts,tsx}'],
+  })),
 
   {
     files: ['**/*.{ts,tsx}'],

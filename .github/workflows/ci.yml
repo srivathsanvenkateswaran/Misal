@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test
+
+  core:
+    name: Core (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Tauri's Linux build needs GTK and WebKit; the other platforms ship theirs.
+      - name: Install Linux dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev \
+            librsvg2-dev patchelf libgtk-3-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Format
+        working-directory: src-tauri
+        run: cargo fmt --check
+
+      - name: Clippy
+        working-directory: src-tauri
+        run: cargo clippy --all-targets -- -D warnings
+
+      # The storage tests cover encryption at rest, migration idempotency and the
+      # identity constraints that stop a holding being counted twice.
+      - name: Test
+        working-directory: src-tauri
+        run: cargo test --lib
+
+  secrets-scan:
+    name: No committed statements or secrets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject financial documents and database files
+        run: |
+          # Real statements and databases must never enter the repository. The parser test
+          # corpus is redacted or synthetic; anything else is a leak of someone's holdings.
+          if git ls-files | grep -iE '\.(pdf|sqlite|sqlite3|db)$'; then
+            echo "::error::Financial documents or database files must not be committed."
+            exit 1
+          fi
+          if git ls-files | grep -iE '(^|/)(statements|scratch)/'; then
+            echo "::error::Statement directories must not be committed."
+            exit 1
+          fi
+          echo "clean"

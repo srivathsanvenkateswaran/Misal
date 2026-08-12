@@ -1,4 +1,5 @@
-import { defineConfig } from 'vite'
+// Imported from vitest/config rather than vite so the `test` block below is type-checked.
+import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import { fileURLToPath, URL } from 'node:url'
 

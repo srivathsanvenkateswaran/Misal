@@ -1,0 +1,41 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Misal",
+  "version": "0.0.0",
+  "identifier": "dev.misal.app",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Misal",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 1024,
+        "minHeight": 700,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "Finance",
+    "shortDescription": "One view of everything you own",
+    "longDescription": "Misal consolidates investments scattered across brokers, employer-equity accounts and crypto exchanges into a single local view. Your data never leaves your machine.",
+    "copyright": "Copyright (c) 2026 Srivathsan Venkateswaran. Licensed AGPL-3.0-only.",
+    "linux": {
+      "deb": {
+        "depends": []
+      }
+    }
+  }
+}
