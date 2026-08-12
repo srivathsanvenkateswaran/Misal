@@ -206,6 +206,58 @@ Each gets its own spec, plan and branch.
 
 B, C and D are largely independent once A fixes the schema, so they parallelise cleanly.
 
+## User interface
+
+Three visual directions were built and reviewed as HTML mockups in `docs/design/mockups/`.
+**Direction B ("Instrument") was chosen as the base, with Direction A's provenance stamps folded
+in.** The consolidated result is `final-consolidated.html`, and it is the reference for
+implementation.
+
+Two mechanisms carry the product's core promises and are therefore requirements, not decoration:
+
+- **Calibration bar.** A full-width bar on a real rupee scale showing what fraction of net worth
+  the history-dependent metrics can actually measure, with the ledger/snapshot boundary marked and
+  the excluded amount named. Snapshot-only data is hatched at 45° everywhere it appears, so
+  coverage survives greyscale and colour-vision deficiency.
+- **Marginal source stamps.** Every row with a traceable figure carries a gutter mark naming its
+  source document (`CAS`, `KIT`, `GRW`, `DCX`, `ETR`, `DRV`) with a folio reference beneath.
+  Border style encodes data health — solid for ledger-backed and current, dashed for snapshot,
+  dotted for derived — so alert colour is reserved strictly for stale, estimated or unresolved data.
+
+Chrome is achromatic. Colour is bound permanently to asset class and used for nothing else.
+
+### Screens
+
+Dashboard, Holdings, Accounts, Import review, Instrument detail.
+
+### Features
+
+Import a CAS statement (NSDL/CDSL/CAMS/KFin); import a broker or exchange CSV; connect a crypto
+exchange by read-only API key; unresolved-instrument review queue; import report with per-row
+errors and re-run; holdings table groupable by asset class, account or instrument; instrument
+detail with per-account positions, price history, transactions and FIFO lots; account manager with
+capability badges and last-synced; provenance trace from any figure to its source document; stale
+price detection and refresh; encrypted local store with OS-keychain secrets; BYOK price provider
+settings; manual price override; CSV and JSON export.
+
+### Metrics
+
+**Portfolio:** net worth in INR; day change ₹ and %; total invested / cost basis; unrealised P&L ₹
+and %; realised P&L for the current financial year split STCG/LTCG; annualised XIRR; asset
+allocation by class; currency exposure INR vs USD with the FX rate shown; top-5 concentration with
+a single-position threshold flag; twelve-month net-worth history by asset class.
+
+**Per holding:** quantity; average cost; last price with as-of time; current value; unrealised P&L
+₹ and %; portfolio weight; day change; accounts holding it; FIFO open lots.
+
+**Per account:** value; holdings count; capability (full history or holdings only); last synced.
+
+**Data quality:** history coverage as a percentage of net worth; which metrics exclude what; stale
+price count; unresolved instrument count and the value withheld.
+
+Every history-dependent metric displays its coverage figure. Snapshot rows read "not measured" with
+the reason — never a zero and never a blank, both of which read as "no gain".
+
 ## Regulatory posture
 
 A read-only tracker that makes no recommendations is not a regulated activity. The moment the
