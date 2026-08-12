@@ -97,6 +97,18 @@ export interface MutationVerdict {
   readonly reason: string
 }
 
+/**
+ * Split a path segment into comparable tokens.
+ *
+ * Matching whole segments is not enough: the well-formed-path grammar permits `.`, `_` and `-`,
+ * so `order.`, `order.json`, `_order` and `order-v2` all differ from `order` as strings while
+ * naming the same operation. A contributed adapter could put any of them on its allowlist and
+ * pass review. Tokenising on that punctuation closes the family rather than the one example.
+ */
+function tokensOf(segment: string): string[] {
+  return segment.split(/[._-]+/).filter((t) => t !== '')
+}
+
 /** Classify a concrete path, or an allowlist pattern, as mutating or not. */
 export function classifyPath(path: string): MutationVerdict {
   const segments = path
@@ -109,11 +121,16 @@ export function classifyPath(path: string): MutationVerdict {
   const readOnlyTail = last !== undefined && last !== '*' && READ_TERMINALS.has(last)
 
   for (const segment of segments) {
-    if (!MUTATING_SEGMENTS.has(segment)) continue
-    if (readOnlyTail) continue
-    return {
-      mutating: true,
-      reason: `path segment '${segment}' names a mutating operation`,
+    for (const token of tokensOf(segment)) {
+      if (!MUTATING_SEGMENTS.has(token)) continue
+      if (readOnlyTail) continue
+      return {
+        mutating: true,
+        reason:
+          token === segment
+            ? `path segment '${segment}' names a mutating operation`
+            : `path segment '${segment}' contains '${token}', which names a mutating operation`,
+      }
     }
   }
 

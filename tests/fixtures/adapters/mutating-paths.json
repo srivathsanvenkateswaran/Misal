@@ -7,7 +7,9 @@
     "",
     "The awkward cases are the point: /sapi/v1/capital/withdraw/history reads withdrawals and",
     "must be allowed, /sapi/v1/capital/withdraw/apply performs one and must not be, and the",
-    "difference between them is entirely in the last segment."
+    "difference between them is entirely in the last segment.",
+    "",
+    "Punctuation-disguised entries were added after adversarial testing: the path grammar permits '.', '_' and '-', so whole-segment matching let 'order.' and 'order.json' through. Both classifiers tokenise on that punctuation."
   ],
   "mutating": [
     "/api/v3/order",
@@ -28,7 +30,13 @@
     "/exchange/v1/orders/cancel_all",
     "/exchange/v1/orders/edit",
     "/exchange/v1/wallets/withdrawals",
-    "/exchange/v1/derivatives/futures/orders/create"
+    "/exchange/v1/derivatives/futures/orders/create",
+    "/api/v3/order.",
+    "/api/v3/order.json",
+    "/api/v3/_order",
+    "/api/v3/order-v2",
+    "/sapi/v1/capital/withdraw.apply",
+    "/exchange/v1/orders/create.json"
   ],
   "readOnly": [
     "/api/v3/time",

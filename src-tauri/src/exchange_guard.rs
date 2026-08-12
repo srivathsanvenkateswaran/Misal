@@ -205,10 +205,25 @@ pub fn mutation_reason(path: &str) -> Option<String> {
         return None;
     }
 
-    segments
-        .iter()
-        .find(|segment| MUTATING_SEGMENTS.contains(&segment.as_str()))
-        .map(|segment| format!("path segment '{segment}' names a mutating operation"))
+    // Matching whole segments is not enough. The well-formed-path grammar permits '.', '_' and
+    // '-', so `order.`, `order.json`, `_order` and `order-v2` all differ from `order` as strings
+    // while naming the same operation. A contributed adapter could put any of them on its
+    // allowlist and pass review. Tokenising on that punctuation closes the family, not one case.
+    for segment in &segments {
+        for token in segment.split(['.', '_', '-']).filter(|t| !t.is_empty()) {
+            if MUTATING_SEGMENTS.contains(&token) {
+                return Some(if token == segment {
+                    format!("path segment '{segment}' names a mutating operation")
+                } else {
+                    format!(
+                        "path segment '{segment}' contains '{token}', which names a mutating operation"
+                    )
+                });
+            }
+        }
+    }
+
+    None
 }
 
 pub fn is_mutating_path(path: &str) -> bool {
