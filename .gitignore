@@ -1,0 +1,52 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build output
+dist/
+dist-ssr/
+build/
+out/
+*.local
+
+# Rust / Tauri
+target/
+src-tauri/target/
+src-tauri/gen/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Local user data — must never be committed
+*.sqlite
+*.sqlite3
+*.db
+misal-data/
+
+# Real financial statements — never commit these.
+# The parser test corpus lives in tests/fixtures and is redacted or synthetic only.
+*.cas.pdf
+statements/
+scratch/
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
