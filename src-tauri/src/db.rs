@@ -9,8 +9,14 @@ use std::path::{Path, PathBuf};
 ///
 /// Embedded with `include_str!` so a shipped binary can never disagree with the migration files
 /// it was built from.
-const MIGRATIONS: &[(i64, &str, &str)] =
-    &[(1, "initial", include_str!("../migrations/0001-initial.sql"))];
+const MIGRATIONS: &[(i64, &str, &str)] = &[
+    (1, "initial", include_str!("../migrations/0001-initial.sql")),
+    (
+        2,
+        "sync-state",
+        include_str!("../migrations/0002-sync-state.sql"),
+    ),
+];
 
 /// Location of the database file for this platform.
 pub fn database_path() -> Result<PathBuf> {
@@ -118,12 +124,37 @@ pub fn migrate(conn: &Connection, db_path: &Path) -> Result<()> {
 }
 
 /// Write a timestamped copy of the database beside the original.
+///
+/// SQLite's online backup API is unavailable here - SQLCipher rejects it with "backup is not
+/// supported with encrypted databases" - so this checkpoints the write-ahead log into the main
+/// file and then copies the bytes.
+///
+/// Copying ciphertext is the right approach rather than a compromise: the backup is byte-identical
+/// to the original and opens with the same key, so recovery is just renaming the file. It is also
+/// impossible for the backup to be less encrypted than the source.
+///
+/// Safe to do with the connection open because migrations run single-threaded at startup, before
+/// any other writer exists. The TRUNCATE checkpoint leaves the WAL empty, so the main file alone
+/// is a complete copy.
 fn backup(conn: &Connection, db_path: &Path, from_version: i64) -> Result<()> {
     let stamp: String =
         conn.query_row("SELECT strftime('%Y%m%dT%H%M%SZ', 'now')", [], |r| r.get(0))?;
-    let target = db_path.with_file_name(format!("misal.v{from_version}.{stamp}.backup.db",));
-    // Uses SQLite's own backup API rather than a file copy, so an active WAL is included.
-    conn.backup(rusqlite::DatabaseName::Main, &target, None)?;
+
+    conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))?;
+
+    let target = db_path.with_file_name(format!("misal.v{from_version}.{stamp}.backup.db"));
+    std::fs::copy(db_path, &target)?;
+
+    // A backup that did not actually capture anything is worse than no backup, because it
+    // invites false confidence. An empty file means the copy raced a checkpoint.
+    let copied = std::fs::metadata(&target)?.len();
+    if copied == 0 {
+        let _ = std::fs::remove_file(&target);
+        return Err(MisalError::Other(
+            "pre-migration backup was empty; refusing to migrate".to_string(),
+        ));
+    }
+
     Ok(())
 }
 
@@ -140,12 +171,18 @@ mod tests {
         (dir, path)
     }
 
+    /// Highest version defined in MIGRATIONS, so these tests do not need editing every time a
+    /// migration is added.
+    fn latest_version() -> i64 {
+        MIGRATIONS.iter().map(|(v, _, _)| *v).max().unwrap_or(0)
+    }
+
     #[test]
     fn migrates_a_fresh_database_to_the_latest_version() {
         let (_dir, path) = temp_db();
         let conn = open_at(&path, TEST_KEY).unwrap();
         migrate(&conn, &path).unwrap();
-        assert_eq!(current_version(&conn).unwrap(), 1);
+        assert_eq!(current_version(&conn).unwrap(), latest_version());
     }
 
     #[test]
@@ -157,7 +194,91 @@ mod tests {
         let count: i64 = conn
             .query_row("SELECT count(*) FROM schema_migration", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(count, 1);
+        assert_eq!(count, latest_version());
+    }
+
+    #[test]
+    fn migrating_an_existing_database_backs_it_up_first() {
+        // This store holds hand-entered corrections and resolved instrument mappings that the
+        // user cannot re-derive, so a schema change must never be the reason they lose it.
+        let (dir, path) = temp_db();
+        let conn = open_at(&path, TEST_KEY).unwrap();
+
+        // Apply only migration 1, leaving 2 outstanding.
+        conn.execute_batch(MIGRATIONS[0].2).unwrap();
+        conn.execute(
+            "INSERT INTO schema_migration (version, name, applied_at) VALUES (1, 'initial', 'now')",
+            [],
+        )
+        .unwrap();
+
+        migrate(&conn, &path).unwrap();
+
+        let backups: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().contains(".backup.db"))
+            .collect();
+        assert_eq!(backups.len(), 1, "no backup was written before migrating");
+        assert_eq!(current_version(&conn).unwrap(), latest_version());
+
+        // Existence is not the point - restorability is. Open the backup with the same key and
+        // confirm it holds real pre-migration data, and that it stopped at version 1.
+        let restored = open_at(&backups[0].path(), TEST_KEY).expect("backup will not open");
+        let providers: i64 = restored
+            .query_row("SELECT count(*) FROM provider", [], |r| r.get(0))
+            .expect("backup has no provider table");
+        assert!(providers > 0, "backup opened but contains no data");
+        assert_eq!(
+            current_version(&restored).unwrap(),
+            1,
+            "backup was taken after the migration rather than before it"
+        );
+    }
+
+    #[test]
+    fn sync_state_survives_account_deletion_by_cascading() {
+        let (_dir, path) = temp_db();
+        let conn = open_at(&path, TEST_KEY).unwrap();
+        migrate(&conn, &path).unwrap();
+
+        conn.execute(
+            "INSERT INTO account (id, provider_id, label, capability, base_currency, created_at)
+             VALUES ('a1', 'binance', 'Binance', 'snapshot', 'INR', 'now')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO sync_state (account_id, stream, scope, cursor)
+             VALUES ('a1', 'trades', 'BTCUSDT', '12345')",
+            [],
+        )
+        .unwrap();
+
+        conn.execute("DELETE FROM account WHERE id = 'a1'", [])
+            .unwrap();
+
+        let left: i64 = conn
+            .query_row("SELECT count(*) FROM sync_state", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(left, 0, "sync cursors outlived their account");
+    }
+
+    #[test]
+    fn binance_is_not_tagged_as_an_indian_provider() {
+        // Indian users trade on the same global api.binance.com as everyone else; there is no
+        // separate India entity or endpoint.
+        let (_dir, path) = temp_db();
+        let conn = open_at(&path, TEST_KEY).unwrap();
+        migrate(&conn, &path).unwrap();
+        let country: String = conn
+            .query_row(
+                "SELECT country FROM provider WHERE id = 'binance'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(country, "GLOBAL");
     }
 
     #[test]
