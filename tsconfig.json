@@ -1,0 +1,35 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "useDefineForClassFields": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": ["vitest/globals", "@testing-library/jest-dom"],
+
+    "jsx": "react-jsx",
+    "allowImportingTsExtensions": false,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
+
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+
+    "skipLibCheck": true,
+    "paths": {
+      "@domain/*": ["./src/domain/*"],
+      "@ingestion/*": ["./src/ingestion/*"],
+      "@adapters/*": ["./src/adapters/*"],
+      "@valuation/*": ["./src/valuation/*"],
+      "@ui/*": ["./src/ui/*"]
+    }
+  },
+  "include": ["src", "tests", "vite.config.ts"]
+}
