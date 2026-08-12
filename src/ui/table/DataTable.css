@@ -1,0 +1,94 @@
+/* ============================================================
+   Tables run denser than the rest of the product: 11/16 with 5px 9px
+   padding, so a row is 26px and the 18px source stamp drops into it
+   without changing the rhythm. The density is deliberate — it is why
+   this direction was chosen — so do not "fix" the table to 18px.
+   ============================================================ */
+
+.dtable {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: var(--fs-body);
+  line-height: 16px;
+}
+
+.dtable thead th {
+  font-size: var(--fs-label);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-weight: 400;
+  text-align: left;
+  padding: 6px 9px;
+  border-bottom: 1px solid var(--rule-2);
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+.dtable tbody td,
+.dtable tbody th {
+  padding: 5px 9px;
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+  vertical-align: middle;
+  font-weight: 400;
+  text-align: left;
+}
+
+.dtable tbody tr:hover td {
+  background: var(--surface-2);
+}
+
+.dtable .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.dtable .grp th,
+.dtable .grp td {
+  background: var(--surface-3);
+  font-size: var(--fs-label);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  padding: 5px 9px;
+  border-bottom: 1px solid var(--rule-2);
+}
+
+.dtable .tot td,
+.dtable .tot th {
+  border-top: 1px solid var(--rule-2);
+  border-bottom: 1px solid var(--rule-2);
+  font-weight: 700;
+  background: var(--surface-2);
+}
+
+.dtable .inst {
+  color: var(--ink-1);
+}
+
+.sub {
+  display: block;
+  font-size: var(--fs-label);
+  letter-spacing: 0.08em;
+  color: var(--ink-4);
+  text-transform: uppercase;
+}
+
+.dtable-message td {
+  color: var(--ink-3);
+  white-space: normal;
+  padding: 16px 12px;
+}
+
+/* The skip link: 300 rows × 2 tabbables is not a tab order, it is a maze. */
+.dtable-skip {
+  position: absolute;
+  left: -9999px;
+}
+
+.dtable-skip:focus {
+  position: static;
+  display: inline-block;
+  margin: 8px 12px;
+}

@@ -1,0 +1,177 @@
+/* ============================================================
+   The dashboard readout: a 356px + 3×1fr grid, two rows, 1px
+   --rule gaps rendered as a background so every cell edge is a
+   hairline. The hero spans both rows.
+   ============================================================ */
+
+.readout-wrap {
+  border: 1px solid var(--rule);
+  margin-bottom: 14px;
+  background: var(--surface);
+}
+
+/* D1 — the panel-level statement that replaces seven identical DRV stamps. */
+.readout-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--surface-2);
+}
+
+.readout {
+  display: grid;
+  grid-template-columns: 356px repeat(3, 1fr);
+  gap: 1px;
+  background: var(--rule);
+}
+
+.cell {
+  background: var(--surface);
+  display: grid;
+  grid-template-columns: var(--gutter) minmax(0, 1fr);
+}
+
+.cell > .pgut {
+  padding: 11px 6px 12px 12px;
+}
+
+.cell > .cell-body {
+  padding: 11px 13px 12px 12px;
+  min-width: 0;
+}
+
+.cell-hero {
+  grid-row: span 2;
+}
+
+.cell-hero > .cell-body {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.hero-sub {
+  font-size: var(--fs-meta);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.val-sm {
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: 700;
+}
+
+.cell-note {
+  font-size: var(--fs-label);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+  margin-top: 5px;
+}
+
+.rowline {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.cell-foot {
+  border-top: 1px solid var(--rule);
+  padding-top: 7px;
+  margin-top: 9px;
+}
+
+/* ---- coverage meter: achromatic on purpose, because coverage is not an asset class.
+   A --ink-2 fill over a 45°-hatched track with 10% gridlines. ---- */
+.meter {
+  position: relative;
+  height: 9px;
+  margin-top: 8px;
+  border: 1px solid var(--rule-2);
+  background:
+    linear-gradient(90deg, var(--rule-2) 1px, transparent 1px) 0 0 / 10% 100%,
+    repeating-linear-gradient(45deg, var(--surface-2) 0 3px, var(--surface-3) 3px 6px);
+}
+
+.meter-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--ink-2);
+}
+
+.meter-scale {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--fs-stamp);
+  letter-spacing: 0.1em;
+  color: var(--ink-4);
+  margin-top: 2px;
+}
+
+/* ---- currency split bar ---- */
+.split {
+  display: flex;
+  height: 11px;
+  margin-top: 8px;
+}
+
+.split-a {
+  background: var(--ink-2);
+}
+
+.split-b {
+  margin-left: 2px;
+  background: repeating-linear-gradient(45deg, var(--ink-4) 0 2px, var(--surface) 2px 5px);
+  border: 1px solid var(--rule-2);
+}
+
+.split-key {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--fs-label);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-top: 4px;
+}
+
+/* ---- weight micro-bar, used in tables ---- */
+.wbar {
+  display: inline-block;
+  width: 54px;
+  height: 6px;
+  background: var(--surface-3);
+  vertical-align: 1px;
+  margin-left: 7px;
+  border: 1px solid var(--rule);
+}
+
+.wbar i {
+  display: block;
+  height: 100%;
+  background: var(--ink-3);
+}
+
+.readout-error {
+  padding: 16px 12px;
+  font-size: var(--fs-body);
+  color: var(--ink-2);
+}
+
+@media (max-width: 1360px) {
+  .readout {
+    grid-template-columns: 316px repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 1140px) {
+  .readout {
+    grid-template-columns: 286px repeat(3, 1fr);
+  }
+}
