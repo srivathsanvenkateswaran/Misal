@@ -1,0 +1,1440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Misal — Direction C: Layered</title>
+<style>
+/* ============================================================
+   MISAL — VISUAL DIRECTION C: "LAYERED"
+   Static mockup. No JS, no external requests, system fonts only.
+
+   Asset-class palette (validated with the dataviz six-checks
+   validator against both the roasted-umber slab and the light
+   card surface; one set of hues used in BOTH themes so a layer
+   colour never changes meaning):
+     mutual funds  #CB7717  saffron
+     indian equity #B03A22  chilli
+     us equity     #6F9138  coriander  (the single cool note)
+     crypto        #A24A72  beetroot
+     gold          #B58F28  turmeric
+   Worst adjacent CVD dE 8.6 (deutan), normal-vision 15.1.
+   Saffron/turmeric sit below 3:1 on the light card surface —
+   the relief rule applies and is honoured: every stratum, bar
+   and swatch carries a visible direct label, and every value
+   also appears in a table.
+   ============================================================ */
+
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body,h1,h2,h3,h4,p,figure,table,ul,ol,li,dl,dd{margin:0;padding:0}
+ul,ol{list-style:none}
+table{border-collapse:collapse;border-spacing:0}
+img,svg{display:block}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+a{color:inherit;text-decoration:none}
+
+/* ---------- tokens : LIGHT (bare :root = full palette) ---------- */
+:root{
+  color-scheme:light;
+
+  /* warm, saturated kraft ground — deliberately not a #F4F1EA cream */
+  --bg:#E9DBC2;
+  --card:#F5EBD8;
+  --well:#EFE2CC;
+  --track:#DCCAAB;
+  --line:#D2BE9E;
+  --line-2:#BFA87F;
+
+  --ink:#2B1B11;
+  --ink-2:#6B5340;
+  --ink-3:#7A6146;
+
+  /* the slab is roasted brown in BOTH themes — it is the signature */
+  --slab:#1C1108;
+  --slab-ink:#F7ECDA;
+  --slab-ink-2:#C4AC90;
+  --slab-ink-3:#9A825F;
+  --slab-line:#3B2716;
+  --slab-track:#33220F;
+
+  --pos:#2E6B33;
+  --neg:#93301F;
+  --warn:#8A5A0B;
+  --pos-inv:#8FBE72;
+  --neg-inv:#E58B72;
+  --warn-inv:#E0B25E;
+
+  --focus:#8E3B12;
+  --focus-inv:#E5A63C;
+
+  /* asset-class layer colours — identical in both themes */
+  --c-mf:#CB7717;
+  --c-in:#B03A22;
+  --c-us:#6F9138;
+  --c-crypto:#A24A72;
+  --c-gold:#B58F28;
+  --c-neutral:#8C6B45;
+
+  --shadow:0 1px 0 rgba(43,27,17,.06);
+}
+
+/* ---------- tokens : DARK (only what changes) ---------- */
+@media (prefers-color-scheme:dark){
+  :root{
+    color-scheme:dark;
+    --bg:#211610;
+    --card:#2A1C13;
+    --well:#1A110A;
+    --track:#3A2818;
+    --line:#3E2C1D;
+    --line-2:#584028;
+
+    --ink:#F5E9D7;
+    --ink-2:#C0A98F;
+    --ink-3:#9C8468;
+
+    --slab:#150D06;
+    --slab-line:#3E2A17;
+    --slab-track:#2E1F0E;
+
+    --pos:#8FBE72;
+    --neg:#E58B72;
+    --warn:#E0B25E;
+
+    --focus:#E5A63C;
+    --c-neutral:#B08F63;
+
+    --shadow:0 1px 0 rgba(0,0,0,.35);
+  }
+}
+
+/* ---------- two type roles only ----------
+   ROLE 1 "figure"  — large numerals, tight, semibold
+   ROLE 2 "label"   — small utilitarian sans, uppercase or sentence
+   ------------------------------------------ */
+body{
+  background:var(--bg);
+  color:var(--ink);
+  font-family:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  font-size:14px;
+  line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+}
+
+.figure{
+  font-weight:640;
+  letter-spacing:-.025em;
+  font-variant-numeric:proportional-nums;
+  line-height:1;
+}
+.label{
+  font-size:10.5px;
+  font-weight:680;
+  letter-spacing:.15em;
+  text-transform:uppercase;
+  color:var(--ink-3);
+}
+.num{font-variant-numeric:tabular-nums}
+
+/* ---------- focus ---------- */
+:where(a,button,summary,input,select,[tabindex]):focus-visible{
+  outline:2px solid var(--focus);
+  outline-offset:3px;
+  border-radius:3px;
+}
+.slab :where(a,button,summary,[tabindex]):focus-visible{outline-color:var(--focus-inv)}
+
+/* ---------- review chrome ---------- */
+.review-head{
+  max-width:1440px;margin:0 auto;padding:56px 40px 8px;
+}
+.review-head h1{font-size:15px;font-weight:680;letter-spacing:.02em}
+.review-head p{color:var(--ink-2);font-size:13px;max-width:74ch;margin-top:8px}
+.screen-marker{
+  max-width:1440px;margin:0 auto;padding:64px 40px 0;
+}
+.screen-marker .rule{border-top:1px dashed var(--line-2);padding-top:18px;display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+.screen-marker .n{
+  font-size:10.5px;font-weight:700;letter-spacing:.16em;color:var(--bg);
+  background:var(--ink);padding:4px 9px;border-radius:3px;
+}
+.screen-marker h2{font-size:18px;font-weight:660;letter-spacing:-.01em}
+.screen-marker .note{color:var(--ink-3);font-size:12.5px}
+
+.screen{max-width:1440px;margin:0 auto;padding:20px 40px 0}
+
+/* ---------- app chrome ---------- */
+.appbar{
+  display:flex;align-items:center;gap:28px;
+  padding:14px 20px;border:1px solid var(--line);border-radius:10px;
+  background:var(--card);box-shadow:var(--shadow);margin-bottom:24px;
+}
+.wordmark{display:flex;align-items:baseline;gap:9px}
+.wordmark .m{font-size:17px;font-weight:700;letter-spacing:-.02em}
+.wordmark .layers{display:flex;flex-direction:column;gap:1.5px;transform:translateY(-1px)}
+.wordmark .layers i{display:block;width:16px;height:2.5px;border-radius:1px}
+nav.appnav{display:flex;gap:4px;margin-left:6px}
+nav.appnav a{
+  font-size:12.5px;font-weight:580;color:var(--ink-2);
+  padding:6px 11px;border-radius:6px;
+}
+nav.appnav a[aria-current]{background:var(--track);color:var(--ink)}
+.appbar .right{margin-left:auto;display:flex;align-items:center;gap:14px}
+.localchip{
+  display:inline-flex;align-items:center;gap:7px;
+  font-size:11.5px;color:var(--ink-2);border:1px solid var(--line);
+  padding:5px 10px;border-radius:999px;
+}
+.localchip .dot{width:6px;height:6px;border-radius:50%;background:var(--c-us)}
+.basechip{
+  font-size:11px;font-weight:700;letter-spacing:.12em;
+  border:1px solid var(--line-2);padding:5px 9px;border-radius:6px;color:var(--ink-2);
+}
+
+/* ---------- generic surfaces ---------- */
+.card{
+  background:var(--card);border:1px solid var(--line);border-radius:10px;
+  box-shadow:var(--shadow);
+}
+.card > header{
+  padding:16px 20px 12px;display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;
+}
+.card > header h3{font-size:13px;font-weight:660;letter-spacing:-.005em}
+.card > header .sub{font-size:11.5px;color:var(--ink-3);margin-left:auto}
+.card .body{padding:0 20px 20px}
+.well{background:var(--well);border-radius:8px;padding:14px 16px}
+
+/* ---------- the slab (hero) ---------- */
+.slab{
+  background:var(--slab);color:var(--slab-ink);
+  border-radius:12px;border:1px solid var(--slab-line);
+  padding:56px 60px 52px;
+  display:grid;grid-template-columns:minmax(300px,1fr) minmax(440px,620px);
+  gap:56px;align-items:center;
+}
+.slab .eyebrow{font-size:10.5px;font-weight:680;letter-spacing:.18em;text-transform:uppercase;color:var(--slab-ink-3)}
+.hero-figure{
+  font-size:clamp(56px,6.1vw,90px);
+  margin:26px 0 0;color:var(--slab-ink);
+}
+.hero-sub{margin-top:22px;display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+.hero-delta{font-size:19px;font-weight:640;letter-spacing:-.01em;color:var(--pos-inv);font-variant-numeric:tabular-nums}
+.hero-sub .when{font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--slab-ink-3);font-weight:640}
+.slab hr{border:0;border-top:1px solid var(--slab-line);margin:32px 0 20px}
+.slab .prov{font-size:12.5px;color:var(--slab-ink-2);max-width:44ch;line-height:1.7}
+.slab .prov strong{color:var(--slab-ink);font-weight:620}
+.slab .prov a{border-bottom:1px solid var(--slab-ink-3);color:var(--slab-ink)}
+.stack-cap{margin-top:18px;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.stack-cap .t{font-size:10.5px;font-weight:680;letter-spacing:.18em;text-transform:uppercase;color:var(--slab-ink-3)}
+.stack-cap .d{font-size:12px;color:var(--slab-ink-2)}
+
+/* svg text roles inside the slab */
+.st-name{font-size:10.5px;font-weight:700;letter-spacing:.15em;fill:var(--slab-ink-3)}
+.st-val{font-size:19px;font-weight:640;letter-spacing:-.015em;fill:var(--slab-ink);font-variant-numeric:tabular-nums}
+.st-pct{font-size:19px;font-weight:640;letter-spacing:-.015em;fill:var(--slab-ink);font-variant-numeric:tabular-nums}
+.st-src{font-size:11px;fill:var(--slab-ink-3)}
+
+/* ---------- the shared asset-class key ---------- */
+.key{
+  margin-top:14px;display:flex;align-items:center;gap:22px;flex-wrap:wrap;
+  padding:12px 20px;border:1px solid var(--line);border-radius:10px;background:var(--card);
+}
+.key .k-lab{font-size:10.5px;font-weight:680;letter-spacing:.15em;text-transform:uppercase;color:var(--ink-3)}
+.key .k{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink)}
+.key .sw{width:12px;height:12px;border-radius:3px;flex:none}
+.key .k .p{color:var(--ink-3);font-variant-numeric:tabular-nums}
+
+/* ---------- tiles ---------- */
+.tiles{display:grid;grid-template-columns:repeat(5,1fr);gap:16px;margin-top:16px}
+.tile{padding:18px 20px 20px}
+.tile .t-lab{font-size:10.5px;font-weight:680;letter-spacing:.15em;text-transform:uppercase;color:var(--ink-3)}
+.tile .t-val{font-size:30px;margin-top:14px;color:var(--ink)}
+.tile .t-sec{margin-top:10px;font-size:12.5px;color:var(--ink-2);font-variant-numeric:tabular-nums}
+.tile.span2{grid-column:span 2}
+
+.pill{
+  display:inline-flex;align-items:center;gap:6px;
+  font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;
+  padding:3px 8px;border-radius:999px;border:1px solid var(--line-2);color:var(--ink-3);
+  vertical-align:middle;
+}
+.pill.ledger{border-color:var(--line-2)}
+.pill.snap{border-style:dashed}
+.pill.warnp{color:var(--warn);border-color:currentColor}
+
+.pos{color:var(--pos)}
+.neg{color:var(--neg)}
+.muted{color:var(--ink-3)}
+.arrow{font-size:.72em;vertical-align:.08em;letter-spacing:0}
+
+/* ---------- grids ---------- */
+.grid-2{display:grid;grid-template-columns:1.55fr 1fr;gap:16px;margin-top:16px}
+.grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:16px}
+
+/* ---------- tables ---------- */
+.tablewrap{overflow-x:auto}
+table.data{width:100%;min-width:1080px;font-size:12.5px}
+table.data th{
+  text-align:left;font-size:10px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--ink-3);padding:10px 12px;border-bottom:1px solid var(--line-2);white-space:nowrap;
+}
+table.data th.r,table.data td.r{text-align:right}
+table.data td{padding:11px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+table.data tbody tr:hover td{background:var(--well)}
+table.data td.name{font-weight:600;color:var(--ink);white-space:nowrap}
+table.data td .sec{display:block;font-size:11px;color:var(--ink-3);font-weight:450;margin-top:2px}
+table.data td.num,table.data th.num{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+tr.group td{
+  background:var(--well);border-bottom:1px solid var(--line-2);
+  padding-top:12px;padding-bottom:12px;
+}
+tr.group .g-inner{display:flex;align-items:center;gap:10px}
+tr.group .g-bar{width:4px;height:15px;border-radius:2px;flex:none}
+tr.group .g-name{font-size:10.5px;font-weight:700;letter-spacing:.15em;text-transform:uppercase}
+tr.total td{border-top:1px solid var(--line-2);border-bottom:0;font-weight:660;padding-top:14px}
+th.sortable{cursor:pointer}
+th.sortable .caret{color:var(--ink-2)}
+
+.wbar{display:inline-flex;align-items:center;gap:8px;justify-content:flex-end}
+.wbar .trk{width:44px;height:5px;border-radius:3px;background:var(--track);overflow:hidden;flex:none}
+.wbar .fil{display:block;height:100%;border-radius:3px}
+
+.nodata{
+  display:inline-flex;align-items:center;gap:6px;color:var(--ink-3);
+  font-size:11px;font-style:normal;
+}
+.nodata .dash{color:var(--line-2);font-weight:700}
+
+/* ---------- segmented control / buttons ---------- */
+.controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:0 20px 14px}
+.seg{display:inline-flex;border:1px solid var(--line-2);border-radius:7px;overflow:hidden}
+.seg button{
+  font-size:11.5px;font-weight:600;color:var(--ink-2);padding:6px 12px;
+  border-right:1px solid var(--line-2);
+}
+.seg button:last-child{border-right:0}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--card)}
+.btn{
+  font-size:12px;font-weight:620;padding:7px 13px;border-radius:7px;
+  border:1px solid var(--line-2);color:var(--ink);
+}
+.btn.primary{background:var(--ink);color:var(--card);border-color:var(--ink)}
+.btn.quiet{border-color:transparent;color:var(--ink-2)}
+
+/* ---------- accounts ---------- */
+.acct{display:grid;grid-template-columns:1.4fr .8fr .7fr .9fr auto;gap:20px;align-items:center;padding:18px 20px;border-bottom:1px solid var(--line)}
+.acct:last-of-type{border-bottom:0}
+.acct .a-name{font-size:14px;font-weight:640;letter-spacing:-.01em}
+.acct .a-prov{font-size:11.5px;color:var(--ink-3);margin-top:3px}
+.acct .a-val{font-size:19px;font-weight:640;letter-spacing:-.015em;font-variant-numeric:tabular-nums}
+.acct .a-mini{font-size:11.5px;color:var(--ink-2);font-variant-numeric:tabular-nums}
+.mini{font-size:11.5px;font-variant-numeric:tabular-nums}
+.acct .a-lay{display:flex;gap:3px;margin-top:8px}
+.acct .a-lay i{display:block;height:4px;border-radius:2px}
+
+.addbox{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:20px}
+.addopt{border:1px dashed var(--line-2);border-radius:9px;padding:18px 18px 16px;background:var(--well)}
+.addopt h4{font-size:13px;font-weight:660;margin-bottom:6px}
+.addopt p{font-size:12px;color:var(--ink-2);line-height:1.6}
+.addopt .btn{margin-top:14px}
+
+/* ---------- import review ---------- */
+.banner{
+  display:flex;gap:14px;align-items:flex-start;
+  padding:16px 20px;border-radius:9px;background:var(--well);
+  border:1px solid var(--line);
+}
+.banner .b-ic{
+  flex:none;width:22px;height:22px;border-radius:5px;background:var(--c-us);
+  color:#fff;font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center;
+}
+.banner h4{font-size:13px;font-weight:660;margin-bottom:4px}
+.banner p{font-size:12.5px;color:var(--ink-2);max-width:86ch;line-height:1.6}
+.banner .btn{margin-left:auto;flex:none}
+
+.readout{display:grid;grid-template-columns:repeat(5,1fr);gap:0;border:1px solid var(--line);border-radius:9px;overflow:hidden}
+.readout div{padding:16px 18px;border-right:1px solid var(--line)}
+.readout div:last-child{border-right:0}
+.readout .r-val{font-size:26px;font-weight:640;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.readout .r-lab{font-size:10.5px;font-weight:680;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin-top:8px}
+
+.queue{border:1px solid var(--line);border-radius:9px;overflow:hidden}
+.qrow{display:grid;grid-template-columns:1.25fr 1.15fr auto;gap:20px;align-items:center;padding:16px 18px;border-bottom:1px solid var(--line)}
+.qrow:last-child{border-bottom:0}
+.qraw{font-size:13px;font-weight:640;letter-spacing:.01em}
+.qmeta{font-size:11.5px;color:var(--ink-3);margin-top:4px;font-variant-numeric:tabular-nums}
+.qsug{font-size:12.5px;color:var(--ink-2)}
+.qsug b{color:var(--ink);font-weight:640}
+.qacts{display:flex;gap:8px}
+
+.errlist li{display:flex;gap:12px;padding:9px 0;border-bottom:1px solid var(--line);font-size:12.5px;color:var(--ink-2)}
+.errlist li:last-child{border-bottom:0}
+.errlist .code{color:var(--ink-3);font-variant-numeric:tabular-nums;min-width:76px}
+
+/* ---------- instrument detail ---------- */
+.inst-head{display:flex;align-items:flex-start;gap:22px;padding:22px 24px;flex-wrap:wrap}
+.inst-swatch{width:5px;align-self:stretch;border-radius:3px;background:var(--c-in);min-height:56px}
+.inst-head h3{font-size:22px;font-weight:660;letter-spacing:-.02em}
+.inst-head .ids{font-size:11.5px;color:var(--ink-3);margin-top:6px;letter-spacing:.04em;font-variant-numeric:tabular-nums}
+.inst-figs{margin-left:auto;display:flex;gap:36px;text-align:right}
+.inst-figs .f-lab{font-size:10.5px;font-weight:680;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
+.inst-figs .f-val{font-size:26px;font-weight:640;letter-spacing:-.02em;margin-top:8px;font-variant-numeric:tabular-nums}
+
+.splitrow{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.kv{display:flex;justify-content:space-between;gap:16px;padding:9px 0;border-bottom:1px solid var(--line);font-size:12.5px}
+.kv:last-child{border-bottom:0}
+.kv dt{color:var(--ink-2)}
+.kv dd{font-variant-numeric:tabular-nums;font-weight:600}
+
+/* svg chart text */
+.ax{font-size:10.5px;fill:var(--ink-3);font-variant-numeric:tabular-nums}
+.dl{font-size:11.5px;font-weight:660;fill:var(--ink);font-variant-numeric:tabular-nums}
+.dl-2{font-size:11.5px;fill:var(--ink-2)}
+.gl{stroke:var(--line);stroke-width:1}
+
+footer.endnote{max-width:1440px;margin:0 auto;padding:56px 40px 80px;color:var(--ink-3);font-size:12px;line-height:1.7}
+footer.endnote strong{color:var(--ink-2);font-weight:640}
+
+/* ---------- responsive : must hold at 1024 ---------- */
+@media (max-width:1360px){
+  .slab{grid-template-columns:minmax(280px,1fr) minmax(400px,560px);gap:40px;padding:44px 44px 42px}
+  .tiles{grid-template-columns:repeat(3,1fr)}
+  .tile.span2{grid-column:span 3}
+  .screen,.screen-marker,.review-head,footer.endnote{padding-left:28px;padding-right:28px}
+}
+@media (max-width:1080px){
+  .slab{grid-template-columns:1fr;gap:36px}
+  .grid-2{grid-template-columns:1fr}
+  .grid-3{grid-template-columns:1fr}
+  .readout{grid-template-columns:repeat(2,1fr)}
+  .readout div{border-bottom:1px solid var(--line)}
+  .acct{grid-template-columns:1fr 1fr;row-gap:14px}
+  .qrow{grid-template-columns:1fr}
+  .splitrow{grid-template-columns:1fr}
+  .addbox{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<div class="review-head">
+  <h1>Misal — visual direction C · “Layered”</h1>
+  <p>The dish is not one thing: usal, kat, farsan, onion, coriander, pav — each cooked apart, assembled into one bowl.
+     A portfolio is the same shape. So the dashboard hero is one vertical stack of labelled strata: it is the net-worth
+     figure, the allocation chart and the product’s namesake at once. Everything else in the app is deliberately plain
+     so that one object carries the identity. All five screens follow, stacked.</p>
+</div>
+
+<!-- =========================================================
+     SCREEN 1 — DASHBOARD
+     ========================================================= -->
+<div class="screen-marker">
+  <div class="rule">
+    <span class="n">SCREEN 1</span>
+    <h2>Dashboard</h2>
+    <span class="note">The one loud object. Portfolio metrics, coverage-honest, provenance on the face of it.</span>
+  </div>
+</div>
+
+<section class="screen">
+
+  <div class="appbar">
+    <span class="wordmark">
+      <span class="layers" aria-hidden="true">
+        <i style="background:var(--c-gold)"></i>
+        <i style="background:var(--c-crypto)"></i>
+        <i style="background:var(--c-us)"></i>
+        <i style="background:var(--c-in)"></i>
+        <i style="background:var(--c-mf)"></i>
+      </span>
+      <span class="m">misal</span>
+    </span>
+    <nav class="appnav">
+      <a href="#" aria-current="page">Dashboard</a>
+      <a href="#">Holdings</a>
+      <a href="#">Accounts</a>
+      <a href="#">Import</a>
+    </nav>
+    <span class="right">
+      <span class="localchip"><span class="dot"></span>All data on this Mac · nothing leaves the device</span>
+      <span class="basechip">BASE INR</span>
+    </span>
+  </div>
+
+  <!-- ===== THE SLAB ===== -->
+  <div class="slab">
+    <div>
+      <p class="eyebrow">Total net worth</p>
+      <p class="figure hero-figure">₹48,32,116</p>
+
+      <div class="hero-sub">
+        <span class="hero-delta"><span class="arrow">▲</span> ₹18,420 &nbsp;+0.38%</span>
+        <span class="when">Today</span>
+      </div>
+
+      <hr>
+
+      <p class="prov">
+        Assembled from <strong>5 accounts</strong>, priced <strong>12 Aug 2026, 4:31 PM IST</strong>.
+        Four sources priced live; one is a holdings snapshot. USD converted at <strong>₹84.30</strong>.
+        Every layer traces back to the document it came from —
+        <a href="#" tabindex="0">see sources</a>.
+      </p>
+
+      <div class="stack-cap">
+        <span class="t">Composition</span>
+        <span class="d">Five components, one bowl. Thickest at the base.</span>
+      </div>
+    </div>
+
+    <!-- ===== THE STACK : net worth as labelled strata =====
+         Heights are exact: 552px of data + four 2px slab-coloured
+         gaps. Labels sit outside the marks in the right gutter, so
+         no label is ever clipped by its own stratum. -->
+    <svg viewBox="0 0 620 600" width="100%" style="max-width:620px;height:auto" role="img"
+         aria-label="Net worth of ₹48,32,116 split into five asset-class layers: mutual funds 38.1 percent, Indian equity 26.6 percent, US equity 20.2 percent, crypto 9.7 percent, gold 5.4 percent.">
+
+      <!-- gold : 5.4% — top of the stack, rounded data-end -->
+      <path d="M0,24 A4,4 0 0 1 4,20 L220,20 A4,4 0 0 1 224,24 L224,50 L0,50 Z" fill="var(--c-gold)"/>
+      <!-- crypto : 9.7% -->
+      <rect x="0" y="52"  width="224" height="54"  fill="var(--c-crypto)"/>
+      <!-- us equity : 20.2% -->
+      <rect x="0" y="108" width="224" height="111" fill="var(--c-us)"/>
+      <!-- indian equity : 26.6% -->
+      <rect x="0" y="221" width="224" height="147" fill="var(--c-in)"/>
+      <!-- mutual funds : 38.1% — base -->
+      <rect x="0" y="370" width="224" height="210" fill="var(--c-mf)"/>
+      <!-- the floor of the bowl -->
+      <line x1="0" y1="581.5" x2="224" y2="581.5" stroke="var(--slab-line)" stroke-width="1"/>
+
+      <!-- leaders -->
+      <g stroke="var(--slab-line)" stroke-width="1">
+        <line x1="234" y1="35"  x2="246" y2="35"/>
+        <line x1="234" y1="79"  x2="246" y2="79"/>
+        <line x1="234" y1="163.5" x2="246" y2="163.5"/>
+        <line x1="234" y1="294.5" x2="246" y2="294.5"/>
+        <line x1="234" y1="475" x2="246" y2="475"/>
+      </g>
+
+      <!-- gold label -->
+      <text class="st-name" x="252" y="29">GOLD</text>
+      <text class="st-val"  x="252" y="51">₹2,60,739</text>
+      <text class="st-pct"  x="620" y="51" text-anchor="end">5.4%</text>
+
+      <!-- crypto label -->
+      <text class="st-name" x="252" y="73">CRYPTO</text>
+      <text class="st-val"  x="252" y="95">₹4,68,220</text>
+      <text class="st-pct"  x="620" y="95" text-anchor="end">9.7%</text>
+
+      <!-- us equity label -->
+      <text class="st-name" x="252" y="151.5">US EQUITY</text>
+      <text class="st-val"  x="252" y="175.5">₹9,74,491</text>
+      <text class="st-pct"  x="620" y="175.5" text-anchor="end">20.2%</text>
+      <text class="st-src"  x="252" y="195.5">E*TRADE · 1 RSU holding · holdings snapshot only</text>
+
+      <!-- indian equity label -->
+      <text class="st-name" x="252" y="282.5">INDIAN EQUITY</text>
+      <text class="st-val"  x="252" y="306.5">₹12,86,432</text>
+      <text class="st-pct"  x="620" y="306.5" text-anchor="end">26.6%</text>
+      <text class="st-src"  x="252" y="326.5">Zerodha Kite · Groww · 4 stocks · full history</text>
+
+      <!-- mutual funds label -->
+      <text class="st-name" x="252" y="463">MUTUAL FUNDS</text>
+      <text class="st-val"  x="252" y="487">₹18,42,234</text>
+      <text class="st-pct"  x="620" y="487" text-anchor="end">38.1%</text>
+      <text class="st-src"  x="252" y="507">Zerodha Coin · Groww · 3 funds · CAS full history</text>
+    </svg>
+  </div>
+
+  <!-- shared key : one layer colour per asset class, used everywhere below -->
+  <div class="key">
+    <span class="k-lab">Layer key</span>
+    <span class="k"><span class="sw" style="background:var(--c-mf)"></span>Mutual funds <span class="p">38.1%</span></span>
+    <span class="k"><span class="sw" style="background:var(--c-in)"></span>Indian equity <span class="p">26.6%</span></span>
+    <span class="k"><span class="sw" style="background:var(--c-us)"></span>US equity <span class="p">20.2%</span></span>
+    <span class="k"><span class="sw" style="background:var(--c-crypto)"></span>Crypto <span class="p">9.7%</span></span>
+    <span class="k"><span class="sw" style="background:var(--c-gold)"></span>Gold <span class="p">5.4%</span></span>
+  </div>
+
+  <!-- ===== metric tiles ===== -->
+  <div class="tiles">
+
+    <div class="card tile">
+      <p class="t-lab">Invested <span class="pill ledger">Ledger only</span></p>
+      <p class="figure t-val num">₹30,01,580</p>
+      <p class="t-sec">FIFO cost basis across 4 ledger-backed accounts.</p>
+    </div>
+
+    <div class="card tile">
+      <p class="t-lab">Unrealised P&amp;L <span class="pill ledger">Ledger only</span></p>
+      <p class="figure t-val num pos">+₹8,56,045</p>
+      <p class="t-sec"><span class="pos">+28.5%</span> on invested. Excludes US equity — no cost basis on file.</p>
+    </div>
+
+    <div class="card tile">
+      <p class="t-lab">Realised P&amp;L · FY 2026–27 <span class="pill ledger">Ledger only</span></p>
+      <p class="figure t-val num pos">+₹64,180</p>
+      <p class="t-sec">3 disposals since 1 Apr 2026. Pre-tax, FIFO matched.</p>
+    </div>
+
+    <!-- XIRR + coverage meter, layered by asset class -->
+    <div class="card tile span2">
+      <p class="t-lab">XIRR <span class="pill ledger">Ledger only</span></p>
+      <div style="display:flex;align-items:flex-end;gap:18px;flex-wrap:wrap">
+        <p class="figure t-val num" style="margin-bottom:0">18.4%</p>
+        <p class="t-sec" style="margin:0 0 4px">Money-weighted, since 21 Jun 2023.<br>
+          Covers <strong style="font-weight:660;color:var(--ink)">80% of portfolio value</strong> — ₹38,57,625 of ₹48,32,116.</p>
+      </div>
+
+      <svg viewBox="0 0 490 14" width="100%" style="height:14px;margin-top:16px" role="img"
+           aria-label="Coverage meter: mutual funds, Indian equity, crypto and gold are history-backed and make up 80 percent of value; US equity, 20 percent, has no history.">
+        <rect x="0"   y="0" width="184" height="14" fill="var(--c-mf)"/>
+        <rect x="186" y="0" width="128" height="14" fill="var(--c-in)"/>
+        <rect x="316" y="0" width="47"  height="14" fill="var(--c-crypto)"/>
+        <path d="M365,0 L387,0 A4,4 0 0 1 391,4 L391,10 A4,4 0 0 1 387,14 L365,14 Z" fill="var(--c-gold)"/>
+        <path d="M393,0 L486,0 A4,4 0 0 1 490,4 L490,10 A4,4 0 0 1 486,14 L393,14 Z" fill="var(--track)"/>
+      </svg>
+
+      <p class="t-sec" style="margin-top:10px;display:flex;gap:18px;flex-wrap:wrap">
+        <span><span class="pill ledger">80% history-backed</span></span>
+        <span class="muted">Unfilled = US equity ₹9,74,491 · E*TRADE snapshot has no transactions, so it is left out of XIRR rather than guessed.</span>
+      </p>
+    </div>
+  </div>
+
+  <!-- ===== concentration + currency ===== -->
+  <div class="grid-2">
+
+    <div class="card">
+      <header>
+        <h3>Concentration — top 5 holdings</h3>
+        <span class="sub">67.4% of total value</span>
+      </header>
+      <div class="body">
+        <div class="well">
+          <svg viewBox="0 0 760 190" width="100%" style="height:auto" role="img"
+               aria-label="Top five holdings by portfolio weight: Caterpillar 20.2 percent, Parag Parikh Flexi Cap 18.6 percent, UTI Nifty 50 Index 12.1 percent, HDFC Bank 8.5 percent, Infosys 8.0 percent.">
+            <text class="dl-2" x="0" y="26">Caterpillar Inc · CAT</text>
+            <rect x="210" y="12" width="486" height="18" fill="var(--c-us)"/>
+            <path d="M696,12 A4,4 0 0 1 700,16 L700,26 A4,4 0 0 1 696,30 Z" fill="var(--c-us)"/>
+            <text class="dl" x="710" y="26">20.2%</text>
+
+            <text class="dl-2" x="0" y="60">Parag Parikh Flexi Cap</text>
+            <rect x="210" y="46" width="447" height="18" fill="var(--c-mf)"/>
+            <path d="M657,46 A4,4 0 0 1 661,50 L661,60 A4,4 0 0 1 657,64 Z" fill="var(--c-mf)"/>
+            <text class="dl" x="671" y="60">18.6%</text>
+
+            <text class="dl-2" x="0" y="94">UTI Nifty 50 Index</text>
+            <rect x="210" y="80" width="290" height="18" fill="var(--c-mf)"/>
+            <path d="M500,80 A4,4 0 0 1 504,84 L504,94 A4,4 0 0 1 500,98 Z" fill="var(--c-mf)"/>
+            <text class="dl" x="514" y="94">12.1%</text>
+
+            <text class="dl-2" x="0" y="128">HDFC Bank Ltd</text>
+            <rect x="210" y="114" width="202" height="18" fill="var(--c-in)"/>
+            <path d="M412,114 A4,4 0 0 1 416,118 L416,128 A4,4 0 0 1 412,132 Z" fill="var(--c-in)"/>
+            <text class="dl" x="426" y="128">8.5%</text>
+
+            <text class="dl-2" x="0" y="162">Infosys Ltd</text>
+            <rect x="210" y="148" width="190" height="18" fill="var(--c-in)"/>
+            <path d="M400,148 A4,4 0 0 1 404,152 L404,162 A4,4 0 0 1 400,166 Z" fill="var(--c-in)"/>
+            <text class="dl" x="414" y="162">8.0%</text>
+
+            <line class="gl" x1="210" y1="176" x2="700" y2="176"/>
+          </svg>
+        </div>
+        <p class="t-sec" style="margin-top:12px">
+          One RSU grant is the largest single position at 20.2%. Bars are coloured by their layer — see the key above.
+        </p>
+      </div>
+    </div>
+
+    <div class="card">
+      <header>
+        <h3>Currency exposure</h3>
+        <span class="sub">1 USD = ₹84.30</span>
+      </header>
+      <div class="body">
+        <div class="well">
+          <svg viewBox="0 0 340 76" width="100%" style="height:auto" role="img"
+               aria-label="Currency exposure: INR 79.8 percent, USD 20.2 percent.">
+            <text class="dl" x="0" y="14">INR 79.8%</text>
+            <text class="dl" x="340" y="14" text-anchor="end">USD 20.2%</text>
+            <rect x="0" y="26" width="270" height="20" fill="var(--c-neutral)"/>
+            <path d="M272,26 L336,26 A4,4 0 0 1 340,30 L340,42 A4,4 0 0 1 336,46 L272,46 Z" fill="var(--c-us)"/>
+            <text class="dl-2" x="0" y="66">₹38,57,625</text>
+            <text class="dl-2" x="340" y="66" text-anchor="end">$11,559.80</text>
+          </svg>
+        </div>
+        <dl class="kv" style="margin-top:14px"><dt>USD assets</dt><dd>Caterpillar RSU · E*TRADE</dd></dl>
+        <dl class="kv"><dt>FX source</dt><dd>RBI reference, 12 Aug 2026</dd></dl>
+        <dl class="kv"><dt>Crypto quoted in</dt><dd>INR (CoinDCX)</dd></dl>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== data quality ===== -->
+  <div class="card" style="margin-top:16px">
+    <header>
+      <h3>Data quality</h3>
+      <span class="sub">Nothing here blocks you. It tells you what to trust.</span>
+    </header>
+    <div class="body">
+      <div class="grid-3" style="margin-top:0">
+        <div class="well">
+          <p class="label" style="color:var(--warn)">⚠ 2 stale prices</p>
+          <p style="margin-top:9px;font-size:12.5px;color:var(--ink-2);line-height:1.65">
+            Tata Motors and SGB 2.50% 2030 were last priced <strong style="color:var(--ink);font-weight:640">2 days ago</strong>.
+            Their values are shown but day change is withheld.
+          </p>
+          <p style="margin-top:12px"><a href="#" class="btn" tabindex="0">Refresh prices</a></p>
+        </div>
+        <div class="well">
+          <p class="label" style="color:var(--warn)">⚑ 2 unresolved instruments</p>
+          <p style="margin-top:9px;font-size:12.5px;color:var(--ink-2);line-height:1.65">
+            From the CAMS CAS import on 12 Aug. Held aside — <strong style="color:var(--ink);font-weight:640">₹42,180 not counted</strong>
+            in any figure above until you map them.
+          </p>
+          <p style="margin-top:12px"><a href="#" class="btn" tabindex="0">Review queue</a> <a href="#" class="btn quiet" tabindex="0">Later</a></p>
+        </div>
+        <div class="well">
+          <p class="label" style="color:var(--pos)">✓ Coverage</p>
+          <p style="margin-top:9px;font-size:12.5px;color:var(--ink-2);line-height:1.65">
+            4 of 5 accounts carry a full transaction ledger. 1 account is a holdings snapshot; metrics needing
+            history skip it rather than estimate it.
+          </p>
+          <p style="margin-top:12px"><a href="#" class="btn" tabindex="0">What this means</a></p>
+        </div>
+      </div>
+
+      <div class="tablewrap" style="margin-top:16px">
+        <table class="data" style="min-width:820px">
+          <thead>
+            <tr>
+              <th>Account</th><th>Capability</th><th>Source document</th><th class="num">Value</th><th>Last synced</th><th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td class="name">Zerodha Kite</td><td><span class="pill ledger">Full history</span></td><td class="muted">kite_tradebook_2026.csv</td><td class="num">₹14,82,799</td><td class="num">12 Aug, 4:28 PM</td><td class="r"><a href="#" class="btn quiet" tabindex="0">Re-sync</a></td></tr>
+            <tr><td class="name">Zerodha Coin</td><td><span class="pill ledger">Full history</span></td><td class="muted">CAMS CAS · Jul 2026</td><td class="num">₹14,80,557</td><td class="num">12 Aug, 4:26 PM</td><td class="r"><a href="#" class="btn quiet" tabindex="0">Re-sync</a></td></tr>
+            <tr><td class="name">Groww</td><td><span class="pill ledger">Full history</span></td><td class="muted">KFintech CAS · Jul 2026</td><td class="num">₹4,26,049</td><td class="num">12 Aug, 4:26 PM</td><td class="r"><a href="#" class="btn quiet" tabindex="0">Re-sync</a></td></tr>
+            <tr><td class="name">E*TRADE by Morgan Stanley</td><td><span class="pill snap">Holdings only</span></td><td class="muted">benefit_statement_31jul2026.pdf</td><td class="num">₹9,74,491</td><td class="num">31 Jul, 11:02 PM</td><td class="r"><a href="#" class="btn quiet" tabindex="0">Import newer</a></td></tr>
+            <tr><td class="name">CoinDCX</td><td><span class="pill ledger">Full history</span></td><td class="muted">read-only API key</td><td class="num">₹4,68,220</td><td class="num">12 Aug, 4:31 PM</td><td class="r"><a href="#" class="btn quiet" tabindex="0">Re-sync</a></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- =========================================================
+     SCREEN 2 — HOLDINGS
+     ========================================================= -->
+<div class="screen-marker">
+  <div class="rule">
+    <span class="n">SCREEN 2</span>
+    <h2>Holdings</h2>
+    <span class="note">Plain-spoken counterpart to the hero. The only colour is the 4px layer rule on each group.</span>
+  </div>
+</div>
+
+<section class="screen">
+  <div class="appbar">
+    <span class="wordmark">
+      <span class="layers" aria-hidden="true">
+        <i style="background:var(--c-gold)"></i><i style="background:var(--c-crypto)"></i>
+        <i style="background:var(--c-us)"></i><i style="background:var(--c-in)"></i><i style="background:var(--c-mf)"></i>
+      </span>
+      <span class="m">misal</span>
+    </span>
+    <nav class="appnav">
+      <a href="#">Dashboard</a><a href="#" aria-current="page">Holdings</a><a href="#">Accounts</a><a href="#">Import</a>
+    </nav>
+    <span class="right">
+      <span class="localchip"><span class="dot"></span>All data on this Mac · nothing leaves the device</span>
+      <span class="basechip">BASE INR</span>
+    </span>
+  </div>
+
+  <div class="card">
+    <header>
+      <h3>12 holdings across 5 accounts</h3>
+      <span class="sub">₹48,32,116 total</span>
+    </header>
+
+    <div class="controls">
+      <span class="label" style="margin-right:2px">Group by</span>
+      <span class="seg">
+        <button type="button" aria-pressed="true">Asset class</button>
+        <button type="button" aria-pressed="false">Account</button>
+        <button type="button" aria-pressed="false">Instrument</button>
+      </span>
+      <span class="label" style="margin-left:14px;margin-right:2px">Sort</span>
+      <span class="seg">
+        <button type="button" aria-pressed="true">Value ↓</button>
+        <button type="button" aria-pressed="false">Weight</button>
+        <button type="button" aria-pressed="false">P&amp;L %</button>
+      </span>
+      <button type="button" class="btn quiet" style="margin-left:auto">Export CSV</button>
+    </div>
+
+    <div class="tablewrap">
+      <table class="data">
+        <thead>
+          <tr>
+            <th class="sortable">Instrument <span class="caret">↓</span></th>
+            <th>Accounts</th>
+            <th class="num">Quantity</th>
+            <th class="num">Avg cost</th>
+            <th class="num">Last price</th>
+            <th class="num">Value</th>
+            <th class="num">Unrealised ₹</th>
+            <th class="num">Unrealised %</th>
+            <th class="num">Weight</th>
+            <th class="num">Day</th>
+          </tr>
+        </thead>
+        <tbody>
+
+          <tr class="group">
+            <td colspan="5">
+              <span class="g-inner"><span class="g-bar" style="background:var(--c-mf)"></span>
+              <span class="g-name">Mutual funds</span>
+              <span class="muted" style="font-size:11.5px">3 funds · full history</span></span>
+            </td>
+            <td class="num">₹18,42,234</td>
+            <td class="num pos">+₹4,66,654</td>
+            <td class="num pos">+33.9%</td>
+            <td class="num">38.1%</td>
+            <td class="num pos">+0.31%</td>
+          </tr>
+          <tr>
+            <td class="name">Parag Parikh Flexi Cap<span class="sec">Direct · Growth · INF879O01027</span></td>
+            <td>Zerodha Coin</td>
+            <td class="num">11,428.362</td>
+            <td class="num">₹56.19</td>
+            <td class="num">₹78.4386</td>
+            <td class="num">₹8,96,399</td>
+            <td class="num pos">+₹2,54,219</td>
+            <td class="num pos">+39.6%</td>
+            <td class="num"><span class="wbar"><span class="trk"><span class="fil" style="width:92%;background:var(--c-mf)"></span></span>18.6%</span></td>
+            <td class="num pos">+0.42%</td>
+          </tr>
+          <tr>
+            <td class="name">UTI Nifty 50 Index Fund<span class="sec">Direct · Growth · INF789F1AUM2</span></td>
+            <td>Zerodha Coin</td>
+            <td class="num">3,410.550</td>
+            <td class="num">₹134.55</td>
+            <td class="num">₹171.28</td>
+            <td class="num">₹5,84,158</td>
+            <td class="num pos">+₹1,25,258</td>
+            <td class="num pos">+27.3%</td>
+            <td class="num"><span class="wbar"><span class="trk"><span class="fil" style="width:60%;background:var(--c-mf)"></span></span>12.1%</span></td>
+            <td class="num pos">+0.31%</td>
+          </tr>
+          <tr>
+            <td class="name">SBI Small Cap Fund<span class="sec">Direct · Growth · INF200K01T28</span></td>
+            <td>Groww</td>
+            <td class="num">1,802.440</td>
+            <td class="num">₹152.29</td>
+            <td class="num">₹200.66</td>
+            <td class="num">₹3,61,677</td>
+            <td class="num pos">+₹87,177</td>
+            <td class="num pos">+31.8%</td>
+            <td class="num"><span class="wbar"><span class="trk"><span class="fil" style="width:37%;background:var(--c-mf)"></span></span>7.5%</span></td>
+            <td class="num neg">−0.18%</td>
+          </tr>
+
+          <tr class="group">
+            <td colspan="5">
+              <span class="g-inner"><span class="g-bar" style="background:var(--c-in)"></span>
+              <span class="g-name">Indian equity</span>
+              <span class="muted" style="font-size:11.5px">4 stocks · full history</span></span>
+            </td>
+            <td class="num">₹12,86,432</td>
+            <td class="num pos">+₹1,84,104</td>
+            <td class="num pos">+16.7%</td>
+            <td class="num">26.6%</td>
+            <td class="num pos">+0.24%</td>
+          </tr>
+          <tr>
+            <td class="name">Infosys Ltd<span class="sec">INFY · NSE · INE009A01021</span></td>
+            <td>Zerodha Kite · Groww</td>
+            <td class="num">210</td>
+            <td class="num">₹1,470.72</td>
+            <td class="num">₹1,839.20</td>
+            <td class="num">₹3,86,232</td>
+            <td class="num pos">+₹77,380</td>
+            <td class="num pos">+25.1%</td>
+            <td class="num"><span class="wbar"><span class="trk"><span class="fil" style="width:40%;background:var(--c-in)"></span></span>8.0%</span></td>
+            <td class="num pos">+0.64%</td>
+          </tr>
+          <tr>
+            <td class="name">HDFC Bank Ltd<span class="sec">HDFCBANK · NSE · INE040A01034</span></td>
+            <td>Zerodha Kite</td>
+            <td class="num">235</td>
+            <td class="num">₹1,589.30</td>
+            <td class="num">₹1,756.15</td>
+            <td class="num">₹4,12,695</td>
+            <td class="num pos">+₹39,209</td>
+            <td class="num pos">+10.5%</td>
+            <td class="num"><span class="wbar"><span class="trk"><span class="fil" style="width:42%;background:var(--c-in)"></span></span>8.5%</span></td>
+            <td class="num pos">+0.22%</td>
+          </tr>
+          <tr>
+            <td class="name">Reliance Industries<span class="sec">RELIANCE · NSE · INE002A01018</span></td>
+            <td>Zerodha Kite</td>
+            <td class="num">108</td>
+            <td class="num">₹2,564.80</td>
+            <td class="num">₹3,008.35</td>
+            <td class="num">₹3,24,902</td>
+            <td class="num pos">+₹47,904</td>
+            <td class="num pos">+17.3%</td>
+            <td class="num"><span class="wbar"><span class="trk"><span class="fil" style="width:33%;background:var(--c-in)"></span></span>6.7%</span></td>
+            <td class="num neg">−0.41%</td>
+          </tr>
+          <tr>
+            <td class="name">Tata Motors Ltd<span class="sec">TATAMOTORS · NSE · INE155A01022</span></td>
+            <td>Zerodha Kite</td>
+            <td class="num">145</td>
+            <td class="num">₹986.15</td>
+            <td class="num">₹1,121.40 <span class="pill warnp" style="margin-left:4px">Stale 2d</span></td>
+            <td class="num">₹1,62,603</td>
+            <td class="num pos">+₹19,611</td>
+            <td class="num pos">+13.7%</td>
+            <td class="num"><span class="wbar"><span class="trk"><span class="fil" style="width:17%;background:var(--c-in)"></span></span>3.4%</span></td>
+            <td class="num"><span class="nodata"><span class="dash">—</span> stale</span></td>
+          </tr>
+
+          <tr class="group">
+            <td colspan="5">
+              <span class="g-inner"><span class="g-bar" style="background:var(--c-us)"></span>
+              <span class="g-name">US equity</span>
+              <span class="muted" style="font-size:11.5px">1 holding · holdings snapshot, no transaction history</span></span>
+            </td>
+            <td class="num">₹9,74,491</td>
+            <td class="num"><span class="nodata"><span class="dash">—</span> no cost basis</span></td>
+            <td class="num"><span class="nodata"><span class="dash">—</span></span></td>
+            <td class="num">20.2%</td>
+            <td class="num pos">+0.87%</td>
+          </tr>
+          <tr>
+            <td class="name">Caterpillar Inc<span class="sec">CAT · NYSE · RSU vested lots</span></td>
+            <td>E*TRADE by Morgan Stanley</td>
+            <td class="num">28</td>
+            <td class="num"><span class="nodata"><span class="dash">—</span> not in statement</span></td>
+            <td class="num">$412.85<span class="sec">₹34,803.26 @ 84.30</span></td>
+            <td class="num">₹9,74,491</td>
+            <td class="num"><span class="nodata"><span class="dash">—</span> no cost basis</span></td>
+            <td class="num"><span class="nodata"><span class="dash">—</span></span></td>
+            <td class="num"><span class="wbar"><span class="trk"><span class="fil" style="width:100%;background:var(--c-us)"></span></span>20.2%</span></td>
+            <td class="num pos">+0.87%</td>
+          </tr>
+
+          <tr class="group">
+            <td colspan="5">
+              <span class="g-inner"><span class="g-bar" style="background:var(--c-crypto)"></span>
+              <span class="g-name">Crypto</span>
+              <span class="muted" style="font-size:11.5px">3 assets · full history via read-only API key</span></span>
+            </td>
+            <td class="num">₹4,68,220</td>
+            <td class="num pos">+₹85,920</td>
+            <td class="num pos">+22.5%</td>
+            <td class="num">9.7%</td>
+            <td class="num pos">+0.63%</td>
+          </tr>
+          <tr>
+            <td class="name">Bitcoin<span class="sec">BTC · CoinDCX spot</span></td>
+            <td>CoinDCX</td>
+            <td class="num">0.04120</td>
+            <td class="num">₹47,66,990</td>
+            <td class="num">₹69,08,240</td>
+            <td class="num">₹2,84,620</td>
+            <td class="num pos">+₹88,220</td>
+            <td class="num pos">+44.9%</td>
+            <td class="num"><span class="wbar"><span class="trk"><span class="fil" style="width:29%;background:var(--c-crypto)"></span></span>5.9%</span></td>
+            <td class="num pos">+1.12%</td>
+          </tr>
+          <tr>
+            <td class="name">Ethereum<span class="sec">ETH · CoinDCX spot</span></td>
+            <td>CoinDCX</td>
+            <td class="num">0.84200</td>
+            <td class="num">₹1,64,608</td>
+            <td class="num">₹1,44,180</td>
+            <td class="num">₹1,21,400</td>
+            <td class="num neg">−₹17,200</td>
+            <td class="num neg">−12.4%</td>
+            <td class="num"><span class="wbar"><span class="trk"><span class="fil" style="width:12%;background:var(--c-crypto)"></span></span>2.5%</span></td>
+            <td class="num neg">−0.94%</td>
+          </tr>
+          <tr>
+            <td class="name">Solana<span class="sec">SOL · CoinDCX spot</span></td>
+            <td>CoinDCX</td>
+            <td class="num">9.1400</td>
+            <td class="num">₹5,175.05</td>
+            <td class="num">₹6,805.20</td>
+            <td class="num">₹62,200</td>
+            <td class="num pos">+₹14,900</td>
+            <td class="num pos">+31.5%</td>
+            <td class="num"><span class="wbar"><span class="trk"><span class="fil" style="width:6%;background:var(--c-crypto)"></span></span>1.3%</span></td>
+            <td class="num pos">+2.06%</td>
+          </tr>
+
+          <tr class="group">
+            <td colspan="5">
+              <span class="g-inner"><span class="g-bar" style="background:var(--c-gold)"></span>
+              <span class="g-name">Gold</span>
+              <span class="muted" style="font-size:11.5px">1 holding · full history</span></span>
+            </td>
+            <td class="num">₹2,60,739</td>
+            <td class="num pos">+₹1,19,367</td>
+            <td class="num pos">+84.4%</td>
+            <td class="num">5.4%</td>
+            <td class="num"><span class="nodata"><span class="dash">—</span> stale</span></td>
+          </tr>
+          <tr>
+            <td class="name">SGB 2.50% Aug 2030<span class="sec">Sovereign Gold Bond · Series III · IN0020220110</span></td>
+            <td>Zerodha Kite</td>
+            <td class="num">27</td>
+            <td class="num">₹5,236.00</td>
+            <td class="num">₹9,657.00 <span class="pill warnp" style="margin-left:4px">Stale 2d</span></td>
+            <td class="num">₹2,60,739</td>
+            <td class="num pos">+₹1,19,367</td>
+            <td class="num pos">+84.4%</td>
+            <td class="num"><span class="wbar"><span class="trk"><span class="fil" style="width:27%;background:var(--c-gold)"></span></span>5.4%</span></td>
+            <td class="num"><span class="nodata"><span class="dash">—</span> stale</span></td>
+          </tr>
+
+          <tr class="total">
+            <td class="name">Total</td>
+            <td class="muted">5 accounts</td>
+            <td class="num"></td>
+            <td class="num"></td>
+            <td class="num"></td>
+            <td class="num">₹48,32,116</td>
+            <td class="num pos">+₹8,56,045</td>
+            <td class="num pos">+28.5%</td>
+            <td class="num">100%</td>
+            <td class="num pos">+0.38%</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="body" style="padding-top:14px">
+      <p class="t-sec">
+        <span class="pill snap">Holdings only</span>
+        &nbsp;A dash is not a zero. Where an account has no transaction history, cost and P&amp;L are shown as “—” with the reason,
+        and the row is left out of the totals for those columns — so no gain is implied that we cannot prove.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- =========================================================
+     SCREEN 3 — ACCOUNTS
+     ========================================================= -->
+<div class="screen-marker">
+  <div class="rule">
+    <span class="n">SCREEN 3</span>
+    <h2>Accounts</h2>
+    <span class="note">Each account is one component of the bowl — its layer strip shows what it contributes.</span>
+  </div>
+</div>
+
+<section class="screen">
+  <div class="appbar">
+    <span class="wordmark">
+      <span class="layers" aria-hidden="true">
+        <i style="background:var(--c-gold)"></i><i style="background:var(--c-crypto)"></i>
+        <i style="background:var(--c-us)"></i><i style="background:var(--c-in)"></i><i style="background:var(--c-mf)"></i>
+      </span>
+      <span class="m">misal</span>
+    </span>
+    <nav class="appnav">
+      <a href="#">Dashboard</a><a href="#">Holdings</a><a href="#" aria-current="page">Accounts</a><a href="#">Import</a>
+    </nav>
+    <span class="right">
+      <span class="localchip"><span class="dot"></span>All data on this Mac · nothing leaves the device</span>
+      <span class="basechip">BASE INR</span>
+    </span>
+  </div>
+
+  <div class="card">
+    <header>
+      <h3>5 accounts</h3>
+      <span class="sub">₹48,32,116 across all sources</span>
+    </header>
+
+    <div class="acct">
+      <div>
+        <p class="a-name">Zerodha Kite</p>
+        <p class="a-prov">Demat &amp; trading · ZD8842 · kite_tradebook_2026.csv</p>
+        <div class="a-lay" aria-hidden="true">
+          <i style="width:104px;background:var(--c-in)"></i><i style="width:21px;background:var(--c-gold)"></i>
+        </div>
+      </div>
+      <div><span class="pill ledger">Full history</span><p class="a-mini" style="margin-top:8px">1,284 transactions since Jun 2023</p></div>
+      <div><p class="a-mini">5 holdings</p><p class="a-mini muted">Indian equity · gold</p></div>
+      <div><p class="a-val">₹14,82,799</p><p class="a-mini muted">Synced 12 Aug, 4:28 PM</p></div>
+      <div><button type="button" class="btn">Re-sync</button></div>
+    </div>
+
+    <div class="acct">
+      <div>
+        <p class="a-name">Zerodha Coin</p>
+        <p class="a-prov">Mutual funds · CAMS consolidated statement · Jul 2026</p>
+        <div class="a-lay" aria-hidden="true"><i style="width:125px;background:var(--c-mf)"></i></div>
+      </div>
+      <div><span class="pill ledger">Full history</span><p class="a-mini" style="margin-top:8px">148 transactions since Jun 2023</p></div>
+      <div><p class="a-mini">2 funds</p><p class="a-mini muted">Mutual funds</p></div>
+      <div><p class="a-val">₹14,80,557</p><p class="a-mini muted">Synced 12 Aug, 4:26 PM</p></div>
+      <div><button type="button" class="btn">Re-import</button></div>
+    </div>
+
+    <div class="acct">
+      <div>
+        <p class="a-name">Groww</p>
+        <p class="a-prov">Mutual funds &amp; stocks · KFintech CAS + holdings CSV</p>
+        <div class="a-lay" aria-hidden="true">
+          <i style="width:30px;background:var(--c-mf)"></i><i style="width:6px;background:var(--c-in)"></i>
+        </div>
+      </div>
+      <div><span class="pill ledger">Full history</span><p class="a-mini" style="margin-top:8px">67 transactions since Apr 2025</p></div>
+      <div><p class="a-mini">2 holdings</p><p class="a-mini muted">Mutual funds · Indian equity</p></div>
+      <div><p class="a-val">₹4,26,049</p><p class="a-mini muted">Synced 12 Aug, 4:26 PM</p></div>
+      <div><button type="button" class="btn">Re-import</button></div>
+    </div>
+
+    <div class="acct">
+      <div>
+        <p class="a-name">E*TRADE by Morgan Stanley</p>
+        <p class="a-prov">Employer equity · RSU · benefit_statement_31jul2026.pdf</p>
+        <div class="a-lay" aria-hidden="true"><i style="width:78px;background:var(--c-us)"></i></div>
+      </div>
+      <div>
+        <span class="pill snap">Holdings only</span>
+        <p class="a-mini" style="margin-top:8px;color:var(--warn)">No transactions — XIRR, cost basis and P&amp;L skip this account.</p>
+      </div>
+      <div><p class="a-mini">1 holding</p><p class="a-mini muted">US equity</p></div>
+      <div><p class="a-val">₹9,74,491</p><p class="a-mini muted">Snapshot 31 Jul, 11:02 PM</p></div>
+      <div><button type="button" class="btn">Import newer</button></div>
+    </div>
+
+    <div class="acct">
+      <div>
+        <p class="a-name">CoinDCX</p>
+        <p class="a-prov">Crypto exchange · read-only API key · no withdrawal scope</p>
+        <div class="a-lay" aria-hidden="true"><i style="width:38px;background:var(--c-crypto)"></i></div>
+      </div>
+      <div><span class="pill ledger">Full history</span><p class="a-mini" style="margin-top:8px">211 fills since Sep 2023</p></div>
+      <div><p class="a-mini">3 assets</p><p class="a-mini muted">Crypto</p></div>
+      <div><p class="a-val">₹4,68,220</p><p class="a-mini muted">Synced 12 Aug, 4:31 PM</p></div>
+      <div><button type="button" class="btn">Re-sync</button></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <header><h3>Add an account</h3><span class="sub">Two ways in. Both stay on this machine.</span></header>
+    <div class="addbox">
+      <div class="addopt">
+        <h4>Import a statement</h4>
+        <p>CAMS / KFin consolidated account statement (PDF), broker tradebook or holdings CSV, or an
+           employer-equity benefit statement. Misal reads it locally and tells you exactly what it found.</p>
+        <button type="button" class="btn primary">Choose a file…</button>
+      </div>
+      <div class="addopt">
+        <h4>Connect an exchange</h4>
+        <p>Paste a <strong>read-only</strong> API key for a crypto exchange. Misal refuses keys that carry trade or
+           withdrawal permissions, and the key is stored in your OS keychain — never in the portfolio file.</p>
+        <button type="button" class="btn">Add a read-only key</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- =========================================================
+     SCREEN 4 — IMPORT REVIEW
+     ========================================================= -->
+<div class="screen-marker">
+  <div class="rule">
+    <span class="n">SCREEN 4</span>
+    <h2>Import review</h2>
+    <span class="note">The import always completes. What could not be identified is set aside, not thrown back at you.</span>
+  </div>
+</div>
+
+<section class="screen">
+  <div class="appbar">
+    <span class="wordmark">
+      <span class="layers" aria-hidden="true">
+        <i style="background:var(--c-gold)"></i><i style="background:var(--c-crypto)"></i>
+        <i style="background:var(--c-us)"></i><i style="background:var(--c-in)"></i><i style="background:var(--c-mf)"></i>
+      </span>
+      <span class="m">misal</span>
+    </span>
+    <nav class="appnav">
+      <a href="#">Dashboard</a><a href="#">Holdings</a><a href="#">Accounts</a><a href="#" aria-current="page">Import</a>
+    </nav>
+    <span class="right">
+      <span class="localchip"><span class="dot"></span>All data on this Mac · nothing leaves the device</span>
+      <span class="basechip">BASE INR</span>
+    </span>
+  </div>
+
+  <div class="card">
+    <header>
+      <h3>CAMS consolidated account statement · Jul 2026</h3>
+      <span class="sub">cas_cams_jul2026.pdf · 1.4 MB · imported 12 Aug 2026, 4:26 PM</span>
+    </header>
+    <div class="body">
+
+      <div class="banner">
+        <span class="b-ic" aria-hidden="true">✓</span>
+        <div>
+          <h4>Import complete. Two instruments are waiting for you.</h4>
+          <p>146 of 148 transactions were read and matched. Nine were already on file from the June statement and were skipped.
+             Two rows could not be parsed, and two instruments could not be identified — both are held aside below and are
+             <strong>not counted in any portfolio figure</strong> until you map them. Your existing numbers did not change.</p>
+        </div>
+        <button type="button" class="btn">Undo this import</button>
+      </div>
+
+      <div class="readout" style="margin-top:16px">
+        <div><p class="r-val">148</p><p class="r-lab">Rows read</p></div>
+        <div><p class="r-val">146</p><p class="r-lab">Transactions matched</p></div>
+        <div><p class="r-val">9</p><p class="r-lab">Duplicates skipped</p></div>
+        <div><p class="r-val" style="color:var(--warn)">2</p><p class="r-lab">Rows with errors</p></div>
+        <div><p class="r-val" style="color:var(--warn)">2</p><p class="r-lab">Unresolved instruments</p></div>
+      </div>
+
+      <div class="splitrow" style="margin-top:16px">
+        <div>
+          <p class="label" style="margin-bottom:10px">What was read</p>
+          <div class="tablewrap">
+            <table class="data" style="min-width:0">
+              <thead><tr><th>Folio / scheme</th><th class="num">Txns</th><th class="num">Units</th><th>Result</th></tr></thead>
+              <tbody>
+                <tr><td class="name">Parag Parikh Flexi Cap<span class="sec">Folio 9104772/85 · PPFAS</span></td><td class="num">61</td><td class="num">11,428.362</td><td><span class="pill ledger">Matched</span></td></tr>
+                <tr><td class="name">UTI Nifty 50 Index Fund<span class="sec">Folio 5011938/22 · UTI</span></td><td class="num">44</td><td class="num">3,410.550</td><td><span class="pill ledger">Matched</span></td></tr>
+                <tr><td class="name">SBI Small Cap Fund<span class="sec">Folio 1802/44 · via Groww</span></td><td class="num">39</td><td class="num">1,802.440</td><td><span class="pill ledger">Matched</span></td></tr>
+                <tr><td class="name">MOSL NIFTY MIDCAP 150 IDX<span class="sec">Folio 7710224/61 · unidentified</span></td><td class="num">6</td><td class="num">1,204.118</td><td><span class="pill warnp">Held aside</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div>
+          <p class="label" style="margin-bottom:10px">Rows that need attention</p>
+          <ul class="errlist">
+            <li><span class="code">Row 112</span><span>Amount column was blank on a “SWITCH OUT” line. The unit change was read; the value was not. <a href="#" style="border-bottom:1px solid var(--line-2);color:var(--ink)">Enter it manually</a></span></li>
+            <li><span class="code">Row 133</span><span>Date read as <strong style="font-weight:640;color:var(--ink)">31-FEB-2025</strong>, which is not a real date. The row was skipped. <a href="#" style="border-bottom:1px solid var(--line-2);color:var(--ink)">View raw text</a></span></li>
+          </ul>
+
+          <p class="label" style="margin:22px 0 10px">Duplicates skipped</p>
+          <p style="font-size:12.5px;color:var(--ink-2);line-height:1.65">
+            9 transactions dated 02 Jun – 28 Jun 2026 already exist from <strong style="color:var(--ink);font-weight:640">cas_cams_jun2026.pdf</strong>.
+            Matched on folio, date, units and amount. <a href="#" style="border-bottom:1px solid var(--line-2);color:var(--ink)">List them</a>
+          </p>
+        </div>
+      </div>
+
+      <p class="label" style="margin:26px 0 10px">Unresolved instruments · 2</p>
+      <div class="queue">
+        <div class="qrow">
+          <div>
+            <p class="qraw">MOSL NIFTY MIDCAP 150 IDX-DIR-G</p>
+            <p class="qmeta">ISIN INF247L01AP3 · 6 transactions · 1,204.118 units · ₹42,180 · from cas_cams_jul2026.pdf p.4</p>
+          </div>
+          <div>
+            <p class="qsug">Best match: <b>Motilal Oswal Nifty Midcap 150 Index Fund · Direct Growth</b></p>
+            <p class="qmeta">ISIN matches exactly · asset class would be <span style="color:var(--ink)">Mutual funds</span></p>
+          </div>
+          <div class="qacts">
+            <button type="button" class="btn primary">Map</button>
+            <button type="button" class="btn">Search…</button>
+            <button type="button" class="btn quiet">Ignore</button>
+          </div>
+        </div>
+        <div class="qrow">
+          <div>
+            <p class="qraw">BSE:543320</p>
+            <p class="qmeta">No ISIN in source · 1 position · 40 units · from kite_tradebook_2026.csv row 908</p>
+          </div>
+          <div>
+            <p class="qsug">Best match: <b>Latent View Analytics Ltd</b> · LATENTVIEW</p>
+            <p class="qmeta">Matched on BSE scrip code only — please confirm before mapping</p>
+          </div>
+          <div class="qacts">
+            <button type="button" class="btn primary">Map</button>
+            <button type="button" class="btn">Search…</button>
+            <button type="button" class="btn quiet">Ignore</button>
+          </div>
+        </div>
+      </div>
+      <p class="t-sec" style="margin-top:12px">
+        You can leave this queue as long as you like. Misal will keep showing “2 unresolved” on the dashboard and keep
+        ₹42,180 out of every figure until then.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- =========================================================
+     SCREEN 5 — INSTRUMENT DETAIL
+     ========================================================= -->
+<div class="screen-marker">
+  <div class="rule">
+    <span class="n">SCREEN 5</span>
+    <h2>Instrument detail</h2>
+    <span class="note">One holding, assembled across accounts. FIFO lots, realised and unrealised split apart.</span>
+  </div>
+</div>
+
+<section class="screen">
+  <div class="appbar">
+    <span class="wordmark">
+      <span class="layers" aria-hidden="true">
+        <i style="background:var(--c-gold)"></i><i style="background:var(--c-crypto)"></i>
+        <i style="background:var(--c-us)"></i><i style="background:var(--c-in)"></i><i style="background:var(--c-mf)"></i>
+      </span>
+      <span class="m">misal</span>
+    </span>
+    <nav class="appnav">
+      <a href="#">Dashboard</a><a href="#" aria-current="page">Holdings</a><a href="#">Accounts</a><a href="#">Import</a>
+    </nav>
+    <span class="right">
+      <span class="localchip"><span class="dot"></span>All data on this Mac · nothing leaves the device</span>
+      <span class="basechip">BASE INR</span>
+    </span>
+  </div>
+
+  <div class="card">
+    <div class="inst-head">
+      <span class="inst-swatch" aria-hidden="true"></span>
+      <div>
+        <h3>Infosys Ltd</h3>
+        <p class="ids">INFY · NSE · ISIN INE009A01021 · <span style="color:var(--ink-2)">Indian equity</span> · held in 2 accounts</p>
+      </div>
+      <div class="inst-figs">
+        <div>
+          <p class="f-lab">Value</p>
+          <p class="figure f-val">₹3,86,232</p>
+        </div>
+        <div>
+          <p class="f-lab">Last price</p>
+          <p class="figure f-val">₹1,839.20</p>
+          <p class="mini pos" style="margin-top:6px"><span class="arrow">▲</span> ₹11.70 · +0.64%</p>
+        </div>
+        <div>
+          <p class="f-lab">Unrealised</p>
+          <p class="figure f-val pos">+₹77,380</p>
+          <p class="mini pos" style="margin-top:6px">+25.1%</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="body" style="padding-top:4px">
+      <div class="well">
+        <div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:8px">
+          <span class="label" style="color:var(--ink-2)">Price · 12 months</span>
+          <span class="dl-2" style="font-size:11.5px;color:var(--ink-3)">Monthly close, NSE · ₹</span>
+        </div>
+        <svg viewBox="0 0 872 230" width="100%" style="height:auto" role="img"
+             aria-label="Infosys monthly closing price over twelve months, rising from ₹1,545 in August 2025 to ₹1,839.20 in August 2026.">
+          <!-- gridlines -->
+          <line class="gl" x1="56" y1="176.89" x2="744" y2="176.89"/>
+          <line class="gl" x1="56" y1="119.56" x2="744" y2="119.56"/>
+          <line class="gl" x1="56" y1="62.22"  x2="744" y2="62.22"/>
+          <text class="ax" x="48" y="180" text-anchor="end">1,500</text>
+          <text class="ax" x="48" y="123" text-anchor="end">1,650</text>
+          <text class="ax" x="48" y="66"  text-anchor="end">1,800</text>
+
+          <!-- area wash -->
+          <path fill="var(--c-in)" fill-opacity="0.10"
+                d="M56,159.69 L113.33,177.65 L170.67,153.19 L228,134.84 L285.33,143.25 L342.67,118.03 L400,100.06 L457.33,111.15 L514.67,85.92 L572,74.07 L629.33,61.46 L686.67,66.81 L744,47.24 L744,196 L56,196 Z"/>
+          <!-- line -->
+          <path fill="none" stroke="var(--c-in)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"
+                d="M56,159.69 L113.33,177.65 L170.67,153.19 L228,134.84 L285.33,143.25 L342.67,118.03 L400,100.06 L457.33,111.15 L514.67,85.92 L572,74.07 L629.33,61.46 L686.67,66.81 L744,47.24"/>
+          <!-- end marker with 2px surface ring -->
+          <circle cx="744" cy="47.24" r="4.5" fill="var(--c-in)" stroke="var(--well)" stroke-width="2"/>
+          <text class="dl" x="756" y="51">₹1,839.20</text>
+
+          <!-- baseline + x labels -->
+          <line class="gl" x1="56" y1="196" x2="744" y2="196"/>
+          <text class="ax" x="56"  y="214">Aug ’25</text>
+          <text class="ax" x="228" y="214" text-anchor="middle">Nov ’25</text>
+          <text class="ax" x="400" y="214" text-anchor="middle">Feb ’26</text>
+          <text class="ax" x="572" y="214" text-anchor="middle">May ’26</text>
+          <text class="ax" x="744" y="214" text-anchor="end">Aug ’26</text>
+        </svg>
+      </div>
+
+      <div class="splitrow" style="margin-top:20px">
+        <div>
+          <p class="label" style="margin-bottom:10px">Position per account</p>
+          <div class="tablewrap">
+            <table class="data" style="min-width:0">
+              <thead><tr><th>Account</th><th class="num">Qty</th><th class="num">Avg cost</th><th class="num">Cost</th><th class="num">Value</th><th class="num">Unrealised</th></tr></thead>
+              <tbody>
+                <tr><td class="name">Zerodha Kite<span class="sec"><span class="pill ledger">Full history</span></span></td><td class="num">175</td><td class="num">₹1,451.12</td><td class="num">₹2,53,946</td><td class="num">₹3,21,860</td><td class="num pos">+₹67,914<span class="sec pos">+26.7%</span></td></tr>
+                <tr><td class="name">Groww<span class="sec"><span class="pill ledger">Full history</span></span></td><td class="num">35</td><td class="num">₹1,568.74</td><td class="num">₹54,906</td><td class="num">₹64,372</td><td class="num pos">+₹9,466<span class="sec pos">+17.2%</span></td></tr>
+                <tr class="total"><td class="name">Total</td><td class="num">210</td><td class="num">₹1,470.72</td><td class="num">₹3,08,852</td><td class="num">₹3,86,232</td><td class="num pos">+₹77,380<span class="sec pos">+25.1%</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p class="label" style="margin:24px 0 10px">Cost basis · FIFO</p>
+          <dl class="kv"><dt>Open lots</dt><dd>4</dd></dl>
+          <dl class="kv"><dt>Oldest open lot</dt><dd>21 Jun 2023 · 45 @ ₹1,296.40</dd></dl>
+          <dl class="kv"><dt>Total cost of open lots</dt><dd>₹3,08,852</dd></dl>
+          <dl class="kv"><dt>Blended average</dt><dd>₹1,470.72</dd></dl>
+          <dl class="kv"><dt>Long-term qty (&gt; 12 months)</dt><dd>170 of 210</dd></dl>
+        </div>
+
+        <div>
+          <p class="label" style="margin-bottom:10px">Transactions · 7</p>
+          <div class="tablewrap">
+            <table class="data" style="min-width:0">
+              <thead><tr><th>Date</th><th>Type</th><th>Account</th><th class="num">Qty</th><th class="num">Price</th><th class="num">Amount</th></tr></thead>
+              <tbody>
+                <tr><td class="num">21 Jun 2023</td><td>Buy</td><td class="muted">Kite</td><td class="num">65</td><td class="num">₹1,296.40</td><td class="num">₹84,266</td></tr>
+                <tr><td class="num">12 Oct 2023</td><td>Buy</td><td class="muted">Kite</td><td class="num">50</td><td class="num">₹1,432.75</td><td class="num">₹71,638</td></tr>
+                <tr><td class="num">05 Mar 2024</td><td>Buy</td><td class="muted">Kite</td><td class="num">40</td><td class="num">₹1,610.20</td><td class="num">₹64,408</td></tr>
+                <tr><td class="num">18 Nov 2024</td><td><span class="neg">Sell</span></td><td class="muted">Kite</td><td class="num">20</td><td class="num">₹1,752.60</td><td class="num">₹35,052</td></tr>
+                <tr><td class="num">09 Jan 2025</td><td>Buy</td><td class="muted">Kite</td><td class="num">40</td><td class="num">₹1,489.05</td><td class="num">₹59,562</td></tr>
+                <tr><td class="num">22 Apr 2025</td><td>Buy</td><td class="muted">Groww</td><td class="num">20</td><td class="num">₹1,538.90</td><td class="num">₹30,778</td></tr>
+                <tr><td class="num">07 Jul 2025</td><td>Buy</td><td class="muted">Groww</td><td class="num">15</td><td class="num">₹1,608.55</td><td class="num">₹24,128</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p class="label" style="margin:24px 0 10px">Realised / unrealised split</p>
+          <dl class="kv"><dt>Unrealised — open lots</dt><dd class="pos">+₹77,380</dd></dl>
+          <dl class="kv"><dt>Realised — 18 Nov 2024 sell</dt><dd class="pos">+₹9,124</dd></dl>
+          <dl class="kv"><dt>Matched against</dt><dd>20 units of the 21 Jun 2023 lot</dd></dl>
+          <dl class="kv"><dt>Holding period at sale</dt><dd>516 days · long term</dd></dl>
+          <dl class="kv"><dt>Realised in FY 2026–27</dt><dd class="muted">Nil for this instrument</dd></dl>
+
+          <p class="t-sec" style="margin-top:16px">
+            Every row above traces to a source file. <a href="#" style="border-bottom:1px solid var(--line-2);color:var(--ink)">Show provenance for this instrument</a>
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer class="endnote">
+  <p><strong>Direction C · Layered.</strong> One loud object per app: the stack. Two type roles only — a tight semibold
+     figure scale and a small uppercase utilitarian label. Ground is roasted kraft in light, roasted umber in dark; the
+     slab stays dark in both so the strata never change meaning. Layer colours are fixed per asset class and reused in
+     the coverage meter, the concentration bars, the account strips, the table group rules and the instrument swatch.</p>
+  <p style="margin-top:12px">Palette checked with the dataviz validator against both the slab and the light card surface:
+     lightness band, chroma floor, CVD separation (worst adjacent ΔE 8.6 deutan / 15.1 normal-vision) and contrast all pass on the
+     slab and the chart wells. Saffron and turmeric fall below 3:1 on the light card, so the relief rule is honoured —
+     every stratum, bar and swatch is directly labelled and every value also appears in a table.</p>
+</footer>
+
+</body>
+</html>

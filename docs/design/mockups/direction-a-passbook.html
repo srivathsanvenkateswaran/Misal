@@ -1,0 +1,1664 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Misal — Direction A · Passbook</title>
+<style>
+/* ============================================================
+   MISAL — VISUAL DIRECTION A: "PASSBOOK"
+   The ruled line is the layout grid. Marginal stamps carry provenance.
+   Palette: pale blue-grey ledger stock · deep ink-blue figures ·
+            stamped vermillion reserved for attention · ledger-green
+            as the single supporting encoding hue (foreign currency).
+   Ordinal asset-class ramp + categorical currency pair both validated
+   (OKLCH band, chroma floor, CVD ΔE, contrast) in light and dark.
+   ============================================================ */
+
+:root{
+  color-scheme: light dark;
+
+  /* --- ground & rules ------------------------------------- */
+  --page:      #E7EBF0;   /* passbook stock, cool blue-grey        */
+  --sheet:     #F1F4F8;   /* the ruled leaf                        */
+  --sheet-hi:  #E6ECF4;   /* row hover / banded totals             */
+  --sheet-sunk:#DFE6EE;   /* recessed panels, headers              */
+  --rule:      #D3DBE4;   /* horizontal ruling                     */
+  --rule-2:    #B8C4D1;   /* margin rule, column rule, double rule */
+  --hatch:     #C6D0DB;   /* diagonal "no data held" hatching      */
+
+  /* --- ink ------------------------------------------------- */
+  --ink:       #16283F;
+  --ink-2:     #3E5474;
+  --ink-3:     #566A81;
+  --on-fill:   #F7F9FB;   /* text set inside a dark data fill      */
+
+  /* --- reserved attention ---------------------------------- */
+  --verm:      #B4291A;
+  --verm-bg:   #F3E2DE;
+  --verm-rule: #DCBDB6;
+
+  /* --- encoding -------------------------------------------- */
+  --accent:    #2360AE;   /* single-series marks, meters, focus    */
+  --track:     #8CACCA;   /* meter track: lighter step, same hue   */
+  --olive:     #4C7A1E;   /* supporting hue — USD / foreign only   */
+  --focus:     #17457F;
+
+  /* asset-class ordinal ramp (largest → smallest), one hue     */
+  --ac1:#0E2748; --ac2:#22508A; --ac3:#3C74B0; --ac4:#6394C0; --ac5:#8CACCA;
+
+  /* --- type ------------------------------------------------ */
+  --fig:'Helvetica Neue',Helvetica,Arial,'Liberation Sans',sans-serif;
+  --lbl:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace;
+}
+
+@media (prefers-color-scheme: dark){
+  :root{
+    --page:      #0E141C;
+    --sheet:     #131A24;
+    --sheet-hi:  #1A2330;
+    --sheet-sunk:#0F161F;
+    --rule:      #26303D;
+    --rule-2:    #374557;
+    --hatch:     #2A3644;
+
+    --ink:       #DCE6F2;
+    --ink-2:     #A3B4C8;
+    --ink-3:     #7C8DA3;
+    --on-fill:   #0E141C;
+
+    --verm:      #F2705A;
+    --verm-bg:   #2B1712;
+    --verm-rule: #5A2B22;
+
+    --accent:    #4E8CCC;
+    --track:     #2E4E7E;
+    --olive:     #7CA334;
+    --focus:     #7FB5EE;
+
+    --ac1:#A8C6E4; --ac2:#7FA8CE; --ac3:#5C86B4; --ac4:#42679C; --ac5:#2E4E7E;
+  }
+}
+
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0;background:var(--page);color:var(--ink);
+  font:400 13px/1.45 var(--lbl);
+  -webkit-font-smoothing:antialiased;
+}
+h1,h2,h3,h4,p{margin:0}
+
+.wrap{width:min(1440px,100% - 48px);margin:0 auto}
+
+/* ---------- generic label / figure primitives --------------- */
+.lab{font:600 9.5px/1.2 var(--lbl);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
+.lab-i{font:600 9.5px/1.2 var(--lbl);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-2)}
+.fig{font-family:var(--fig);font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;letter-spacing:-.005em}
+.fig-p{font-family:var(--fig);letter-spacing:-.02em}     /* proportional: big standalone numbers */
+.mono{font-family:var(--mono);font-size:11px;letter-spacing:.02em}
+.dn{color:var(--verm)}                                    /* attention: loss / unresolved / stale */
+.mut{color:var(--ink-3)}
+.sec{color:var(--ink-2)}
+
+/* ============ MASTHEAD ====================================== */
+.mast{border-bottom:3px double var(--rule-2);background:var(--sheet);}
+.mast-in{display:flex;align-items:flex-end;gap:28px;padding:20px 0 14px}
+.brand{display:flex;align-items:baseline;gap:12px}
+.brand b{font:700 26px/1 var(--fig);letter-spacing:.16em;text-transform:uppercase}
+.brand .tag{font:400 10px/1.4 var(--lbl);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-3)}
+.mast-meta{margin-left:auto;display:flex;gap:0}
+.mm{padding:0 18px;border-left:1px solid var(--rule);text-align:right}
+.mm:first-child{border-left:0}
+.mm .v{font:600 14px/1.3 var(--fig);font-variant-numeric:tabular-nums;display:block;margin-top:3px}
+
+/* ---------- direction banner -------------------------------- */
+.dirbar{display:flex;align-items:center;gap:14px;padding:9px 0;border-bottom:1px solid var(--rule);
+  background:var(--sheet-sunk)}
+.dirbar .pill{font:700 9.5px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;
+  border:1px solid var(--rule-2);padding:5px 8px;border-radius:2px;color:var(--ink-2)}
+
+/* ---------- nav --------------------------------------------- */
+.nav{display:flex;gap:0;border-bottom:1px solid var(--rule);background:var(--sheet)}
+.nav a{
+  font:600 10px/1 var(--lbl);letter-spacing:.15em;text-transform:uppercase;color:var(--ink-2);
+  text-decoration:none;padding:13px 20px;border-right:1px solid var(--rule);position:relative;
+}
+.nav a:first-child{border-left:1px solid var(--rule)}
+.nav a[aria-current]{color:var(--ink);box-shadow:inset 0 -2px 0 var(--accent)}
+.nav a:hover{background:var(--sheet-hi)}
+.nav .navno{font-family:var(--mono);font-size:9px;color:var(--ink-3);margin-right:7px}
+
+/* ---------- stamp key --------------------------------------- */
+.key{display:flex;flex-wrap:wrap;align-items:center;gap:6px 20px;padding:11px 0 12px;
+  border-bottom:3px double var(--rule-2);background:var(--sheet)}
+.key .ki{display:flex;align-items:center;gap:8px;font:400 10.5px/1.3 var(--lbl);color:var(--ink-2)}
+
+/* ============ THE MARGINAL STAMP (signature element) ======== */
+.stamp{
+  display:inline-flex;align-items:center;justify-content:center;
+  min-width:36px;height:17px;padding:0 5px;
+  border:1px solid var(--ink-3);border-radius:2px;
+  font:700 9px/1 var(--mono);letter-spacing:.13em;text-transform:uppercase;
+  color:var(--ink-2);background:transparent;position:relative;
+  transform:rotate(-3.5deg);flex:none;
+}
+.stamp::after{content:"";position:absolute;inset:-2.5px;border:1px solid currentColor;
+  border-radius:3px;opacity:.28}
+.stamp.r2{transform:rotate(-1.5deg)}
+.stamp.r3{transform:rotate(-5.5deg)}
+.stamp.snap{border-style:dashed;color:var(--ink-3)}
+.stamp.snap::after{border-style:dashed;opacity:.22}
+.stamp.alert{border-color:var(--verm);color:var(--verm);border-width:1.5px}
+.stamp.alert::after{opacity:.4}
+.stamp.derived{border-style:dotted;color:var(--ink-3)}
+.stamp.derived::after{opacity:.2}
+.stampref{font:400 8px/1 var(--mono);letter-spacing:.05em;color:var(--ink-3);
+  transform:rotate(-3.5deg);white-space:nowrap}
+
+/* ============ FOLIO / SCREEN HEADERS ======================== */
+.folio{display:flex;align-items:baseline;gap:16px;padding:44px 0 12px}
+.folio .no{font:700 11px/1 var(--mono);letter-spacing:.2em;color:var(--ink-2);
+  border:1.5px solid var(--ink-3);padding:6px 8px;border-radius:2px;transform:rotate(-3deg);flex:none}
+.folio h2{font:700 20px/1.1 var(--fig);letter-spacing:.13em;text-transform:uppercase}
+.folio .line{flex:1;height:0;border-bottom:3px double var(--rule-2);transform:translateY(-4px)}
+.folio .note{font:400 11px/1.3 var(--lbl);color:var(--ink-3);text-align:right;max-width:400px}
+
+/* ============ SHEETS & LEDGER ROWS ========================== */
+.sheet{background:var(--sheet);border:1px solid var(--rule-2)}
+.sheet + .sheet{margin-top:20px}
+.sh-hd{display:flex;align-items:baseline;gap:14px;padding:12px 16px 11px;
+  border-bottom:3px double var(--rule-2);background:var(--sheet-sunk)}
+.sh-hd h3{font:700 11px/1 var(--fig);letter-spacing:.16em;text-transform:uppercase}
+.sh-hd .sub{font:400 10.5px/1.3 var(--lbl);color:var(--ink-3);margin-left:auto;text-align:right}
+
+.led{--cols:76px 1fr}
+.lr{display:grid;grid-template-columns:var(--cols);border-bottom:1px solid var(--rule);
+  background:transparent}
+.lr:last-child{border-bottom:0}
+.lr>*{padding:8px 11px;border-right:1px solid var(--rule);display:flex;align-items:center;
+  min-height:38px;overflow:hidden}
+.lr>*:last-child{border-right:0}
+.lr:hover{background:var(--sheet-hi)}
+.lr.hd{background:var(--sheet-sunk);border-bottom:3px double var(--rule-2)}
+.lr.hd>*{min-height:0;padding-top:9px;padding-bottom:9px;align-items:flex-end}
+.lr.grp{background:var(--sheet-sunk)}
+.lr.grp>*{min-height:0;padding-top:7px;padding-bottom:7px}
+.lr.tot{border-top:3px double var(--rule-2);border-bottom:0;background:var(--sheet-hi)}
+.lr.tall>*{min-height:52px}
+.lr.attn{background:var(--verm-bg)}
+.lr.attn:hover{background:var(--verm-bg)}
+
+/* the passbook margin: a real double rule, not a shadow */
+.gut{border-right:3px double var(--rule-2)!important;flex-direction:column;justify-content:center;
+  align-items:center;gap:3px;padding:7px 4px!important;overflow:visible}
+
+.n{justify-content:flex-end;text-align:right;font-family:var(--fig);
+  font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+.c{justify-content:center}
+.stack{flex-direction:column;align-items:flex-start;justify-content:center;gap:2px}
+.stack.n{align-items:flex-end}
+.nm{font:600 13px/1.25 var(--lbl);color:var(--ink)}
+.sub2{font:400 10px/1.2 var(--lbl);color:var(--ink-3)}
+.sub2.mn{font-family:var(--mono);font-size:9.5px;letter-spacing:.04em}
+
+/* "this account has no history" — hatched, never a zero */
+.na{background:repeating-linear-gradient(135deg,transparent 0 5px,var(--hatch) 5px 6px);
+  justify-content:center;font:600 8.5px/1 var(--lbl);letter-spacing:.12em;
+  text-transform:uppercase;color:var(--ink-3)}
+.na span{background:var(--sheet);padding:3px 5px;border-radius:2px}
+
+/* ============ BADGES, CHIPS, BUTTONS ======================== */
+.badge{font:600 9px/1 var(--lbl);letter-spacing:.12em;text-transform:uppercase;
+  border:1px solid var(--rule-2);padding:5px 7px;border-radius:2px;color:var(--ink-2);
+  white-space:nowrap}
+.badge.full{border-color:var(--accent);color:var(--accent)}
+.badge.snapb{border-style:dashed;color:var(--ink-3)}
+.badge.warn{border-color:var(--verm);color:var(--verm)}
+.badge.usd{border-color:var(--olive);color:var(--olive)}
+
+.btn{font:600 10px/1 var(--lbl);letter-spacing:.12em;text-transform:uppercase;
+  background:var(--sheet);color:var(--ink-2);border:1px solid var(--rule-2);border-radius:2px;
+  padding:8px 11px;cursor:pointer;white-space:nowrap}
+.btn:hover{background:var(--sheet-hi);color:var(--ink)}
+.btn.pri{border-color:var(--accent);color:var(--accent)}
+.btn.q{border:0;padding:6px 4px;background:transparent;text-decoration:underline;
+  text-underline-offset:3px;text-decoration-thickness:1px}
+
+.seg{display:inline-flex;border:1px solid var(--rule-2);border-radius:2px;overflow:hidden}
+.seg button{font:600 9.5px/1 var(--lbl);letter-spacing:.13em;text-transform:uppercase;
+  background:var(--sheet);color:var(--ink-3);border:0;border-left:1px solid var(--rule);
+  padding:8px 12px;cursor:pointer}
+.seg button:first-child{border-left:0}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--sheet)}
+
+.field{font:400 12px/1 var(--lbl);color:var(--ink);background:var(--sheet);
+  border:0;border-bottom:1px solid var(--ink-3);padding:7px 2px;width:100%;min-width:0}
+.field::placeholder{color:var(--ink-3)}
+
+/* focus is always visible */
+a:focus-visible,button:focus-visible,input:focus-visible,[tabindex]:focus-visible{
+  outline:2px solid var(--focus);outline-offset:2px;border-radius:1px}
+.lr[tabindex]:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+
+/* ============ DASHBOARD LAYOUT ============================== */
+.cols{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);gap:20px;align-items:start}
+.cols3{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:20px;align-items:start}
+.stackcol{display:flex;flex-direction:column;gap:20px}
+
+.hero{display:grid;grid-template-columns:minmax(0,1fr);}
+.hero-top{display:flex;align-items:flex-end;gap:26px;padding:20px 20px 16px;
+  border-bottom:1px solid var(--rule)}
+.hero-fig{font:700 54px/0.95 var(--fig);letter-spacing:-.025em;display:block;margin-top:6px}
+.hero-day{display:flex;flex-direction:column;gap:4px;padding-left:22px;border-left:1px solid var(--rule)}
+.hero-day .v{font:600 17px/1.1 var(--fig);font-variant-numeric:tabular-nums}
+.chartbox{padding:14px 18px 10px}
+svg{display:block;width:100%;height:auto}
+.legend{display:flex;flex-wrap:wrap;gap:6px 20px;padding:0 20px 14px}
+.lg{display:flex;align-items:center;gap:7px;font:400 10.5px/1.2 var(--lbl);color:var(--ink-2)}
+.sw{width:11px;height:11px;border-radius:2px;flex:none}
+.swline{width:16px;height:2px;border-radius:1px;flex:none}
+.swring{width:10px;height:10px;border-radius:50%;border:2px solid var(--accent);flex:none}
+
+.notebar{display:flex;gap:10px;padding:10px 16px;border-top:1px solid var(--rule);
+  font:400 10.5px/1.4 var(--lbl);color:var(--ink-3);background:var(--sheet-sunk)}
+
+.scrollx{overflow-x:auto}
+.scrollx>.led{min-width:1120px}
+
+@media (max-width:1160px){
+  .cols,.cols3{grid-template-columns:minmax(0,1fr)}
+  .mast-in{flex-wrap:wrap;gap:14px}
+  .mast-meta{margin-left:0}
+}
+</style>
+</head>
+<body>
+
+<!-- ==================== MASTHEAD ==================== -->
+<div class="mast">
+  <div class="wrap">
+    <div class="mast-in">
+      <div class="brand">
+        <b>Misal</b>
+        <span class="tag">Local ledger · no account · no cloud</span>
+      </div>
+      <div class="mast-meta">
+        <div class="mm"><span class="lab">Base currency</span><span class="v">₹ INR</span></div>
+        <div class="mm"><span class="lab">USD reference</span><span class="v">87.42</span></div>
+        <div class="mm"><span class="lab">Books closed</span><span class="v">12 Aug 2026 · 18:42</span></div>
+        <div class="mm"><span class="lab">Ledger file</span><span class="v mono" style="font-size:11px">~/misal/book.sqlite</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="dirbar">
+  <div class="wrap" style="display:flex;align-items:center;gap:14px">
+    <span class="pill">Direction A</span>
+    <span class="lab-i">Passbook — the ruled line is the grid</span>
+    <span class="mut" style="font-size:11px;margin-left:auto">Static mockup · all five screens stacked · light &amp; dark</span>
+  </div>
+</div>
+
+<nav class="nav" aria-label="Screens">
+  <div class="wrap" style="display:flex">
+    <a href="#s1" aria-current="page"><span class="navno">01</span>Dashboard</a>
+    <a href="#s2"><span class="navno">02</span>Holdings</a>
+    <a href="#s3"><span class="navno">03</span>Accounts</a>
+    <a href="#s4"><span class="navno">04</span>Import review</a>
+    <a href="#s5"><span class="navno">05</span>Instrument</a>
+  </div>
+</nav>
+
+<!-- ==================== STAMP KEY ==================== -->
+<div class="key">
+  <div class="wrap" style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 22px">
+    <span class="lab">Marginal stamp key</span>
+    <span class="ki"><span class="stamp">CAS</span> CAMS / KFin consolidated statement</span>
+    <span class="ki"><span class="stamp r2">KIT</span> Zerodha Kite tradebook</span>
+    <span class="ki"><span class="stamp r3">GRW</span> Groww CSV export</span>
+    <span class="ki"><span class="stamp r2">DCX</span> CoinDCX read-only API</span>
+    <span class="ki"><span class="stamp snap">ETR</span> snapshot only — no history</span>
+    <span class="ki"><span class="stamp derived r2">DRV</span> derived from ledger rows</span>
+    <span class="ki"><span class="stamp alert r3">!</span> stale, estimated or unresolved</span>
+  </div>
+</div>
+
+<div class="wrap">
+
+<!-- ============================================================
+     SCREEN 01 — DASHBOARD
+     ============================================================ -->
+<section id="s1">
+  <div class="folio">
+    <span class="no">01</span>
+    <h2>Dashboard</h2>
+    <span class="line"></span>
+    <span class="note">Every figure carries the stamp of the document it came from.
+      Figures that need transaction history appear only for ledger-backed accounts.</span>
+  </div>
+
+  <div class="cols">
+    <!-- LEFT COLUMN -->
+    <div class="stackcol">
+
+      <!-- Hero: net worth -->
+      <div class="sheet hero">
+        <div class="hero-top">
+          <div>
+            <span class="lab">Net worth · all accounts · INR</span>
+            <span class="hero-fig fig-p">₹48,34,873</span>
+          </div>
+          <div class="hero-day">
+            <span class="lab">Day change</span>
+            <span class="v">+₹12,358</span>
+            <span class="v" style="font-size:13px;color:var(--ink-2)">+0.26%</span>
+          </div>
+          <div class="hero-day">
+            <span class="lab">12-month change</span>
+            <span class="v">+₹10,14,873</span>
+            <span class="v" style="font-size:13px;color:var(--ink-2)">+26.6%</span>
+          </div>
+          <div style="margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:5px">
+            <span class="stamp derived">DRV</span>
+            <span class="stampref">5 accounts</span>
+          </div>
+        </div>
+
+        <div class="chartbox">
+          <!-- Net worth, 12 months. Single series → no legend box; the title names it. -->
+          <svg viewBox="0 0 780 176" role="img" aria-label="Net worth over the last twelve months, rising from 38.2 lakh to 48.3 lakh rupees.">
+            <!-- gridlines: solid hairlines, one step off surface -->
+            <g stroke="var(--rule)" stroke-width="1">
+              <line x1="46" y1="16"    x2="762" y2="16"></line>
+              <line x1="46" y1="51.4"  x2="762" y2="51.4"></line>
+              <line x1="46" y1="86.9"  x2="762" y2="86.9"></line>
+              <line x1="46" y1="122.3" x2="762" y2="122.3"></line>
+            </g>
+            <line x1="46" y1="140" x2="762" y2="140" stroke="var(--rule-2)" stroke-width="1"></line>
+            <g font-family="var(--fig)" font-size="11" fill="var(--ink-3)" text-anchor="end"
+               style="font-variant-numeric:tabular-nums">
+              <text x="40" y="19.5">50</text>
+              <text x="40" y="54.9">46</text>
+              <text x="40" y="90.4">42</text>
+              <text x="40" y="125.8">38</text>
+            </g>
+            <text x="46" y="10" font-family="var(--lbl)" font-size="9.5" letter-spacing="1.3"
+                  fill="var(--ink-3)">₹ LAKH</text>
+
+            <!-- area wash at ~10% -->
+            <path d="M46,120.5 L111.1,108.1 L176.2,114.3 L241.3,92.2 L306.4,79.8 L371.5,87.7
+                     L436.5,72.7 L501.6,68.3 L566.7,52.3 L631.8,48.8 L696.9,38.1 L762,31.1
+                     L762,140 L46,140 Z"
+                  fill="var(--accent)" opacity=".10"></path>
+            <!-- 2px line, round join/cap -->
+            <polyline fill="none" stroke="var(--accent)" stroke-width="2"
+                      stroke-linejoin="round" stroke-linecap="round"
+                      points="46,120.5 111.1,108.1 176.2,114.3 241.3,92.2 306.4,79.8 371.5,87.7
+                              436.5,72.7 501.6,68.3 566.7,52.3 631.8,48.8 696.9,38.1 762,31.1"></polyline>
+            <!-- end marker: ≥8px, 2px surface ring -->
+            <circle cx="762" cy="31.1" r="4.5" fill="var(--accent)"
+                    stroke="var(--sheet)" stroke-width="2"></circle>
+            <!-- one direct label, at the end only -->
+            <text x="754" y="22" text-anchor="end" font-family="var(--fig)" font-size="11.5"
+                  font-weight="700" fill="var(--ink)" style="font-variant-numeric:tabular-nums">₹48.3 L</text>
+
+            <g font-family="var(--lbl)" font-size="11" fill="var(--ink-3)" text-anchor="middle">
+              <text x="46"    y="158">Sep ’25</text>
+              <text x="176.2" y="158">Nov</text>
+              <text x="306.4" y="158">Jan ’26</text>
+              <text x="436.5" y="158">Mar</text>
+              <text x="566.7" y="158">May</text>
+              <text x="696.9" y="158">Jul</text>
+              <text x="762"   y="158" text-anchor="end">Aug ’26</text>
+            </g>
+          </svg>
+        </div>
+        <div class="notebar">
+          <span class="stamp derived r2" style="min-width:34px">DRV</span>
+          <span>Month-end marks recomputed from stored prices. Two months before Feb ’26 use the
+            E*TRADE snapshot for CAT, so they are position-accurate but not transaction-accurate.</span>
+        </div>
+      </div>
+
+      <!-- Asset allocation -->
+      <div class="sheet">
+        <div class="sh-hd">
+          <h3>Asset allocation</h3>
+          <span class="sub">Share of ₹48,34,873 · marked 12 Aug 18:42</span>
+        </div>
+
+        <div class="chartbox" style="padding-bottom:6px">
+          <svg viewBox="0 0 780 30" role="img"
+               aria-label="Allocation: mutual funds 31.8 percent, US equity 30.2, Indian equity 23.2, crypto 10.1, gold 4.7.">
+            <!-- part-to-whole; ordinal one-hue ramp, largest→smallest; 2px surface gaps -->
+            <path d="M4,0 H245.5 V26 H4 A4,4 0 0 1 0,22 V4 A4,4 0 0 1 4,0 Z" fill="var(--ac1)"></path>
+            <rect x="247.5" y="0" width="233.1" height="26" fill="var(--ac2)"></rect>
+            <rect x="482.6" y="0" width="179.1" height="26" fill="var(--ac3)"></rect>
+            <rect x="663.7" y="0" width="78"    height="26" fill="var(--ac4)"></rect>
+            <path d="M743.7,0 H776 A4,4 0 0 1 780,4 V22 A4,4 0 0 1 776,26 H743.7 Z" fill="var(--ac5)"></path>
+            <!-- direct labels only where they fit with padding -->
+            <g font-family="var(--lbl)" font-size="10" font-weight="600" letter-spacing="1"
+               fill="var(--on-fill)">
+              <text x="11"    y="16.5">MUTUAL FUNDS</text>
+              <text x="258.5" y="16.5">US EQUITY</text>
+              <text x="493.6" y="16.5">INDIAN EQUITY</text>
+            </g>
+            <g font-family="var(--fig)" font-size="11" font-weight="700" fill="var(--on-fill)"
+               text-anchor="end" style="font-variant-numeric:tabular-nums">
+              <text x="234.5" y="16.8">31.8%</text>
+              <text x="469.6" y="16.8">30.2%</text>
+              <text x="650.7" y="16.8">23.2%</text>
+            </g>
+          </svg>
+        </div>
+
+        <!-- the legend IS a ruled ledger; it also carries the two segments too small to label -->
+        <div class="led" style="--cols:76px 1fr 168px 120px 78px">
+          <div class="lr hd">
+            <div class="gut"><span class="lab">Source</span></div>
+            <div><span class="lab">Asset class</span></div>
+            <div><span class="lab">Held via</span></div>
+            <div class="n"><span class="lab">Value ₹</span></div>
+            <div class="n"><span class="lab">Share</span></div>
+          </div>
+
+          <div class="lr" tabindex="0">
+            <div class="gut"><span class="stamp">CAS</span><span class="stampref">p.4–12</span></div>
+            <div style="gap:10px"><span class="sw" style="background:var(--ac1)"></span><span class="nm">Mutual funds</span></div>
+            <div class="sec" style="font-size:11.5px">Zerodha Coin · Groww</div>
+            <div class="n">15,35,439</div>
+            <div class="n">31.8%</div>
+          </div>
+
+          <div class="lr" tabindex="0">
+            <div class="gut"><span class="stamp snap">ETR</span><span class="stampref">09 Aug</span></div>
+            <div style="gap:10px"><span class="sw" style="background:var(--ac2)"></span><span class="nm">US equity</span>
+              <span class="badge usd">USD</span></div>
+            <div class="sec" style="font-size:11.5px">E*TRADE (stock plan)</div>
+            <div class="n">14,61,864</div>
+            <div class="n">30.2%</div>
+          </div>
+
+          <div class="lr" tabindex="0">
+            <div class="gut"><span class="stamp r2">KIT</span><span class="stampref">r.1–214</span></div>
+            <div style="gap:10px"><span class="sw" style="background:var(--ac3)"></span><span class="nm">Indian equity</span></div>
+            <div class="sec" style="font-size:11.5px">Zerodha Kite</div>
+            <div class="n">11,20,797</div>
+            <div class="n">23.2%</div>
+          </div>
+
+          <div class="lr" tabindex="0">
+            <div class="gut"><span class="stamp r3">DCX</span><span class="stampref">api</span></div>
+            <div style="gap:10px"><span class="sw" style="background:var(--ac4)"></span><span class="nm">Crypto</span></div>
+            <div class="sec" style="font-size:11.5px">CoinDCX</div>
+            <div class="n">4,86,571</div>
+            <div class="n">10.1%</div>
+          </div>
+
+          <div class="lr" tabindex="0">
+            <div class="gut"><span class="stamp r2">KIT</span><span class="stampref">r.215</span></div>
+            <div style="gap:10px"><span class="sw" style="background:var(--ac5)"></span><span class="nm">Gold</span>
+              <span class="sub2">Nippon India Gold BeES</span></div>
+            <div class="sec" style="font-size:11.5px">Zerodha Kite</div>
+            <div class="n">2,30,202</div>
+            <div class="n">4.7%</div>
+          </div>
+
+          <div class="lr tot">
+            <div class="gut"><span class="stamp derived">DRV</span></div>
+            <div><span class="lab-i">Total · 5 classes · 12 instruments</span></div>
+            <div></div>
+            <div class="n" style="font-weight:700">48,34,873</div>
+            <div class="n" style="font-weight:700">100%</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Concentration -->
+      <div class="sheet">
+        <div class="sh-hd">
+          <h3>Concentration · top 5 holdings</h3>
+          <span class="sub">Bars share one scale · longest bar = 30.2%</span>
+        </div>
+        <div class="led" style="--cols:76px 1fr 232px 122px 74px">
+          <div class="lr hd">
+            <div class="gut"><span class="lab">Source</span></div>
+            <div><span class="lab">Instrument</span></div>
+            <div><span class="lab">Share of portfolio</span></div>
+            <div class="n"><span class="lab">Value ₹</span></div>
+            <div class="n"><span class="lab">Weight</span></div>
+          </div>
+
+          <div class="lr" tabindex="0">
+            <div class="gut"><span class="stamp snap">ETR</span><span class="stampref">p.2</span></div>
+            <div class="stack"><span class="nm">Caterpillar Inc</span><span class="sub2 mn">US1491231015 · CAT</span></div>
+            <div><svg viewBox="0 0 200 14" style="max-width:200px"><path d="M0,0 H192 a4,4 0 0 1 4,4 V10 a4,4 0 0 1 -4,4 H0 Z" fill="var(--accent)"></path></svg></div>
+            <div class="n">14,61,864</div>
+            <div class="n">30.2%</div>
+          </div>
+          <div class="lr" tabindex="0">
+            <div class="gut"><span class="stamp">CAS</span><span class="stampref">p.4</span></div>
+            <div class="stack"><span class="nm">Parag Parikh Flexi Cap</span><span class="sub2 mn">INF879O01027 · Direct Growth</span></div>
+            <div><svg viewBox="0 0 200 14" style="max-width:200px"><path d="M0,0 H105 a4,4 0 0 1 4,4 V10 a4,4 0 0 1 -4,4 H0 Z" fill="var(--accent)"></path></svg></div>
+            <div class="n">8,11,248</div>
+            <div class="n">16.8%</div>
+          </div>
+          <div class="lr" tabindex="0">
+            <div class="gut"><span class="stamp r3">GRW</span><span class="stampref">r.402</span></div>
+            <div class="stack"><span class="nm">SBI Small Cap</span><span class="sub2 mn">INF200K01T28 · Direct Growth</span></div>
+            <div><svg viewBox="0 0 200 14" style="max-width:200px"><path d="M0,0 H54.4 a4,4 0 0 1 4,4 V10 a4,4 0 0 1 -4,4 H0 Z" fill="var(--accent)"></path></svg></div>
+            <div class="n">4,36,383</div>
+            <div class="n">9.0%</div>
+          </div>
+          <div class="lr" tabindex="0">
+            <div class="gut"><span class="stamp r2">KIT</span><span class="stampref">r.18</span></div>
+            <div class="stack"><span class="nm">Infosys Ltd</span><span class="sub2 mn">INE009A01021 · INFY</span></div>
+            <div><svg viewBox="0 0 200 14" style="max-width:200px"><path d="M0,0 H40.8 a4,4 0 0 1 4,4 V10 a4,4 0 0 1 -4,4 H0 Z" fill="var(--accent)"></path></svg></div>
+            <div class="n">3,31,315</div>
+            <div class="n">6.9%</div>
+          </div>
+          <div class="lr" tabindex="0">
+            <div class="gut"><span class="stamp r2">KIT</span><span class="stampref">r.47</span></div>
+            <div class="stack"><span class="nm">Reliance Industries</span><span class="sub2 mn">INE002A01018 · RELIANCE</span></div>
+            <div><svg viewBox="0 0 200 14" style="max-width:200px"><path d="M0,0 H37.5 a4,4 0 0 1 4,4 V10 a4,4 0 0 1 -4,4 H0 Z" fill="var(--accent)"></path></svg></div>
+            <div class="n">3,07,307</div>
+            <div class="n">6.4%</div>
+          </div>
+          <div class="lr tot">
+            <div class="gut"><span class="stamp derived">DRV</span></div>
+            <div><span class="lab-i">Top 5 combined</span></div>
+            <div class="mut" style="font-size:11px">Remaining 7 instruments hold 30.8%</div>
+            <div class="n" style="font-weight:700">33,48,117</div>
+            <div class="n" style="font-weight:700">69.2%</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT COLUMN -->
+    <div class="stackcol">
+
+      <!-- Ledger-only metrics -->
+      <div class="sheet">
+        <div class="sh-hd">
+          <h3>Ledger-backed figures</h3>
+          <span class="sub">Computed from transaction history only</span>
+        </div>
+
+        <div class="led" style="--cols:76px 1fr 130px">
+          <div class="lr tall" tabindex="0">
+            <div class="gut"><span class="stamp derived">DRV</span><span class="stampref">4 accts</span></div>
+            <div class="stack"><span class="lab">Total invested · cost basis</span>
+              <span class="sub2">FIFO across 4 ledger accounts</span></div>
+            <div class="n" style="font-size:17px;font-weight:600">₹29,79,898</div>
+          </div>
+
+          <div class="lr tall" tabindex="0">
+            <div class="gut"><span class="stamp derived r2">DRV</span><span class="stampref">4 accts</span></div>
+            <div class="stack"><span class="lab">Unrealised P&amp;L</span>
+              <span class="sub2">On ₹33,73,009 of marked value</span></div>
+            <div class="stack n">
+              <span style="font-size:17px;font-weight:600">+₹3,93,111</span>
+              <span class="sub2" style="font-size:11px">+13.19%</span>
+            </div>
+          </div>
+
+          <div class="lr tall" tabindex="0">
+            <div class="gut"><span class="stamp derived r3">DRV</span><span class="stampref">4 accts</span></div>
+            <div class="stack"><span class="lab">Realised P&amp;L · FY 2026–27</span>
+              <span class="sub2">4 exits · ST ₹68,410 · LT ₹45,870</span></div>
+            <div class="stack n">
+              <span style="font-size:17px;font-weight:600">+₹1,14,280</span>
+              <span class="sub2" style="font-size:11px">since 01 Apr</span>
+            </div>
+          </div>
+
+          <!-- XIRR with an explicit coverage meter -->
+          <div class="lr tall" tabindex="0" style="--cols:76px 1fr 130px">
+            <div class="gut"><span class="stamp derived">DRV</span><span class="stampref">cash-flows</span></div>
+            <div class="stack" style="gap:7px;padding-top:11px;padding-bottom:11px">
+              <span class="lab">XIRR · money-weighted</span>
+              <svg viewBox="0 0 260 12" style="max-width:260px" role="img"
+                   aria-label="XIRR covers 69.8 percent of portfolio value.">
+                <rect x="0" y="0" width="260" height="12" rx="6" fill="var(--track)"></rect>
+                <rect x="0" y="0" width="181.5" height="12" rx="6" fill="var(--accent)"></rect>
+              </svg>
+              <span class="sub2">Covers <b class="sec">69.8%</b> of portfolio value —
+                ₹33,73,009 of ₹48,34,873. E*TRADE excluded: no history.</span>
+            </div>
+            <div class="stack n"><span style="font-size:17px;font-weight:600">16.8%</span>
+              <span class="sub2" style="font-size:11px">p.a.</span></div>
+          </div>
+
+          <div class="lr attn">
+            <div class="gut"><span class="stamp alert">!</span></div>
+            <div class="stack" style="grid-column:span 2">
+              <span class="lab" style="color:var(--verm)">Partial coverage</span>
+              <span class="sub2" style="color:var(--ink-2)">Cost basis, XIRR and realised P&amp;L exclude
+                E*TRADE (₹14,61,864). They are exact for what they cover, not estimates for the whole book.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Currency exposure -->
+      <div class="sheet">
+        <div class="sh-hd">
+          <h3>Currency exposure</h3>
+          <span class="sub">USD/INR 87.42 · RBI ref 12 Aug</span>
+        </div>
+        <div class="chartbox" style="padding-bottom:4px">
+          <svg viewBox="0 0 340 44" role="img"
+               aria-label="Currency exposure: INR 69.8 percent, USD 30.2 percent.">
+            <g font-family="var(--fig)" font-size="11" font-weight="700" fill="var(--ink)"
+               style="font-variant-numeric:tabular-nums">
+              <text x="0" y="12">69.8%</text>
+              <text x="340" y="12" text-anchor="end">30.2%</text>
+            </g>
+            <path d="M4,20 H236 V40 H4 A4,4 0 0 1 0,36 V24 A4,4 0 0 1 4,20 Z" fill="var(--accent)"></path>
+            <path d="M238,20 H336 A4,4 0 0 1 340,24 V36 A4,4 0 0 1 336,40 H238 Z" fill="var(--olive)"></path>
+          </svg>
+        </div>
+        <div class="led" style="--cols:76px 1fr 122px">
+          <div class="lr" tabindex="0">
+            <div class="gut"><span class="stamp derived">DRV</span></div>
+            <div style="gap:10px"><span class="sw" style="background:var(--accent)"></span>
+              <span class="nm">INR</span><span class="sub2">11 instruments</span></div>
+            <div class="n">33,73,009</div>
+          </div>
+          <div class="lr" tabindex="0">
+            <div class="gut"><span class="stamp snap">ETR</span><span class="stampref">$16,722.30</span></div>
+            <div style="gap:10px"><span class="sw" style="background:var(--olive)"></span>
+              <span class="nm">USD</span><span class="sub2">Caterpillar RSU vests</span></div>
+            <div class="n">14,61,864</div>
+          </div>
+        </div>
+        <div class="notebar">
+          <span class="stamp derived r2" style="min-width:34px">FX</span>
+          <span>Converted at one rate for the whole book. Historical FX is stored per transaction
+            for ledger accounts, so XIRR uses the rate on each vest date, not this one.</span>
+        </div>
+      </div>
+
+      <!-- Data quality -->
+      <div class="sheet">
+        <div class="sh-hd">
+          <h3>Data quality</h3>
+          <span class="sub">3 items need a look</span>
+        </div>
+        <div class="led" style="--cols:76px 1fr 104px">
+          <div class="lr attn" tabindex="0">
+            <div class="gut"><span class="stamp alert">!</span><span class="stampref">2 items</span></div>
+            <div class="stack">
+              <span class="nm dn">2 stale prices</span>
+              <span class="sub2">Tata Motors — NSE quote 2 days old · Solana — CoinDCX quote 9 h old</span>
+            </div>
+            <div class="c"><button class="btn" type="button">Refresh</button></div>
+          </div>
+          <div class="lr attn" tabindex="0">
+            <div class="gut"><span class="stamp alert r2">?</span><span class="stampref">3 rows</span></div>
+            <div class="stack">
+              <span class="nm dn">3 unresolved instruments</span>
+              <span class="sub2">From CAS import of 12 Aug 18:39 — held out of every total until mapped</span>
+            </div>
+            <div class="c"><a class="btn pri" href="#s4">Review</a></div>
+          </div>
+          <div class="lr" tabindex="0">
+            <div class="gut"><span class="stamp derived r3">SYN</span><span class="stampref">18:42</span></div>
+            <div class="stack">
+              <span class="nm">4 of 5 accounts synced today</span>
+              <span class="sub2">E*TRADE last read 09 Aug 21:15 — statement is uploaded by hand</span>
+            </div>
+            <div class="c"><a class="btn" href="#s3">Accounts</a></div>
+          </div>
+        </div>
+        <div class="notebar">
+          <span>Nothing here blocks a total. Unresolved rows are excluded and counted, never
+            silently folded in.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     SCREEN 02 — HOLDINGS
+     ============================================================ -->
+<section id="s2">
+  <div class="folio">
+    <span class="no">02</span>
+    <h2>Holdings</h2>
+    <span class="line"></span>
+    <span class="note">Rows from snapshot-only accounts show hatched cells where cost and P&amp;L
+      would be — never a zero, never an empty cell that reads as “no gain”.</span>
+  </div>
+
+  <div class="sheet">
+    <div class="sh-hd" style="gap:18px;align-items:center">
+      <h3>All instruments</h3>
+      <span class="lab">Group by</span>
+      <span class="seg">
+        <button type="button" aria-pressed="true">Asset class</button>
+        <button type="button" aria-pressed="false">Account</button>
+        <button type="button" aria-pressed="false">Instrument</button>
+      </span>
+      <span class="lab" style="margin-left:6px">Sorted</span>
+      <span class="sec" style="font-size:11px">Value ₹ ↓</span>
+      <span class="sub">12 instruments · 5 accounts · ₹48,34,873</span>
+    </div>
+
+    <div class="scrollx">
+      <div class="led" style="--cols:66px minmax(210px,1.5fr) 116px 96px 100px 100px 112px 96px 76px 68px 78px">
+        <div class="lr hd">
+          <div class="gut"><span class="lab">Src</span></div>
+          <div><span class="lab">Instrument</span></div>
+          <div><span class="lab">Accounts</span></div>
+          <div class="n"><span class="lab">Quantity</span></div>
+          <div class="n"><span class="lab">Avg cost</span></div>
+          <div class="n"><span class="lab">Last price</span></div>
+          <div class="n"><span class="lab">Value ₹ ↓</span></div>
+          <div class="n"><span class="lab">Unreal ₹</span></div>
+          <div class="n"><span class="lab">Unreal %</span></div>
+          <div class="n"><span class="lab">Weight</span></div>
+          <div class="n"><span class="lab">Day %</span></div>
+        </div>
+
+        <!-- ===== MUTUAL FUNDS ===== -->
+        <div class="lr grp">
+          <div class="gut"><span class="sw" style="background:var(--ac1)"></span></div>
+          <div><span class="lab-i">Mutual funds · 3</span></div>
+          <div class="mut" style="font-size:10.5px">Full history</div>
+          <div></div><div></div><div></div>
+          <div class="n" style="font-weight:600">15,35,439</div>
+          <div class="n" style="font-weight:600">+2,40,087</div>
+          <div class="n">+18.5%</div>
+          <div class="n">31.8%</div>
+          <div class="n">+0.26%</div>
+        </div>
+
+        <div class="lr" tabindex="0">
+          <div class="gut"><span class="stamp">CAS</span><span class="stampref">p.4</span></div>
+          <div class="stack"><span class="nm">Parag Parikh Flexi Cap</span>
+            <span class="sub2 mn">INF879O01027 · Direct Growth</span></div>
+          <div class="sec" style="font-size:11px">Coin · Groww</div>
+          <div class="n">9,876.412</div>
+          <div class="n">64.26</div>
+          <div class="n">82.14</div>
+          <div class="n" style="font-weight:600">8,11,248</div>
+          <div class="n">+1,76,531</div>
+          <div class="n">+27.81%</div>
+          <div class="n">16.8%</div>
+          <div class="n">+0.34%</div>
+        </div>
+
+        <div class="lr" tabindex="0">
+          <div class="gut"><span class="stamp r2">CAS</span><span class="stampref">p.7</span></div>
+          <div class="stack"><span class="nm">UTI Nifty 50 Index Fund</span>
+            <span class="sub2 mn">INF789F1AUP4 · Direct Growth</span></div>
+          <div class="sec" style="font-size:11px">Coin</div>
+          <div class="n">1,486.204</div>
+          <div class="n">172.30</div>
+          <div class="n">193.68</div>
+          <div class="n" style="font-weight:600">2,87,808</div>
+          <div class="n">+31,735</div>
+          <div class="n">+12.39%</div>
+          <div class="n">6.0%</div>
+          <div class="n">+0.51%</div>
+        </div>
+
+        <div class="lr" tabindex="0">
+          <div class="gut"><span class="stamp r3">GRW</span><span class="stampref">r.402</span></div>
+          <div class="stack"><span class="nm">SBI Small Cap Fund</span>
+            <span class="sub2 mn">INF200K01T28 · Direct Growth</span></div>
+          <div class="sec" style="font-size:11px">Groww</div>
+          <div class="n">2,038.611</div>
+          <div class="n">198.45</div>
+          <div class="n">214.06</div>
+          <div class="n" style="font-weight:600">4,36,383</div>
+          <div class="n">+31,821</div>
+          <div class="n">+7.87%</div>
+          <div class="n">9.0%</div>
+          <div class="n dn">−0.28%</div>
+        </div>
+
+        <!-- ===== US EQUITY ===== -->
+        <div class="lr grp">
+          <div class="gut"><span class="sw" style="background:var(--ac2)"></span></div>
+          <div style="gap:9px"><span class="lab-i">US equity · 1</span><span class="badge usd">USD</span></div>
+          <div class="mut" style="font-size:10.5px">Holdings only</div>
+          <div></div><div></div><div></div>
+          <div class="n" style="font-weight:600">14,61,864</div>
+          <div class="na" style="grid-column:span 2"><span>no cost history</span></div>
+          <div class="n">30.2%</div>
+          <div class="n">+0.58%</div>
+        </div>
+
+        <div class="lr" tabindex="0">
+          <div class="gut"><span class="stamp snap">ETR</span><span class="stampref">p.2</span></div>
+          <div class="stack"><span class="nm">Caterpillar Inc</span>
+            <span class="sub2 mn">US1491231015 · CAT · NYSE</span></div>
+          <div class="sec" style="font-size:11px">E*TRADE</div>
+          <div class="n">42.000</div>
+          <div class="na"><span>n/a</span></div>
+          <div class="stack n"><span>7,331.67</span><span class="sub2" style="font-size:10px">$398.15</span></div>
+          <div class="n" style="font-weight:600">14,61,864</div>
+          <div class="na" style="grid-column:span 2"><span>no history</span></div>
+          <div class="n">30.2%</div>
+          <div class="n">+0.58%</div>
+        </div>
+
+        <!-- ===== INDIAN EQUITY ===== -->
+        <div class="lr grp">
+          <div class="gut"><span class="sw" style="background:var(--ac3)"></span></div>
+          <div><span class="lab-i">Indian equity · 4</span></div>
+          <div class="mut" style="font-size:10.5px">Full history</div>
+          <div></div><div></div><div></div>
+          <div class="n" style="font-weight:600">11,20,797</div>
+          <div class="n" style="font-weight:600">+25,808</div>
+          <div class="n">+2.36%</div>
+          <div class="n">23.2%</div>
+          <div class="n dn">−0.09%</div>
+        </div>
+
+        <div class="lr" tabindex="0">
+          <div class="gut"><span class="stamp r2">KIT</span><span class="stampref">r.18</span></div>
+          <div class="stack"><span class="nm">Infosys Ltd</span><span class="sub2 mn">INE009A01021 · INFY</span></div>
+          <div class="sec" style="font-size:11px">Kite</div>
+          <div class="n">214</div>
+          <div class="n">1,412.40</div>
+          <div class="n">1,548.20</div>
+          <div class="n" style="font-weight:600">3,31,315</div>
+          <div class="n">+29,061</div>
+          <div class="n">+9.61%</div>
+          <div class="n">6.9%</div>
+          <div class="n">+1.24%</div>
+        </div>
+
+        <div class="lr" tabindex="0">
+          <div class="gut"><span class="stamp r3">KIT</span><span class="stampref">r.47</span></div>
+          <div class="stack"><span class="nm">Reliance Industries</span><span class="sub2 mn">INE002A01018 · RELIANCE</span></div>
+          <div class="sec" style="font-size:11px">Kite</div>
+          <div class="n">118</div>
+          <div class="n">2,738.00</div>
+          <div class="n">2,604.30</div>
+          <div class="n" style="font-weight:600">3,07,307</div>
+          <div class="n dn">−15,777</div>
+          <div class="n dn">−4.88%</div>
+          <div class="n">6.4%</div>
+          <div class="n dn">−0.86%</div>
+        </div>
+
+        <div class="lr" tabindex="0">
+          <div class="gut"><span class="stamp r2">KIT</span><span class="stampref">r.09</span></div>
+          <div class="stack"><span class="nm">HDFC Bank Ltd</span><span class="sub2 mn">INE040A01034 · HDFCBANK</span></div>
+          <div class="sec" style="font-size:11px">Kite</div>
+          <div class="n">172</div>
+          <div class="n">1,586.10</div>
+          <div class="n">1,742.65</div>
+          <div class="n" style="font-weight:600">2,99,736</div>
+          <div class="n">+26,927</div>
+          <div class="n">+9.87%</div>
+          <div class="n">6.2%</div>
+          <div class="n">+0.42%</div>
+        </div>
+
+        <div class="lr attn" tabindex="0">
+          <div class="gut"><span class="stamp alert">!</span><span class="stampref">KIT r.63</span></div>
+          <div class="stack"><span class="nm">Tata Motors Ltd</span>
+            <span class="sub2 dn">Price 2 days stale — last NSE quote 10 Aug</span></div>
+          <div class="sec" style="font-size:11px">Kite</div>
+          <div class="n">265</div>
+          <div class="n">742.80</div>
+          <div class="n dn">688.45</div>
+          <div class="n" style="font-weight:600">1,82,439</div>
+          <div class="n dn">−14,403</div>
+          <div class="n dn">−7.32%</div>
+          <div class="n">3.8%</div>
+          <div class="n dn">−1.93%</div>
+        </div>
+
+        <!-- ===== CRYPTO ===== -->
+        <div class="lr grp">
+          <div class="gut"><span class="sw" style="background:var(--ac4)"></span></div>
+          <div><span class="lab-i">Crypto · 3</span></div>
+          <div class="mut" style="font-size:10.5px">Full history · read-only API</div>
+          <div></div><div></div><div></div>
+          <div class="n" style="font-weight:600">4,86,571</div>
+          <div class="n" style="font-weight:600">+98,110</div>
+          <div class="n">+25.26%</div>
+          <div class="n">10.1%</div>
+          <div class="n">+0.24%</div>
+        </div>
+
+        <div class="lr" tabindex="0">
+          <div class="gut"><span class="stamp r2">DCX</span><span class="stampref">api</span></div>
+          <div class="stack"><span class="nm">Bitcoin</span><span class="sub2 mn">BTC</span></div>
+          <div class="sec" style="font-size:11px">CoinDCX</div>
+          <div class="n">0.02480</div>
+          <div class="n">74,18,300</div>
+          <div class="n">1,03,15,560</div>
+          <div class="n" style="font-weight:600">2,55,826</div>
+          <div class="n">+71,852</div>
+          <div class="n">+39.06%</div>
+          <div class="n">5.3%</div>
+          <div class="n">+2.14%</div>
+        </div>
+
+        <div class="lr" tabindex="0">
+          <div class="gut"><span class="stamp r3">DCX</span><span class="stampref">api</span></div>
+          <div class="stack"><span class="nm">Ethereum</span><span class="sub2 mn">ETH</span></div>
+          <div class="sec" style="font-size:11px">CoinDCX</div>
+          <div class="n">0.52050</div>
+          <div class="n">2,41,180</div>
+          <div class="n">3,12,480</div>
+          <div class="n" style="font-weight:600">1,62,646</div>
+          <div class="n">+37,112</div>
+          <div class="n">+29.56%</div>
+          <div class="n">3.4%</div>
+          <div class="n dn">−1.08%</div>
+        </div>
+
+        <div class="lr attn" tabindex="0">
+          <div class="gut"><span class="stamp alert r2">!</span><span class="stampref">DCX api</span></div>
+          <div class="stack"><span class="nm">Solana</span>
+            <span class="sub2 dn">Price 9 h stale — pair paused on exchange</span></div>
+          <div class="sec" style="font-size:11px">CoinDCX</div>
+          <div class="n">4.02000</div>
+          <div class="n">19,640</div>
+          <div class="n dn">16,940</div>
+          <div class="n" style="font-weight:600">68,099</div>
+          <div class="n dn">−10,854</div>
+          <div class="n dn">−13.75%</div>
+          <div class="n">1.4%</div>
+          <div class="n dn">−3.42%</div>
+        </div>
+
+        <!-- ===== GOLD ===== -->
+        <div class="lr grp">
+          <div class="gut"><span class="sw" style="background:var(--ac5)"></span></div>
+          <div><span class="lab-i">Gold · 1</span></div>
+          <div class="mut" style="font-size:10.5px">Full history</div>
+          <div></div><div></div><div></div>
+          <div class="n" style="font-weight:600">2,30,202</div>
+          <div class="n" style="font-weight:600">+29,106</div>
+          <div class="n">+14.47%</div>
+          <div class="n">4.7%</div>
+          <div class="n">+0.31%</div>
+        </div>
+
+        <div class="lr" tabindex="0">
+          <div class="gut"><span class="stamp r2">KIT</span><span class="stampref">r.215</span></div>
+          <div class="stack"><span class="nm">Nippon India Gold BeES</span><span class="sub2 mn">INF204KB17I5 · GOLDBEES</span></div>
+          <div class="sec" style="font-size:11px">Kite</div>
+          <div class="n">2,940</div>
+          <div class="n">68.40</div>
+          <div class="n">78.30</div>
+          <div class="n" style="font-weight:600">2,30,202</div>
+          <div class="n">+29,106</div>
+          <div class="n">+14.47%</div>
+          <div class="n">4.7%</div>
+          <div class="n">+0.31%</div>
+        </div>
+
+        <!-- ===== TOTAL ===== -->
+        <div class="lr tot">
+          <div class="gut"><span class="stamp derived">DRV</span></div>
+          <div><span class="lab-i">Book total · 12 instruments</span></div>
+          <div class="mut" style="font-size:10.5px">4 of 5 ledger-backed</div>
+          <div></div><div></div><div></div>
+          <div class="n" style="font-weight:700">48,34,873</div>
+          <div class="n" style="font-weight:700">+3,93,111</div>
+          <div class="n">+13.19%</div>
+          <div class="n">100%</div>
+          <div class="n">+0.26%</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="notebar">
+      <span class="stamp snap r2" style="min-width:34px">ETR</span>
+      <span>Unrealised P&amp;L and the total below it cover ₹33,73,009 — the four ledger-backed
+        accounts. Caterpillar contributes value but no gain figure, because no cost basis exists
+        for it on this machine.</span>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     SCREEN 03 — ACCOUNTS
+     ============================================================ -->
+<section id="s3">
+  <div class="folio">
+    <span class="no">03</span>
+    <h2>Accounts</h2>
+    <span class="line"></span>
+    <span class="note">Capability is stated on the row, not buried. A “holdings only” account is a
+      normal, permanent state — not a broken connection.</span>
+  </div>
+
+  <div class="cols3">
+    <div class="sheet">
+      <div class="sh-hd">
+        <h3>Connected accounts</h3>
+        <span class="sub">5 accounts · ₹48,34,873 · 12 instruments</span>
+      </div>
+      <div class="led" style="--cols:70px minmax(150px,1fr) 134px 106px 90px 122px 94px">
+        <div class="lr hd">
+          <div class="gut"><span class="lab">Src</span></div>
+          <div><span class="lab">Provider &amp; label</span></div>
+          <div><span class="lab">Capability</span></div>
+          <div class="n"><span class="lab">Value ₹</span></div>
+          <div class="n"><span class="lab">Holdings</span></div>
+          <div><span class="lab">Last read</span></div>
+          <div class="c"><span class="lab">Action</span></div>
+        </div>
+
+        <div class="lr tall" tabindex="0">
+          <div class="gut"><span class="stamp r2">KIT</span><span class="stampref">tradebook</span></div>
+          <div class="stack"><span class="nm">Zerodha Kite</span>
+            <span class="sub2 mn">ZK-4471 · tradebook_FY24-27.csv</span></div>
+          <div><span class="badge full">Full history</span></div>
+          <div class="n" style="font-weight:600">13,50,999</div>
+          <div class="n">5</div>
+          <div class="stack"><span>12 Aug 18:42</span><span class="sub2">215 rows</span></div>
+          <div class="c"><button class="btn" type="button">Re-sync</button></div>
+        </div>
+
+        <div class="lr tall" tabindex="0">
+          <div class="gut"><span class="stamp">CAS</span><span class="stampref">p.4–8</span></div>
+          <div class="stack"><span class="nm">Zerodha Coin</span>
+            <span class="sub2 mn">Folio 91038274/58 · via CAMS CAS</span></div>
+          <div><span class="badge full">Full history</span></div>
+          <div class="n" style="font-weight:600">8,79,554</div>
+          <div class="n">2</div>
+          <div class="stack"><span>12 Aug 18:42</span><span class="sub2">248 txns</span></div>
+          <div class="c"><button class="btn" type="button">Re-sync</button></div>
+        </div>
+
+        <div class="lr tall" tabindex="0">
+          <div class="gut"><span class="stamp r3">GRW</span><span class="stampref">p.9–12</span></div>
+          <div class="stack"><span class="nm">Groww</span>
+            <span class="sub2 mn">Folio 11749205/31 · CAS + CSV export</span></div>
+          <div><span class="badge full">Full history</span></div>
+          <div class="n" style="font-weight:600">6,55,885</div>
+          <div class="n">2</div>
+          <div class="stack"><span>12 Aug 18:42</span><span class="sub2">164 txns</span></div>
+          <div class="c"><button class="btn" type="button">Re-sync</button></div>
+        </div>
+
+        <div class="lr tall attn" tabindex="0">
+          <div class="gut"><span class="stamp snap">ETR</span><span class="stampref">09 Aug</span></div>
+          <div class="stack"><span class="nm">E*TRADE by Morgan Stanley</span>
+            <span class="sub2 mn">Stock plan ****3319 · statement PDF</span></div>
+          <div><span class="badge snapb">Holdings only</span></div>
+          <div class="n" style="font-weight:600">14,61,864</div>
+          <div class="n">1</div>
+          <div class="stack"><span class="dn">09 Aug 21:15</span><span class="sub2">3 days ago</span></div>
+          <div class="c"><button class="btn pri" type="button">Upload</button></div>
+        </div>
+
+        <div class="lr tall" tabindex="0">
+          <div class="gut"><span class="stamp r2">DCX</span><span class="stampref">api key</span></div>
+          <div class="stack"><span class="nm">CoinDCX</span>
+            <span class="sub2 mn">Read-only key ····a41f · OS keychain</span></div>
+          <div><span class="badge full">Full history</span></div>
+          <div class="n" style="font-weight:600">4,86,571</div>
+          <div class="n">3</div>
+          <div class="stack"><span>12 Aug 18:40</span><span class="sub2">1,104 fills</span></div>
+          <div class="c"><button class="btn" type="button">Re-sync</button></div>
+        </div>
+
+        <div class="lr tot">
+          <div class="gut"><span class="stamp derived">DRV</span></div>
+          <div><span class="lab-i">Book total</span></div>
+          <div class="mut" style="font-size:10.5px">4 full · 1 snapshot</div>
+          <div class="n" style="font-weight:700">48,34,873</div>
+          <div class="n" style="font-weight:700">12</div>
+          <div class="sub2">Oldest read 3 days</div>
+          <div></div>
+        </div>
+      </div>
+      <div class="notebar">
+        <span>Re-sync reads a file on this machine or calls the exchange directly from it.
+          There is no server in between and nothing is uploaded anywhere.</span>
+      </div>
+    </div>
+
+    <div class="stackcol">
+      <div class="sheet">
+        <div class="sh-hd"><h3>Add an account</h3><span class="sub">Two ways in</span></div>
+        <div class="led" style="--cols:76px 1fr">
+          <div class="lr tall" tabindex="0">
+            <div class="gut"><span class="stamp">CAS</span><span class="stampref">pdf/csv</span></div>
+            <div class="stack" style="gap:6px;padding-top:12px;padding-bottom:12px">
+              <span class="nm">Import a statement</span>
+              <span class="sub2">CAMS / KFin consolidated statement (PDF, password-protected is fine),
+                Zerodha or Groww CSV, E*TRADE stock-plan PDF.</span>
+              <span style="display:flex;gap:8px;margin-top:6px">
+                <button class="btn pri" type="button">Choose file…</button>
+                <button class="btn" type="button">Paste CAS request</button>
+              </span>
+            </div>
+          </div>
+          <div class="lr tall" tabindex="0">
+            <div class="gut"><span class="stamp r2">DCX</span><span class="stampref">api key</span></div>
+            <div class="stack" style="gap:6px;padding-top:12px;padding-bottom:12px">
+              <span class="nm">Connect an exchange</span>
+              <span class="sub2">Paste a <b class="sec">read-only</b> API key. Misal refuses keys with
+                trade or withdraw permission. Keys are stored in the OS keychain, never in the ledger file.</span>
+              <span style="display:flex;gap:8px;margin-top:6px">
+                <button class="btn" type="button">CoinDCX</button>
+                <button class="btn" type="button">WazirX</button>
+                <button class="btn" type="button">Other</button>
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sheet">
+        <div class="sh-hd"><h3>What each source gives you</h3><span class="sub">Capability, plainly</span></div>
+        <div class="led" style="--cols:76px 1fr 118px">
+          <div class="lr hd">
+            <div class="gut"><span class="lab">Stamp</span></div>
+            <div><span class="lab">Source document</span></div>
+            <div class="c"><span class="lab">Unlocks</span></div>
+          </div>
+          <div class="lr" tabindex="0">
+            <div class="gut"><span class="stamp">CAS</span></div>
+            <div class="stack"><span class="nm">CAMS / KFin CAS</span><span class="sub2">Every folio, every transaction, since inception</span></div>
+            <div class="c"><span class="badge full">XIRR · FIFO</span></div>
+          </div>
+          <div class="lr" tabindex="0">
+            <div class="gut"><span class="stamp r2">KIT</span></div>
+            <div class="stack"><span class="nm">Broker tradebook CSV</span><span class="sub2">Buys, sells, charges, per order</span></div>
+            <div class="c"><span class="badge full">XIRR · FIFO</span></div>
+          </div>
+          <div class="lr" tabindex="0">
+            <div class="gut"><span class="stamp r3">DCX</span></div>
+            <div class="stack"><span class="nm">Exchange read-only API</span><span class="sub2">Fills and balances, pulled directly</span></div>
+            <div class="c"><span class="badge full">XIRR · FIFO</span></div>
+          </div>
+          <div class="lr" tabindex="0">
+            <div class="gut"><span class="stamp snap">ETR</span></div>
+            <div class="stack"><span class="nm">Stock-plan statement</span><span class="sub2">Positions on a date. No vest-by-vest cost.</span></div>
+            <div class="c"><span class="badge snapb">Value only</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     SCREEN 04 — IMPORT REVIEW
+     ============================================================ -->
+<section id="s4">
+  <div class="folio">
+    <span class="no">04</span>
+    <h2>Import review</h2>
+    <span class="line"></span>
+    <span class="note">The import already finished. What is left is a queue of gentle tasks, each
+      one dismissible, none of them blocking a number.</span>
+  </div>
+
+  <div class="cols3">
+    <div class="stackcol">
+      <div class="sheet">
+        <div class="sh-hd">
+          <h3>CAS_Apr2023-Aug2026.pdf</h3>
+          <span class="sub">4.2 MB · CAMS format v7 · read 12 Aug 2026 18:39 · 11.4 s</span>
+        </div>
+        <div class="led" style="--cols:76px 1fr 118px">
+          <div class="lr hd">
+            <div class="gut"><span class="lab">Src</span></div>
+            <div><span class="lab">What was read</span></div>
+            <div class="n"><span class="lab">Count</span></div>
+          </div>
+          <div class="lr" tabindex="0">
+            <div class="gut"><span class="stamp">CAS</span><span class="stampref">p.1–14</span></div>
+            <div><span class="nm">Folios found</span></div>
+            <div class="n">6</div>
+          </div>
+          <div class="lr" tabindex="0">
+            <div class="gut"><span class="stamp r2">CAS</span><span class="stampref">p.4–12</span></div>
+            <div class="stack"><span class="nm">Transactions parsed</span>
+              <span class="sub2">Purchases, SIPs, switches, redemptions, IDCW</span></div>
+            <div class="n">412</div>
+          </div>
+          <div class="lr" tabindex="0">
+            <div class="gut"><span class="stamp r3">CAS</span><span class="stampref">p.13</span></div>
+            <div class="stack"><span class="nm">Positions reconciled</span>
+              <span class="sub2">Closing units matched the statement to 3 decimals</span></div>
+            <div class="n">3</div>
+          </div>
+          <div class="lr" tabindex="0">
+            <div class="gut"><span class="stamp derived">DUP</span><span class="stampref">hash</span></div>
+            <div class="stack"><span class="nm">Duplicates skipped</span>
+              <span class="sub2">Already present from the CAS imported on 04 May 2026</span></div>
+            <div class="n">47</div>
+          </div>
+          <div class="lr attn" tabindex="0">
+            <div class="gut"><span class="stamp alert">!</span><span class="stampref">2 rows</span></div>
+            <div class="stack"><span class="nm dn">Rows with a note</span>
+              <span class="sub2">One skipped, one recorded as an estimate — both listed below</span></div>
+            <div class="n dn">2</div>
+          </div>
+          <div class="lr attn" tabindex="0">
+            <div class="gut"><span class="stamp alert r2">?</span><span class="stampref">3 rows</span></div>
+            <div class="stack"><span class="nm dn">Unresolved instruments</span>
+              <span class="sub2">Held out of every total until you map them</span></div>
+            <div class="n dn">3</div>
+          </div>
+          <div class="lr tot">
+            <div class="gut"><span class="stamp derived">DRV</span></div>
+            <div><span class="lab-i">Import completed · nothing was blocked</span></div>
+            <div class="n" style="font-weight:700">365 new</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sheet">
+        <div class="sh-hd"><h3>Row notes</h3><span class="sub">2 rows · kept out of the totals or flagged</span></div>
+        <div class="led" style="--cols:76px 86px 1fr 130px">
+          <div class="lr hd">
+            <div class="gut"><span class="lab">Src</span></div>
+            <div class="n"><span class="lab">Row</span></div>
+            <div><span class="lab">What happened</span></div>
+            <div class="c"><span class="lab">Outcome</span></div>
+          </div>
+          <div class="lr attn" tabindex="0">
+            <div class="gut"><span class="stamp alert">!</span><span class="stampref">p.6</span></div>
+            <div class="n">188</div>
+            <div class="stack"><span class="nm">Date reads <span class="mono">31-FEB-2024</span></span>
+              <span class="sub2">Not a real date — the row was skipped and is not in any count above</span></div>
+            <div class="c"><button class="btn" type="button">Fix by hand</button></div>
+          </div>
+          <div class="lr attn" tabindex="0">
+            <div class="gut"><span class="stamp alert r3">!</span><span class="stampref">p.10</span></div>
+            <div class="n">341</div>
+            <div class="stack"><span class="nm">NAV column blank on a switch-out leg</span>
+              <span class="sub2">Amount derived from units × next-day NAV. Stored as an estimate and
+                excluded from XIRR until confirmed.</span></div>
+            <div class="c"><button class="btn" type="button">Confirm</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sheet">
+      <div class="sh-hd">
+        <h3>Unresolved instruments</h3>
+        <span class="sub">3 identifiers the parser could not place</span>
+      </div>
+
+      <div class="led" style="--cols:76px 1fr">
+        <div class="lr tall attn" tabindex="0">
+          <div class="gut"><span class="stamp alert">?</span><span class="stampref">1 txn</span></div>
+          <div class="stack" style="gap:8px;padding-top:12px;padding-bottom:12px">
+            <span class="mono" style="color:var(--ink);font-size:12px">INF204K01XX9</span>
+            <span class="nm">NIPPON INDIA ETF GOLD BEES - GROWTH</span>
+            <span class="sub2">1 transaction · ₹42,180 · CAS p.13</span>
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:2px">
+              <span class="lab">Suggested</span>
+              <span class="sec" style="font-size:12px">Nippon India Gold BeES</span>
+              <span class="mono mut">INF204KB17I5</span>
+              <span class="badge full">92% match</span>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:4px">
+              <button class="btn pri" type="button">Map to suggestion</button>
+              <button class="btn" type="button">Choose another</button>
+              <button class="btn q" type="button">Ignore</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="lr tall attn" tabindex="0">
+          <div class="gut"><span class="stamp alert r2">?</span><span class="stampref">6 txns</span></div>
+          <div class="stack" style="gap:8px;padding-top:12px;padding-bottom:12px">
+            <span class="mono" style="color:var(--ink);font-size:12px">— no ISIN printed —</span>
+            <span class="nm">MOSL FLEXI CAP DIR GR</span>
+            <span class="sub2">6 transactions · ₹1,18,400 · CAS p.8</span>
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:2px">
+              <span class="lab">Suggested</span>
+              <span class="sec" style="font-size:12px">Motilal Oswal Flexi Cap Direct Growth</span>
+              <span class="mono mut">INF247L01AP3</span>
+              <span class="badge warn">78% match</span>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:4px">
+              <button class="btn pri" type="button">Map to suggestion</button>
+              <button class="btn" type="button">Choose another</button>
+              <button class="btn q" type="button">Ignore</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="lr tall attn" tabindex="0">
+          <div class="gut"><span class="stamp alert r3">?</span><span class="stampref">3 txns</span></div>
+          <div class="stack" style="gap:8px;padding-top:12px;padding-bottom:12px">
+            <span class="mono" style="color:var(--ink);font-size:12px">— no ISIN printed —</span>
+            <span class="nm">AXIS ELSS TAX SVR DIR GR</span>
+            <span class="sub2">3 transactions · ₹36,000 · CAS p.11 · no confident match</span>
+            <label style="display:block;width:100%;margin-top:2px">
+              <span class="lab" style="display:block;margin-bottom:5px">Map to instrument</span>
+              <input class="field" type="text" placeholder="Search by scheme name, ISIN or AMFI code…">
+            </label>
+            <div style="display:flex;gap:8px;margin-top:6px">
+              <button class="btn" type="button">Create a local instrument</button>
+              <button class="btn q" type="button">Leave for later</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="lr tot">
+          <div class="gut"><span class="stamp derived">DRV</span></div>
+          <div class="stack">
+            <span class="lab-i">₹1,96,580 held out of the book</span>
+            <span class="sub2">Net worth on the dashboard excludes all three. It will move when you map them.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     SCREEN 05 — INSTRUMENT DETAIL
+     ============================================================ -->
+<section id="s5">
+  <div class="folio">
+    <span class="no">05</span>
+    <h2>Instrument</h2>
+    <span class="line"></span>
+    <span class="note">One instrument, every account it sits in, every lot that makes up the cost —
+      each line still carrying the stamp of the page it was read from.</span>
+  </div>
+
+  <div class="sheet">
+    <div class="hero-top">
+      <div>
+        <span class="lab">Parag Parikh Flexi Cap Fund · Direct Growth</span>
+        <span class="fig-p" style="font:700 34px/1 var(--fig);display:block;margin-top:7px">₹8,11,248</span>
+        <span class="sub2 mn" style="display:block;margin-top:7px">INF879O01027 · PPFAS Mutual Fund · Flexi Cap · AMFI 122639</span>
+      </div>
+      <div class="hero-day">
+        <span class="lab">NAV · 12 Aug 2026</span>
+        <span class="v">₹82.14</span>
+        <span class="v" style="font-size:13px;color:var(--ink-2)">+0.34%</span>
+      </div>
+      <div class="hero-day">
+        <span class="lab">Unrealised</span>
+        <span class="v">+₹1,76,531</span>
+        <span class="v" style="font-size:13px;color:var(--ink-2)">+27.81%</span>
+      </div>
+      <div class="hero-day">
+        <span class="lab">XIRR</span>
+        <span class="v">18.4%</span>
+        <span class="v" style="font-size:13px;color:var(--ink-2)">full history</span>
+      </div>
+      <div style="margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:5px">
+        <span class="stamp">CAS</span>
+        <span class="stampref">p.4 · p.9</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="cols3" style="margin-top:20px">
+    <div class="stackcol">
+
+      <div class="sheet">
+        <div class="sh-hd">
+          <h3>NAV · 36 months</h3>
+          <span class="sub">Quarterly marks · rings show purchase lots still open</span>
+        </div>
+        <div class="chartbox">
+          <svg viewBox="0 0 780 176" role="img"
+               aria-label="NAV over 36 months rising from 58.20 to 82.14 rupees, with four open purchase lots marked.">
+            <g stroke="var(--rule)" stroke-width="1">
+              <line x1="46" y1="16"   x2="762" y2="16"></line>
+              <line x1="46" y1="57.3" x2="762" y2="57.3"></line>
+              <line x1="46" y1="98.7" x2="762" y2="98.7"></line>
+            </g>
+            <line x1="46" y1="140" x2="762" y2="140" stroke="var(--rule-2)" stroke-width="1"></line>
+            <g font-family="var(--fig)" font-size="11" fill="var(--ink-3)" text-anchor="end"
+               style="font-variant-numeric:tabular-nums">
+              <text x="40" y="19.5">85</text>
+              <text x="40" y="60.8">75</text>
+              <text x="40" y="102.2">65</text>
+              <text x="40" y="143.5">55</text>
+            </g>
+            <text x="46" y="10" font-family="var(--lbl)" font-size="9.5" letter-spacing="1.3"
+                  fill="var(--ink-3)">NAV ₹</text>
+
+            <path d="M46,126.8 L105.7,117.7 L165.3,105.3 L225,111.9 L284.7,97.8 L344.3,82.5
+                     L404,90 L463.7,76.3 L523.3,67.2 L583,55.6 L642.7,41.5 L702.3,32.4 L762,27.8
+                     L762,140 L46,140 Z" fill="var(--accent)" opacity=".10"></path>
+            <polyline fill="none" stroke="var(--accent)" stroke-width="2"
+                      stroke-linejoin="round" stroke-linecap="round"
+                      points="46,126.8 105.7,117.7 165.3,105.3 225,111.9 284.7,97.8 344.3,82.5
+                              404,90 463.7,76.3 523.3,67.2 583,55.6 642.7,41.5 702.3,32.4 762,27.8"></polyline>
+
+            <!-- purchase-lot markers: hollow, 2px surface ring, ≥8px -->
+            <g fill="var(--sheet)" stroke="var(--accent)" stroke-width="2">
+              <circle cx="46"    cy="126.8" r="4.5"></circle>
+              <circle cx="165.3" cy="105.3" r="4.5"></circle>
+              <circle cx="344.3" cy="82.5"  r="4.5"></circle>
+              <circle cx="523.3" cy="67.2"  r="4.5"></circle>
+            </g>
+            <circle cx="762" cy="27.8" r="4.5" fill="var(--accent)"
+                    stroke="var(--sheet)" stroke-width="2"></circle>
+            <text x="754" y="19" text-anchor="end" font-family="var(--fig)" font-size="11.5"
+                  font-weight="700" fill="var(--ink)" style="font-variant-numeric:tabular-nums">₹82.14</text>
+
+            <g font-family="var(--lbl)" font-size="11" fill="var(--ink-3)" text-anchor="middle">
+              <text x="46"    y="158">Aug ’23</text>
+              <text x="284.7" y="158">Aug ’24</text>
+              <text x="523.3" y="158">Aug ’25</text>
+              <text x="762"   y="158" text-anchor="end">Aug ’26</text>
+            </g>
+          </svg>
+        </div>
+        <div class="legend">
+          <span class="lg"><span class="swline" style="background:var(--accent)"></span>NAV, quarter close</span>
+          <span class="lg"><span class="swring"></span>Open purchase lot (4 of 9 — 5 were consumed by the June redemption)</span>
+        </div>
+      </div>
+
+      <div class="sheet">
+        <div class="sh-hd">
+          <h3>Transactions</h3>
+          <span class="sub">Most recent 8 of 68 · every row traceable to a page</span>
+        </div>
+        <div class="led" style="--cols:76px 108px 132px 96px 1fr 108px 118px">
+          <div class="lr hd">
+            <div class="gut"><span class="lab">Src</span></div>
+            <div><span class="lab">Date</span></div>
+            <div><span class="lab">Type</span></div>
+            <div><span class="lab">Account</span></div>
+            <div class="n"><span class="lab">Units</span></div>
+            <div class="n"><span class="lab">NAV ₹</span></div>
+            <div class="n"><span class="lab">Amount ₹</span></div>
+          </div>
+          <div class="lr" tabindex="0">
+            <div class="gut"><span class="stamp">CAS</span><span class="stampref">p.12</span></div>
+            <div class="fig">05 Aug 2026</div><div>SIP purchase</div><div class="sec">Coin</div>
+            <div class="n">+121.744</div><div class="n">82.14</div><div class="n">10,000</div>
+          </div>
+          <div class="lr" tabindex="0">
+            <div class="gut"><span class="stamp r2">CAS</span><span class="stampref">p.12</span></div>
+            <div class="fig">05 Jul 2026</div><div>SIP purchase</div><div class="sec">Coin</div>
+            <div class="n">+123.410</div><div class="n">81.03</div><div class="n">10,000</div>
+          </div>
+          <div class="lr" tabindex="0">
+            <div class="gut"><span class="stamp r3">CAS</span><span class="stampref">p.12</span></div>
+            <div class="fig">18 Jun 2026</div>
+            <div class="stack"><span>Redemption</span><span class="sub2">FIFO · LTCG</span></div>
+            <div class="sec">Groww</div>
+            <div class="n dn">−1,240.180</div><div class="n">79.42</div><div class="n">98,494</div>
+          </div>
+          <div class="lr" tabindex="0">
+            <div class="gut"><span class="stamp">CAS</span><span class="stampref">p.12</span></div>
+            <div class="fig">05 Jun 2026</div><div>SIP purchase</div><div class="sec">Coin</div>
+            <div class="n">+126.842</div><div class="n">78.84</div><div class="n">10,000</div>
+          </div>
+          <div class="lr" tabindex="0">
+            <div class="gut"><span class="stamp r2">CAS</span><span class="stampref">p.12</span></div>
+            <div class="fig">05 May 2026</div><div>SIP purchase</div><div class="sec">Coin</div>
+            <div class="n">+129.188</div><div class="n">77.41</div><div class="n">10,000</div>
+          </div>
+          <div class="lr" tabindex="0">
+            <div class="gut"><span class="stamp r3">CAS</span><span class="stampref">p.11</span></div>
+            <div class="fig">05 Apr 2026</div><div>SIP purchase</div><div class="sec">Coin</div>
+            <div class="n">+132.610</div><div class="n">75.41</div><div class="n">10,000</div>
+          </div>
+          <div class="lr" tabindex="0">
+            <div class="gut"><span class="stamp r2">GRW</span><span class="stampref">r.318</span></div>
+            <div class="fig">12 Aug 2025</div><div>Lumpsum purchase</div><div class="sec">Groww</div>
+            <div class="n">+1,376.940</div><div class="n">72.62</div><div class="n">1,00,000</div>
+          </div>
+          <div class="lr" tabindex="0">
+            <div class="gut"><span class="stamp">CAS</span><span class="stampref">p.11</span></div>
+            <div class="fig">05 Aug 2025</div><div>SIP purchase</div><div class="sec">Coin</div>
+            <div class="n">+137.720</div><div class="n">72.61</div><div class="n">10,000</div>
+          </div>
+          <div class="lr tot">
+            <div class="gut"><span class="stamp derived">DRV</span></div>
+            <div class="fig" style="grid-column:span 3"><span class="lab-i">Net across 68 transactions</span></div>
+            <div class="n" style="font-weight:700">9,876.412</div>
+            <div class="n">64.26 avg</div>
+            <div class="n" style="font-weight:700">6,34,717</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stackcol">
+      <div class="sheet">
+        <div class="sh-hd"><h3>Position by account</h3><span class="sub">2 accounts, both ledger-backed</span></div>
+        <div class="led" style="--cols:76px 1fr 106px 112px">
+          <div class="lr hd">
+            <div class="gut"><span class="lab">Src</span></div>
+            <div><span class="lab">Account</span></div>
+            <div class="n"><span class="lab">Units</span></div>
+            <div class="n"><span class="lab">Value ₹</span></div>
+          </div>
+          <div class="lr tall" tabindex="0">
+            <div class="gut"><span class="stamp">CAS</span><span class="stampref">p.4</span></div>
+            <div class="stack"><span class="nm">Zerodha Coin</span>
+              <span class="sub2">Avg ₹62.83 · cost ₹4,52,599 · +₹1,39,147 (+30.74%)</span></div>
+            <div class="n">7,204.118</div>
+            <div class="n" style="font-weight:600">5,91,746</div>
+          </div>
+          <div class="lr tall" tabindex="0">
+            <div class="gut"><span class="stamp r3">GRW</span><span class="stampref">p.9</span></div>
+            <div class="stack"><span class="nm">Groww</span>
+              <span class="sub2">Avg ₹68.15 · cost ₹1,82,118 · +₹37,384 (+20.53%)</span></div>
+            <div class="n">2,672.294</div>
+            <div class="n" style="font-weight:600">2,19,502</div>
+          </div>
+          <div class="lr tot">
+            <div class="gut"><span class="stamp derived">DRV</span></div>
+            <div><span class="lab-i">Combined</span></div>
+            <div class="n" style="font-weight:700">9,876.412</div>
+            <div class="n" style="font-weight:700">8,11,248</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sheet">
+        <div class="sh-hd"><h3>Gain, split honestly</h3><span class="sub">Financial year 2026–27</span></div>
+        <div class="led" style="--cols:76px 1fr 136px">
+          <div class="lr tall" tabindex="0">
+            <div class="gut"><span class="stamp derived">DRV</span></div>
+            <div class="stack"><span class="lab">Unrealised</span>
+              <span class="sub2">6 open lots · marked at NAV ₹82.14</span></div>
+            <div class="n" style="font-size:16px;font-weight:600">+₹1,76,531</div>
+          </div>
+          <div class="lr tall" tabindex="0">
+            <div class="gut"><span class="stamp r3">CAS</span><span class="stampref">p.12</span></div>
+            <div class="stack"><span class="lab">Realised · FY 2026–27</span>
+              <span class="sub2">18 Jun 2026 redemption · long-term · 1,240.180 units</span></div>
+            <div class="n" style="font-size:16px;font-weight:600">+₹22,840</div>
+          </div>
+          <div class="lr tot">
+            <div class="gut"><span class="stamp derived r2">DRV</span></div>
+            <div><span class="lab-i">Total gain, this instrument</span></div>
+            <div class="n" style="font-weight:700;font-size:16px">+₹1,99,371</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sheet">
+        <div class="sh-hd"><h3>FIFO cost basis</h3><span class="sub">6 open lots · ₹6,34,717</span></div>
+        <div class="led" style="--cols:76px 1fr 92px 92px 98px">
+          <div class="lr hd">
+            <div class="gut"><span class="lab">Src</span></div>
+            <div><span class="lab">Lot acquired</span></div>
+            <div class="n"><span class="lab">Units</span></div>
+            <div class="n"><span class="lab">NAV ₹</span></div>
+            <div class="n"><span class="lab">Cost ₹</span></div>
+          </div>
+          <div class="lr" tabindex="0">
+            <div class="gut"><span class="stamp">CAS</span><span class="stampref">p.4</span></div>
+            <div class="stack"><span class="fig">14 Aug 2023</span><span class="sub2">Coin · long-term</span></div>
+            <div class="n">4,120.400</div><div class="n">58.20</div><div class="n">2,39,807</div>
+          </div>
+          <div class="lr" tabindex="0">
+            <div class="gut"><span class="stamp r2">CAS</span><span class="stampref">p.5</span></div>
+            <div class="stack"><span class="fig">08 Feb 2024</span><span class="sub2">Coin · long-term</span></div>
+            <div class="n">1,190.956</div><div class="n">63.40</div><div class="n">75,507</div>
+          </div>
+          <div class="lr" tabindex="0">
+            <div class="gut"><span class="stamp r3">GRW</span><span class="stampref">p.9</span></div>
+            <div class="stack"><span class="fig">08 Feb 2024</span><span class="sub2">Groww · long-term</span></div>
+            <div class="n">1,295.354</div><div class="n">63.40</div><div class="n">82,125</div>
+          </div>
+          <div class="lr" tabindex="0">
+            <div class="gut"><span class="stamp">CAS</span><span class="stampref">p.6</span></div>
+            <div class="stack"><span class="fig">22 Nov 2024</span><span class="sub2">Coin · long-term</span></div>
+            <div class="n">1,192.720</div><div class="n">68.90</div><div class="n">82,178</div>
+          </div>
+          <div class="lr attn" tabindex="0">
+            <div class="gut"><span class="stamp alert r2">!</span><span class="stampref">GRW r.318</span></div>
+            <div class="stack"><span class="fig">12 Aug 2025</span>
+              <span class="sub2 dn">Groww · short-term until 13 Aug 2026 — tomorrow</span></div>
+            <div class="n">1,376.940</div><div class="n">72.62</div><div class="n">99,993</div>
+          </div>
+          <div class="lr" tabindex="0">
+            <div class="gut"><span class="stamp r3">CAS</span><span class="stampref">p.11–12</span></div>
+            <div class="stack"><span class="fig">SIP ×14</span><span class="sub2">Sep 2025 – Aug 2026 · Coin · short-term</span></div>
+            <div class="n">700.042</div><div class="n">78.72</div><div class="n">55,107</div>
+          </div>
+          <div class="lr tot">
+            <div class="gut"><span class="stamp derived">DRV</span></div>
+            <div><span class="lab-i">Open lots</span></div>
+            <div class="n" style="font-weight:700">9,876.412</div>
+            <div class="n">64.26</div>
+            <div class="n" style="font-weight:700">6,34,717</div>
+          </div>
+        </div>
+        <div class="notebar">
+          <span>5 earlier lots were fully consumed by the 18 Jun 2026 redemption under FIFO, which is
+            why open units are below gross units purchased.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div style="height:64px"></div>
+<div style="border-top:3px double var(--rule-2);padding:18px 0 56px;display:flex;gap:20px;
+            align-items:baseline;flex-wrap:wrap">
+  <span class="lab">Misal · direction A · passbook</span>
+  <span class="mut" style="font-size:11px">Ruled grid · marginal provenance stamps · Indian
+    lakh/crore grouping · vermillion reserved for attention · one supporting hue for foreign currency.</span>
+  <span class="mut" style="font-size:11px;margin-left:auto">Static mockup — no scripts, no network,
+    no fonts loaded.</span>
+</div>
+
+</div><!-- /wrap -->
+</body>
+</html>
