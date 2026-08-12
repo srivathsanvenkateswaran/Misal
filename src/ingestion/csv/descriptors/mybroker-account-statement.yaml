@@ -1,0 +1,81 @@
+# MyBroker — account statement.
+#
+# Illustrative rather than observed, and deliberately built to exercise every hard feature at
+# once: a three-line preamble before the header, Indian digit grouping, parenthesised debits, a
+# free-text narration column instead of a side column, a proprietary scrip code with no ISIN, a
+# separate charges column, and a `Total` footer row.
+#
+# Two behaviours this descriptor is meant to demonstrate:
+#
+#   - The dividend row has no quantity and no price, so a `sign` match on Qty would fail. The
+#     ordered rules put the dividend match after the two trade matches and test only the narration.
+#   - `Scrip Code` is a BSE code with no ISIN, so resolution falls through to a provider-local
+#     alias scoped to `mybroker`. On a fresh database that alias does not exist, so every row of
+#     this file lands in unresolved_instrument with observed_value_minor populated. The import
+#     still completes. That is the intended behaviour, not a degraded one.
+descriptorVersion: 1
+id: mybroker-account-statement
+providerId: mybroker
+displayName: MyBroker — account statement
+emits: transactions
+capability: ledger
+
+detect:
+  requiredHeaders: ["Txn Date", "Narration", "Scrip Code", "Net Amount"]
+  preambleContains: ["Account Statement"]
+
+file:
+  delimiter: ","
+  encoding: windows-1252
+  headerRow: auto
+  skipRowsMatching: ["^Total$"]
+  timezone: Asia/Kolkata
+  currency: INR
+
+account:
+  realm: broker
+  constant: "broker:mybroker"
+  labelTemplate: "MyBroker"
+
+instrument:
+  providerLocalId: "Scrip Code"
+  name: "Scrip Name"
+  assetClassHint: { constant: indian_equity }
+
+columns:
+  date: { kind: date, column: "Txn Date", format: "dd-MMM-yyyy" }
+  quantity:
+    kind: decimal
+    column: Qty
+    transform:
+      negative: never
+      signFrom: { column: Narration, negativeWhen: ["^SELL"] }
+  price: { kind: decimal, column: Rate, transform: { strip: [","] } }
+  amount:
+    kind: money
+    column: "Net Amount"
+    transform:
+      strip: [",", "₹"]
+      negative: parentheses
+      onExcessPrecision: error
+  fees: { kind: money, column: Charges, transform: { strip: [","] } }
+  description: { kind: text, column: Narration }
+
+typeRules:
+  - when:
+      all:
+        - { column: Narration, matches: "^BUY\\b" }
+        - { column: Qty, sign: positive }
+    type: buy
+  - when:
+      all:
+        - { column: Narration, matches: "^SELL\\b" }
+        - { column: Qty, sign: positive }
+    type: sell
+  - when: { column: Narration, matches: "DIVIDEND" }
+    type: dividend
+
+postconditions:
+  - kind: row-total
+    params: { amount: amount, quantity: quantity, price: price, fees: fees, tolerance: "0.01" }
+    severity: warning

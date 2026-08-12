@@ -1,0 +1,348 @@
+{
+  "issues": [],
+  "records": [
+    {
+      "accountKey": "mf-folio:hdfc-mutual-fund:12345678/0",
+      "baseCurrency": "INR",
+      "capability": "ledger",
+      "externalRef": "12345678/0",
+      "kind": "account",
+      "label": "HDFC Mutual Fund · 12345678/0",
+      "origin": {
+        "raw": {
+          "amc": "HDFC Mutual Fund",
+          "folio": "12345678/0"
+        },
+        "ref": "mf-folio:hdfc-mutual-fund:12345678/0"
+      }
+    },
+    {
+      "accountKey": "mf-folio:hdfc-mutual-fund:12345678/0",
+      "amountMinor": "499975",
+      "authority": "primary",
+      "currency": "INR",
+      "fees": {
+        "brokerage": "0",
+        "gst": "0",
+        "other": "0",
+        "stampDuty": "25",
+        "stt": "0",
+        "tds": "0"
+      },
+      "instrument": {
+        "assetClassHint": "mutual_fund",
+        "isin": "INF179K01608",
+        "name": "HDFC Flexi Cap Fund - Growth Plan",
+        "providerLocalId": "H123"
+      },
+      "kind": "transaction",
+      "occurredAt": "2021-04-15T00:00:00+05:30",
+      "occurredDate": "2021-04-15",
+      "occurredTz": "Asia/Kolkata",
+      "origin": {
+        "raw": {
+          "amount": "4,999.75",
+          "balance": "100.500",
+          "date": "15-Apr-2021",
+          "description": "Purchase-SIP (ECS) - Instalment 1/60",
+          "price": "49.7488",
+          "units": "100.500"
+        },
+        "ref": "p.1 r.14"
+      },
+      "price": {
+        "scale": 4,
+        "value": "49.7488"
+      },
+      "quantity": {
+        "scale": 3,
+        "value": "100.500"
+      },
+      "txnType": "buy"
+    },
+    {
+      "accountKey": "mf-folio:hdfc-mutual-fund:12345678/0",
+      "amountMinor": "500000",
+      "authority": "primary",
+      "currency": "INR",
+      "fees": {
+        "brokerage": "0",
+        "gst": "0",
+        "other": "0",
+        "stampDuty": "0",
+        "stt": "0",
+        "tds": "0"
+      },
+      "instrument": {
+        "assetClassHint": "mutual_fund",
+        "isin": "INF179K01608",
+        "name": "HDFC Flexi Cap Fund - Growth Plan",
+        "providerLocalId": "H123"
+      },
+      "kind": "transaction",
+      "occurredAt": "2021-05-15T00:00:00+05:30",
+      "occurredDate": "2021-05-15",
+      "occurredTz": "Asia/Kolkata",
+      "origin": {
+        "raw": {
+          "amount": "5,000.00",
+          "balance": "198.900",
+          "date": "15-May-2021",
+          "description": "Systematic Investment (2/60)",
+          "price": "50.8130",
+          "units": "98.400"
+        },
+        "ref": "p.1 r.16"
+      },
+      "price": {
+        "scale": 4,
+        "value": "50.8130"
+      },
+      "quantity": {
+        "scale": 3,
+        "value": "98.400"
+      },
+      "txnType": "buy"
+    },
+    {
+      "accountKey": "mf-folio:hdfc-mutual-fund:12345678/0",
+      "amountMinor": "500000",
+      "authority": "primary",
+      "currency": "INR",
+      "fees": {
+        "brokerage": "0",
+        "gst": "0",
+        "other": "0",
+        "stampDuty": "0",
+        "stt": "0",
+        "tds": "0"
+      },
+      "instrument": {
+        "assetClassHint": "mutual_fund",
+        "isin": "INF179K01608",
+        "name": "HDFC Flexi Cap Fund - Growth Plan",
+        "providerLocalId": "H123"
+      },
+      "kind": "transaction",
+      "occurredAt": "2021-05-15T00:00:00+05:30",
+      "occurredDate": "2021-05-15",
+      "occurredTz": "Asia/Kolkata",
+      "origin": {
+        "raw": {
+          "amount": "5,000.00",
+          "balance": "297.300",
+          "date": "15-May-2021",
+          "description": "Systematic Investment (2/60)",
+          "price": "50.8130",
+          "units": "98.400"
+        },
+        "ref": "p.1 r.17"
+      },
+      "price": {
+        "scale": 4,
+        "value": "50.8130"
+      },
+      "quantity": {
+        "scale": 3,
+        "value": "98.400"
+      },
+      "txnType": "buy"
+    },
+    {
+      "accountKey": "mf-folio:hdfc-mutual-fund:12345678/0",
+      "amountMinor": "-1000000",
+      "authority": "primary",
+      "currency": "INR",
+      "fees": {
+        "brokerage": "0",
+        "gst": "0",
+        "other": "0",
+        "stampDuty": "0",
+        "stt": "0",
+        "tds": "0"
+      },
+      "instrument": {
+        "assetClassHint": "mutual_fund",
+        "isin": "INF179K01608",
+        "name": "HDFC Flexi Cap Fund - Growth Plan",
+        "providerLocalId": "H123"
+      },
+      "kind": "transaction",
+      "occurredAt": "2022-06-20T00:00:00+05:30",
+      "occurredDate": "2022-06-20",
+      "occurredTz": "Asia/Kolkata",
+      "origin": {
+        "raw": {
+          "amount": "(10,000.00)",
+          "balance": "147.300",
+          "date": "20-Jun-2022",
+          "description": "Redemption Of Units",
+          "price": "66.6667",
+          "units": "(150.000)"
+        },
+        "ref": "p.2 r.2"
+      },
+      "price": {
+        "scale": 4,
+        "value": "66.6667"
+      },
+      "quantity": {
+        "scale": 3,
+        "value": "-150.000"
+      },
+      "txnType": "sell"
+    },
+    {
+      "accountKey": "mf-folio:hdfc-mutual-fund:12345678/0",
+      "amountMinor": "29460",
+      "authority": "primary",
+      "currency": "INR",
+      "fees": {
+        "brokerage": "0",
+        "gst": "0",
+        "other": "0",
+        "stampDuty": "0",
+        "stt": "0",
+        "tds": "0"
+      },
+      "instrument": {
+        "assetClassHint": "mutual_fund",
+        "isin": "INF179K01608",
+        "name": "HDFC Flexi Cap Fund - Growth Plan",
+        "providerLocalId": "H123"
+      },
+      "kind": "transaction",
+      "occurredAt": "2023-07-10T00:00:00+05:30",
+      "occurredDate": "2023-07-10",
+      "occurredTz": "Asia/Kolkata",
+      "origin": {
+        "raw": {
+          "amount": "294.60",
+          "balance": "147.300",
+          "date": "10-Jul-2023",
+          "description": "*** IDCW Payout @ Rs.2.00 per unit ***",
+          "price": "",
+          "units": ""
+        },
+        "ref": "p.2 r.3"
+      },
+      "quantity": {
+        "scale": 0,
+        "value": "0"
+      },
+      "txnType": "dividend"
+    },
+    {
+      "accountKey": "mf-folio:hdfc-mutual-fund:12345678/0",
+      "asOf": "2025-03-31T00:00:00+05:30",
+      "asOfDate": "2025-03-31",
+      "asOfTz": "Asia/Kolkata",
+      "currency": "INR",
+      "instrument": {
+        "assetClassHint": "mutual_fund",
+        "isin": "INF179K01608",
+        "name": "HDFC Flexi Cap Fund - Growth Plan",
+        "providerLocalId": "H123"
+      },
+      "kind": "position",
+      "marketValueMinor": "883800",
+      "origin": {
+        "raw": {
+          "balance": "147.300",
+          "scheme": "HDFC Flexi Cap Fund - Growth Plan"
+        },
+        "ref": "mf-folio:hdfc-mutual-fund:12345678/0"
+      },
+      "quantity": {
+        "scale": 3,
+        "value": "147.300"
+      }
+    },
+    {
+      "accountKey": "mf-folio:icici-prudential-mutual-fund:91012424/0",
+      "baseCurrency": "INR",
+      "capability": "ledger",
+      "externalRef": "91012424/0",
+      "kind": "account",
+      "label": "ICICI Prudential Mutual Fund · 91012424/0",
+      "origin": {
+        "raw": {
+          "amc": "ICICI Prudential Mutual Fund",
+          "folio": "91012424/0"
+        },
+        "ref": "mf-folio:icici-prudential-mutual-fund:91012424/0"
+      }
+    },
+    {
+      "accountKey": "mf-folio:icici-prudential-mutual-fund:91012424/0",
+      "amountMinor": "2500000",
+      "authority": "primary",
+      "currency": "INR",
+      "fees": {
+        "brokerage": "0",
+        "gst": "0",
+        "other": "0",
+        "stampDuty": "0",
+        "stt": "0",
+        "tds": "0"
+      },
+      "instrument": {
+        "assetClassHint": "mutual_fund",
+        "isin": "INF109K01BL4",
+        "name": "ICICI Prudential Bluechip Fund",
+        "providerLocalId": "P0Z1"
+      },
+      "kind": "transaction",
+      "occurredAt": "2024-01-05T00:00:00+05:30",
+      "occurredDate": "2024-01-05",
+      "occurredTz": "Asia/Kolkata",
+      "origin": {
+        "raw": {
+          "amount": "25,000.00",
+          "balance": "500.000",
+          "date": "05-Jan-2024",
+          "description": "Purchase",
+          "price": "50.0000",
+          "units": "500.000"
+        },
+        "ref": "p.2 r.11"
+      },
+      "price": {
+        "scale": 4,
+        "value": "50.0000"
+      },
+      "quantity": {
+        "scale": 3,
+        "value": "500.000"
+      },
+      "txnType": "buy"
+    },
+    {
+      "accountKey": "mf-folio:icici-prudential-mutual-fund:91012424/0",
+      "asOf": "2025-03-31T00:00:00+05:30",
+      "asOfDate": "2025-03-31",
+      "asOfTz": "Asia/Kolkata",
+      "currency": "INR",
+      "instrument": {
+        "assetClassHint": "mutual_fund",
+        "isin": "INF109K01BL4",
+        "name": "ICICI Prudential Bluechip Fund",
+        "providerLocalId": "P0Z1"
+      },
+      "kind": "position",
+      "marketValueMinor": "2750000",
+      "origin": {
+        "raw": {
+          "balance": "500.000",
+          "scheme": "ICICI Prudential Bluechip Fund"
+        },
+        "ref": "mf-folio:icici-prudential-mutual-fund:91012424/0"
+      },
+      "quantity": {
+        "scale": 3,
+        "value": "500.000"
+      }
+    }
+  ],
+  "skipped": []
+}

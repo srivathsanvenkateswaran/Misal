@@ -1,0 +1,9 @@
+Account Statement
+Client: ****1234    Period: 01-Apr-2024 to 31-Mar-2025
+Generated on 02-Apr-2025
+
+Txn Date,Narration,Scrip Code,Scrip Name,Qty,Rate,Net Amount,Charges
+15-Apr-2024,BUY - DELIVERY,532540,TCS LTD,10,"3,850.50","(38,505.00)",42.30
+22-Jul-2024,"SELL - DELIVERY, T+1",532540,TCS LTD,4,"4,120.00","16,480.00",31.15
+30-Sep-2024,DIVIDEND CREDIT,532540,TCS LTD,,,"600.00",0.00
+Total,,,,,,"(21,425.00)",73.45

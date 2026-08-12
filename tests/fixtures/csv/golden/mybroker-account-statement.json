@@ -1,0 +1,163 @@
+{
+  "issues": [],
+  "records": [
+    {
+      "accountKey": "broker:mybroker",
+      "baseCurrency": "INR",
+      "capability": "ledger",
+      "externalRef": "broker:mybroker",
+      "kind": "account",
+      "label": "MyBroker",
+      "origin": {
+        "raw": {
+          "charges": "42.30",
+          "narration": "BUY - DELIVERY",
+          "net amount": "(38,505.00)",
+          "qty": "10",
+          "rate": "3,850.50",
+          "scrip code": "532540",
+          "scrip name": "TCS LTD",
+          "txn date": "15-Apr-2024"
+        },
+        "ref": "row 5"
+      }
+    },
+    {
+      "accountKey": "broker:mybroker",
+      "amountMinor": "-3850500",
+      "authority": "primary",
+      "currency": "INR",
+      "fees": {
+        "brokerage": "0",
+        "gst": "0",
+        "other": "4230",
+        "stampDuty": "0",
+        "stt": "0",
+        "tds": "0"
+      },
+      "instrument": {
+        "assetClassHint": "indian_equity",
+        "name": "TCS LTD",
+        "providerLocalId": "532540"
+      },
+      "kind": "transaction",
+      "occurredAt": "2024-04-15T00:00:00+05:30",
+      "occurredDate": "2024-04-15",
+      "occurredTz": "Asia/Kolkata",
+      "origin": {
+        "raw": {
+          "charges": "42.30",
+          "narration": "BUY - DELIVERY",
+          "net amount": "(38,505.00)",
+          "qty": "10",
+          "rate": "3,850.50",
+          "scrip code": "532540",
+          "scrip name": "TCS LTD",
+          "txn date": "15-Apr-2024"
+        },
+        "ref": "row 5"
+      },
+      "price": {
+        "scale": 2,
+        "value": "3850.50"
+      },
+      "quantity": {
+        "scale": 0,
+        "value": "10"
+      },
+      "txnType": "buy"
+    },
+    {
+      "accountKey": "broker:mybroker",
+      "amountMinor": "1648000",
+      "authority": "primary",
+      "currency": "INR",
+      "fees": {
+        "brokerage": "0",
+        "gst": "0",
+        "other": "3115",
+        "stampDuty": "0",
+        "stt": "0",
+        "tds": "0"
+      },
+      "instrument": {
+        "assetClassHint": "indian_equity",
+        "name": "TCS LTD",
+        "providerLocalId": "532540"
+      },
+      "kind": "transaction",
+      "occurredAt": "2024-07-22T00:00:00+05:30",
+      "occurredDate": "2024-07-22",
+      "occurredTz": "Asia/Kolkata",
+      "origin": {
+        "raw": {
+          "charges": "31.15",
+          "narration": "SELL - DELIVERY, T+1",
+          "net amount": "16,480.00",
+          "qty": "4",
+          "rate": "4,120.00",
+          "scrip code": "532540",
+          "scrip name": "TCS LTD",
+          "txn date": "22-Jul-2024"
+        },
+        "ref": "row 6"
+      },
+      "price": {
+        "scale": 2,
+        "value": "4120.00"
+      },
+      "quantity": {
+        "scale": 0,
+        "value": "-4"
+      },
+      "txnType": "sell"
+    },
+    {
+      "accountKey": "broker:mybroker",
+      "amountMinor": "60000",
+      "authority": "primary",
+      "currency": "INR",
+      "fees": {
+        "brokerage": "0",
+        "gst": "0",
+        "other": "0",
+        "stampDuty": "0",
+        "stt": "0",
+        "tds": "0"
+      },
+      "instrument": {
+        "assetClassHint": "indian_equity",
+        "name": "TCS LTD",
+        "providerLocalId": "532540"
+      },
+      "kind": "transaction",
+      "occurredAt": "2024-09-30T00:00:00+05:30",
+      "occurredDate": "2024-09-30",
+      "occurredTz": "Asia/Kolkata",
+      "origin": {
+        "raw": {
+          "charges": "0.00",
+          "narration": "DIVIDEND CREDIT",
+          "net amount": "600.00",
+          "qty": "",
+          "rate": "",
+          "scrip code": "532540",
+          "scrip name": "TCS LTD",
+          "txn date": "30-Sep-2024"
+        },
+        "ref": "row 7"
+      },
+      "quantity": {
+        "scale": 0,
+        "value": "0"
+      },
+      "txnType": "dividend"
+    }
+  ],
+  "skipped": [
+    {
+      "reason": "matched skipRowsMatching",
+      "ref": "row 8"
+    }
+  ]
+}
