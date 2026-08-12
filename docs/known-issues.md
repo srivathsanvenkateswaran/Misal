@@ -6,6 +6,49 @@ left in a branch description, so they survive the worktree they were found in.
 Each entry states the consequence, because "known issue" without a consequence gets deprioritised
 forever.
 
+## Blocking before v1 ships
+
+### Two divergent `natural_key` implementations
+
+Ingestion and the exchange adapters each compute `txn.natural_key` independently, and they do not
+agree:
+
+| | field list |
+|---|---|
+| `src/ingestion/` | account, instrument, type, local date, trailing-zero-trimmed quantity, `amountMinor` |
+| `src/adapters/sync/natural-key.ts` | the same, **plus the exchange trade id** |
+
+The adapters added the trade id for a real reason: without it, two identical commission rows from
+different pages of the same API response collapse into one key, while `occurrence` counts only
+within a document and the unique index spans all of them. So neither field list is simply wrong.
+
+**Consequence:** deduplication only works within a source. A user who imports a CSV export of their
+exchange trades *and* connects the same exchange by API gets both copies, because the two paths
+produce different keys for the same trade. That inflates net worth — the same class of failure as
+the mutual-fund folio doubling that `account.identity_key` was added to prevent, and it is
+currently unguarded: nothing fails if the two field lists disagree.
+
+**Fix direction:** one shared `naturalKey()` in `src/domain/`, consumed by both subsystems, with a
+conformance test asserting both produce identical keys for the same logical transaction. Where a
+discriminator is genuinely needed, it belongs in `occurrence` rather than folded into the key.
+
+Cross-source dedup between a CSV export and an API sync of the same exchange may not be fully
+solvable — a CSV that omits trade ids cannot be matched with confidence. If so, say so in the
+import UI rather than silently producing duplicates.
+
+### Account identity depends on an AMC name slug
+
+`identity_key` for a mutual fund folio is built from a slugified AMC name. The test fixtures print
+"HDFC Mutual Fund" in both documents, but a real NSDL eCAS printing "HDFC Asset Management Company
+Limited" slugs differently.
+
+**Consequence:** the same folio becomes two accounts and its units are counted twice — exactly the
+failure the identity key exists to prevent, and the test suite would not catch it because both
+fixtures happen to agree.
+
+**Fix direction:** a canonical AMC table keyed on registrar codes, rather than string
+normalisation of a printed name.
+
 ## Valuation engine
 
 ### `PriceService.priceAt` returns the nearest preceding price, not an exact match

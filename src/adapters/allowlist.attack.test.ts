@@ -26,7 +26,9 @@ import { describe, expect, it } from 'vitest'
 import { AllowlistViolation, assertAllowlistIsReadOnly, authorise } from './allowlist'
 import type { AllowedRequest } from './contract'
 
-const HOST = 'api.binance.com'
+// Adapters declare logical host keys, not hostnames; the concrete host is resolved
+// from a map the adapter cannot widen. 'public' is the unauthenticated market-data host.
+const HOST = 'primary' as const
 
 /** A realistic read-only allowlist, as a well-behaved adapter would declare it. */
 const READ_ONLY_ALLOWLIST: readonly AllowedRequest[] = [
@@ -96,11 +98,13 @@ describe('authorise refuses every disguised mutating request', () => {
     }).toThrow(AllowlistViolation)
   })
 
-  it('refuses a read path on a host the adapter did not declare', () => {
+  it('refuses a read path on a host key the adapter did not declare for it', () => {
+    // The allowlist declares these paths on 'primary' only. Asking for the same path on the
+    // public host must not be waved through just because the path itself is read-only.
     expect(() => {
       authorise('binance', READ_ONLY_ALLOWLIST, {
         method: 'GET',
-        host: 'evil.example',
+        host: 'public',
         path: '/api/v3/account',
       })
     }).toThrow(AllowlistViolation)
