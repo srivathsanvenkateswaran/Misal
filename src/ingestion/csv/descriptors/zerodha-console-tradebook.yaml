@@ -1,0 +1,60 @@
+# Zerodha Console — tradebook.
+#
+# An equities ledger with an explicit side column and an ISIN in the file, so resolution is a
+# direct hit and the sign comes from the side rather than from the number.
+#
+# The tradebook carries no brokerage and no STT. That is a real limitation of the source: the
+# cost basis it supports is gross of charges, and the import report says so with W_FEES_ABSENT
+# rather than papering over it.
+descriptorVersion: 1
+id: zerodha-console-tradebook
+providerId: zerodha-kite
+displayName: Zerodha Console — tradebook
+emits: transactions
+capability: ledger
+
+detect:
+  requiredHeaders: [symbol, isin, trade_date, trade_type, quantity, price]
+  signalHeaders: [order_execution_time, exchange, segment, series]
+
+file:
+  delimiter: ","
+  encoding: utf-8
+  headerRow: auto
+  timezone: Asia/Kolkata
+  currency: INR
+
+account:
+  realm: broker
+  constant: "broker:zerodha"
+  labelTemplate: "Zerodha"
+
+instrument:
+  isin: isin
+  symbol: symbol
+  exchange: exchange
+  name: symbol
+  assetClassHint: { constant: indian_equity }
+
+columns:
+  date: { kind: date, column: trade_date, format: "yyyy-MM-dd" }
+  quantity:
+    kind: decimal
+    column: quantity
+    transform:
+      negative: never
+      signFrom: { column: trade_type, negativeWhen: ["^sell$"] }
+  price: { kind: decimal, column: price }
+  amount: { kind: computed, expr: { op: multiply, left: quantity, right: price } }
+  description: { kind: text, column: trade_type }
+
+typeRules:
+  - when: { column: trade_type, equals: [buy], ignoreCase: true }
+    type: buy
+  - when: { column: trade_type, equals: [sell], ignoreCase: true }
+    type: sell
+
+postconditions:
+  - kind: non-empty
+    params: {}
+    severity: error
