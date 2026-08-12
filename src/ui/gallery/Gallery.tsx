@@ -294,8 +294,6 @@ export function Gallery(): ReactNode {
             netWorth={fx.NET_WORTH}
             ledgerBacked={fx.LEDGER_BACKED}
             snapshotOnly={fx.SNAPSHOT_ONLY}
-            ledgerPct={dec('71.90')}
-            snapshotPct={dec('28.10')}
             accountsLedger={4}
             accountsTotal={6}
           />
@@ -306,8 +304,6 @@ export function Gallery(): ReactNode {
             netWorth={fx.NET_WORTH}
             ledgerBacked={fx.R('0')}
             snapshotOnly={fx.NET_WORTH}
-            ledgerPct={dec('0.00')}
-            snapshotPct={dec('100.00')}
             accountsLedger={0}
             accountsTotal={6}
           />
@@ -318,8 +314,6 @@ export function Gallery(): ReactNode {
             netWorth={fx.NET_WORTH}
             ledgerBacked={fx.NET_WORTH}
             snapshotOnly={fx.R('0')}
-            ledgerPct={dec('100.00')}
-            snapshotPct={dec('0.00')}
             accountsLedger={6}
             accountsTotal={6}
           />
@@ -330,8 +324,6 @@ export function Gallery(): ReactNode {
             netWorth={fx.NET_WORTH}
             ledgerBacked={fx.LEDGER_BACKED}
             snapshotOnly={fx.SNAPSHOT_ONLY}
-            ledgerPct={dec('71.90')}
-            snapshotPct={dec('28.10')}
             accountsLedger={4}
             accountsTotal={6}
             state="loading"
@@ -343,8 +335,6 @@ export function Gallery(): ReactNode {
             netWorth={fx.R('0')}
             ledgerBacked={fx.R('0')}
             snapshotOnly={fx.R('0')}
-            ledgerPct={dec('0.00')}
-            snapshotPct={dec('0.00')}
             accountsLedger={0}
             accountsTotal={0}
             state="empty"
@@ -356,8 +346,6 @@ export function Gallery(): ReactNode {
             netWorth={fx.R('0')}
             ledgerBacked={fx.R('0')}
             snapshotOnly={fx.R('0')}
-            ledgerPct={dec('0.00')}
-            snapshotPct={dec('0.00')}
             accountsLedger={0}
             accountsTotal={6}
             state="error"

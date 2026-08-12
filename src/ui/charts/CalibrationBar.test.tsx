@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import { dec } from '@domain/numeric'
 import * as fx from '../gallery/fixtures'
 import { assertHonest } from '../testing/assert-honest'
 import { CalibrationBar } from './CalibrationBar'
@@ -13,8 +12,6 @@ function mockupBar(overrides: Partial<Parameters<typeof CalibrationBar>[0]> = {}
       netWorth={fx.NET_WORTH}
       ledgerBacked={fx.LEDGER_BACKED}
       snapshotOnly={fx.SNAPSHOT_ONLY}
-      ledgerPct={dec('71.90')}
-      snapshotPct={dec('28.10')}
       accountsLedger={4}
       accountsTotal={6}
       {...overrides}
@@ -58,8 +55,12 @@ describe('CalibrationBar — the ruler', () => {
 describe('CalibrationBar — the coverage story', () => {
   it('names both sides of the boundary, in percent and to the rupee', () => {
     const { container } = render(mockupBar())
+    // 71.8, not the mockup's 71.9. The bar derives its percentage from the amounts beside it
+    // using the domain's coveragePercent, which truncates so that "100.0%" can only appear at
+    // genuine completeness. Rounding half-up would let 99.96% coverage claim to be total, and a
+    // coverage figure that overstates itself is the one number this component must never produce.
     expect(container.querySelector('.cal-lab-l')?.textContent).toBe(
-      '71.9% LEDGER-BACKED · ₹34,73,722',
+      '71.8% LEDGER-BACKED · ₹34,73,722',
     )
     expect(container.querySelector('.cal-lab-r')?.textContent).toBe(
       '28.1% SNAPSHOT ONLY · ₹13,58,428',
@@ -114,8 +115,6 @@ describe('CalibrationBar — the harshest honest states', () => {
         segments: fx.ALL_SNAPSHOT_SEGMENTS,
         ledgerBacked: fx.R('0'),
         snapshotOnly: fx.NET_WORTH,
-        ledgerPct: dec('0.00'),
-        snapshotPct: dec('100.00'),
         accountsLedger: 0,
       }),
     )
@@ -132,8 +131,6 @@ describe('CalibrationBar — the harshest honest states', () => {
         segments: fx.ALL_LEDGER_SEGMENTS,
         ledgerBacked: fx.NET_WORTH,
         snapshotOnly: fx.R('0'),
-        ledgerPct: dec('100.00'),
-        snapshotPct: dec('0.00'),
         accountsLedger: 6,
       }),
     )
@@ -151,14 +148,10 @@ describe('CalibrationBar — the harshest honest states', () => {
       {
         ledgerBacked: fx.R('0'),
         snapshotOnly: fx.NET_WORTH,
-        ledgerPct: dec('0.00'),
-        snapshotPct: dec('100.00'),
       },
       {
         ledgerBacked: fx.NET_WORTH,
         snapshotOnly: fx.R('0'),
-        ledgerPct: dec('100.00'),
-        snapshotPct: dec('0.00'),
       },
     ]
     for (const extreme of extremes) {

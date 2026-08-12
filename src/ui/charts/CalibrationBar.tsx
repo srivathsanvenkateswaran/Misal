@@ -20,6 +20,7 @@ import type { Minor } from '@domain/numeric'
 import { ZERO_MINOR, addMinor, compareMinor, isZeroMinor, minor } from '@domain/numeric'
 import type { Dec } from '@domain/numeric'
 import type { AssetClass } from '@valuation/types'
+import { coveragePercent } from '@domain/measured'
 import { abbreviateMinor, formatMoney, formatPct, money } from '../format'
 import { ASSET_CLASS_LABEL, SERIES_BY_ASSET_CLASS } from '../metrics'
 import { HatchPattern } from './HatchPattern'
@@ -52,8 +53,17 @@ export interface CalibrationBarProps {
   readonly netWorth: Minor
   readonly ledgerBacked: Minor
   readonly snapshotOnly: Minor
-  readonly ledgerPct: Dec
-  readonly snapshotPct: Dec
+  /**
+   * Coverage percentages are NOT props.
+   *
+   * They are derived below from `ledgerBacked`, `snapshotOnly` and `netWorth` using the domain's
+   * `coveragePercent`, so the figure and the amounts beside it can never disagree. Accepting them
+   * as props allowed exactly that: the gallery passed an exact ratio, `formatPct` rounded it
+   * half-up, and the bar read 71.9% next to amounts that are 71.8% under the project's own rule.
+   *
+   * The rounding difference is the whole point. `coveragePercent` truncates so that "100.0%"
+   * appears only at genuine completeness; rounding would let 99.96% coverage claim to be total.
+   */
   readonly accountsLedger: number
   readonly accountsTotal: number
   /** Defaults to `netWorth` rounded up to a clean ₹5L / ₹50L / ₹5Cr step. */
@@ -63,10 +73,6 @@ export interface CalibrationBarProps {
 }
 
 const DESCRIPTION = 'What fraction of net worth the deeper metrics can actually measure'
-
-function spoken(pct: Dec): string {
-  return `${formatPct(pct, { decimals: 1 }).replace('%', '')} percent`
-}
 
 /**
  * A monospace advance at 10px with .12em tracking. Used only to keep the three annotations on the
@@ -128,12 +134,22 @@ export function CalibrationBar(props: CalibrationBarProps): ReactNode {
   const steps = chooseTickSteps(scaleMax)
   const axisTicks = ticks(scaleMax, steps)
 
-  const ledgerLabel = `${formatPct(props.ledgerPct, { decimals: 1 })} LEDGER-BACKED · ${formatMoney(money(props.ledgerBacked))}`
-  const snapshotLabel = `${formatPct(props.snapshotPct, { decimals: 1 })} SNAPSHOT ONLY · ${formatMoney(money(props.snapshotOnly))}`
+  const ledgerPctText = coveragePercent({
+    covered: props.ledgerBacked,
+    total: props.netWorth,
+    excludedAccounts: [],
+  })
+  const snapshotPctText = coveragePercent({
+    covered: props.snapshotOnly,
+    total: props.netWorth,
+    excludedAccounts: [],
+  })
+  const ledgerLabel = `${ledgerPctText}% LEDGER-BACKED · ${formatMoney(money(props.ledgerBacked))}`
+  const snapshotLabel = `${snapshotPctText}% SNAPSHOT ONLY · ${formatMoney(money(props.snapshotOnly))}`
 
   const label =
     state === 'ready'
-      ? `Calibration bar: ${spoken(props.ledgerPct)} of net worth is backed by full transaction history; ${spoken(props.snapshotPct)} is a holdings snapshot with no transaction history.`
+      ? `Calibration bar: ${ledgerPctText} percent of net worth is backed by full transaction history; ${snapshotPctText} percent is a holdings snapshot with no transaction history.`
       : 'Calibration bar: nothing measured yet.'
 
   const boundaryX = px(x(props.ledgerBacked))
@@ -149,7 +165,7 @@ export function CalibrationBar(props: CalibrationBarProps): ReactNode {
       data-metric="coverage"
       data-scope="portfolio"
       data-basis="mixed"
-      data-coverage-pct={state === 'ready' ? formatPct(props.ledgerPct, { decimals: 1 }).replace('%', '') : undefined}
+      data-coverage-pct={state === 'ready' ? ledgerPctText : undefined}
       data-coverage-minor={state === 'ready' ? props.ledgerBacked : undefined}
     >
       <div className="calib-head">
@@ -160,7 +176,7 @@ export function CalibrationBar(props: CalibrationBarProps): ReactNode {
         <div className="calib-readout">
           {state === 'ready' ? (
             <>
-              Ledger-backed <b>{formatPct(props.ledgerPct, { decimals: 1 })}</b> &nbsp;·&nbsp;{' '}
+              Ledger-backed <b>{ledgerPctText}%</b> &nbsp;·&nbsp;{' '}
               {formatMoney(money(props.ledgerBacked))} of {formatMoney(money(props.netWorth))}{' '}
               &nbsp;·&nbsp; {props.accountsLedger} of {props.accountsTotal} accounts
             </>
