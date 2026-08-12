@@ -1,0 +1,98 @@
+/* The gallery's own chrome. Not part of the product — it exists so a human can see every
+   component in every state on one page, in both themes. */
+
+.gwrap {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 0 24px 96px;
+}
+
+.gmast {
+  border-bottom: 1px solid var(--rule-2);
+  padding: 22px 0 14px;
+  margin-bottom: 22px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.gmark {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+}
+
+.gsub {
+  font-size: var(--fs-meta);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.gsection {
+  margin: 0 0 40px;
+}
+
+.ghead {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  border-bottom: 2px solid var(--ink-1);
+  padding-bottom: 6px;
+  margin-bottom: 14px;
+}
+
+.gno {
+  font-size: var(--fs-meta);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  background: var(--ink-1);
+  color: var(--page);
+  padding: 2px 7px;
+}
+
+.gtitle {
+  font-size: var(--fs-strong);
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  margin: 0;
+}
+
+.gnote {
+  font-size: var(--fs-meta);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-left: auto;
+  text-align: right;
+}
+
+.gstate {
+  font-size: var(--fs-label);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin: 14px 0 6px;
+  display: block;
+}
+
+.grow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  align-items: flex-start;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  padding: 14px;
+}
+
+.gswatches {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  align-items: center;
+}

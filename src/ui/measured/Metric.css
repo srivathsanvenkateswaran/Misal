@@ -1,0 +1,54 @@
+/* The sanctioned renderer for a figure, and its not-measured branch. */
+
+.metric {
+  font-variant-numeric: tabular-nums;
+}
+
+.metric-hero {
+  font-size: var(--fs-hero);
+  line-height: 44px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  display: block;
+}
+
+.metric-value {
+  font-size: var(--fs-val);
+  line-height: 26px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  display: block;
+}
+
+.metric-cell {
+  font-size: var(--fs-base);
+}
+
+.metric-table {
+  font-size: var(--fs-body);
+}
+
+/* "Not measured" is a success state, not an error: it is the product declining to invent a
+   number. It is set in --ink-4, 9px, uppercase, tracked — quiet, and never alert ink. */
+.na {
+  color: var(--ink-4);
+  letter-spacing: 0.1em;
+  font-size: var(--fs-label);
+  text-transform: uppercase;
+  display: inline;
+}
+
+.na-reason {
+  display: block;
+  color: var(--ink-4);
+  font-size: var(--fs-label);
+  letter-spacing: 0.06em;
+  text-transform: none;
+}
+
+@media (max-width: 1140px) {
+  .metric-hero {
+    font-size: 32px;
+    line-height: 38px;
+  }
+}

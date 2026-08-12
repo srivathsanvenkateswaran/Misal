@@ -1,0 +1,282 @@
+/* ============================================================
+   SVG chart classes, lifted from the approved mockup.
+
+   Fills are var(--sN) and the hatch stroke is var(--surface), so
+   light/dark and the manual theme override cost zero JavaScript and
+   cannot desynchronise.
+   ============================================================ */
+
+svg.cal,
+svg.nwchart,
+svg.concchart {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+svg text {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.f-s1 {
+  fill: var(--s1);
+}
+.f-s2 {
+  fill: var(--s2);
+}
+.f-s3 {
+  fill: var(--s3);
+}
+.f-s4 {
+  fill: var(--s4);
+}
+.f-s5 {
+  fill: var(--s5);
+}
+.f-other {
+  fill: var(--other);
+}
+
+.hatch {
+  fill: url(#misal-hatch);
+}
+
+.hx-line {
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+
+.f-skel {
+  fill: var(--surface-3);
+}
+
+.grid {
+  stroke: var(--rule);
+  stroke-width: 1;
+}
+.axis,
+.rule-axis {
+  stroke: var(--rule-2);
+  stroke-width: 1;
+}
+.tick-min {
+  stroke: var(--tick);
+  stroke-width: 1;
+}
+.tick-maj {
+  stroke: var(--ink-3);
+  stroke-width: 1;
+}
+.thresh {
+  stroke: var(--ink-3);
+  stroke-width: 1;
+}
+.boundary {
+  stroke: var(--ink-1);
+  stroke-width: 2;
+}
+.boundary-caret {
+  fill: var(--ink-1);
+}
+.total-mark {
+  stroke: var(--ink-3);
+  stroke-width: 1;
+}
+.bracket {
+  fill: none;
+  stroke: var(--ink-3);
+  stroke-width: 1;
+}
+.gap-mark {
+  stroke: var(--ink-4);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+}
+
+/* Ruler drawn but nothing measured: the empty state of the instrument. */
+.ruler-empty .tick-min,
+.ruler-empty .tick-maj,
+.ruler-empty .rule-axis {
+  stroke: var(--ink-4);
+}
+
+.tick-lab {
+  font-size: var(--fs-label);
+  letter-spacing: 0.06em;
+  fill: var(--ink-3);
+}
+.ax {
+  font-size: var(--fs-label);
+  letter-spacing: 0.06em;
+  fill: var(--ink-3);
+}
+.ax-dim {
+  font-size: var(--fs-stamp);
+  letter-spacing: 0.06em;
+  fill: var(--ink-4);
+}
+
+/* In-fill labels: near-black on every slot, with a halo in the segment's own hue so they stay
+   crisp over the hatch. A specific technique, not a style choice — keep it. */
+.seg-name,
+.seg-pct {
+  fill: #0d0d0d;
+  font-weight: 700;
+  paint-order: stroke;
+  stroke-linejoin: round;
+}
+.seg-name {
+  font-size: var(--fs-label);
+  letter-spacing: 0.16em;
+}
+.seg-pct {
+  font-size: var(--fs-base);
+  letter-spacing: 0.02em;
+}
+.on-s1 {
+  stroke: var(--s1);
+  stroke-width: 3;
+}
+.on-s2 {
+  stroke: var(--s2);
+  stroke-width: 3;
+}
+.on-s3 {
+  stroke: var(--s3);
+  stroke-width: 3;
+}
+.on-s4 {
+  stroke: var(--s4);
+  stroke-width: 3;
+}
+.on-s5 {
+  stroke: var(--s5);
+  stroke-width: 3;
+}
+.on-other {
+  stroke: var(--other);
+  stroke-width: 3;
+}
+.seg-name-out {
+  font-size: var(--fs-label);
+  letter-spacing: 0.14em;
+  fill: var(--ink-2);
+}
+
+.cal-lab-l {
+  font-size: var(--fs-meta);
+  letter-spacing: 0.12em;
+  fill: var(--ink-1);
+  font-weight: 700;
+}
+.cal-lab-r {
+  font-size: var(--fs-meta);
+  letter-spacing: 0.12em;
+  fill: var(--ink-3);
+}
+.total-lab {
+  font-size: var(--fs-label);
+  letter-spacing: 0.1em;
+  fill: var(--ink-3);
+}
+.bracket-lab {
+  font-size: var(--fs-label);
+  letter-spacing: 0.1em;
+  fill: var(--ink-3);
+}
+.dlab {
+  font-size: var(--fs-meta);
+  letter-spacing: 0.04em;
+  fill: var(--ink-1);
+  font-weight: 700;
+}
+.conc-lab {
+  font-size: var(--fs-meta);
+  letter-spacing: 0.02em;
+  fill: var(--ink-2);
+}
+.conc-val {
+  font-size: var(--fs-meta);
+  letter-spacing: 0.02em;
+  fill: var(--ink-1);
+}
+.thresh-lab {
+  font-size: var(--fs-stamp);
+  letter-spacing: 0.14em;
+  fill: var(--ink-3);
+}
+.gap-lab {
+  font-size: var(--fs-stamp);
+  letter-spacing: 0.14em;
+  fill: var(--ink-4);
+}
+
+/* ============================ calibration bar frame ============================ */
+.calib {
+  border: 1px solid var(--rule-2);
+  border-left: 3px solid var(--ink-1);
+  background: var(--surface);
+  margin-bottom: 14px;
+}
+
+.calib-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 14px 6px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.calib-name {
+  font-size: var(--fs-meta);
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.calib-desc {
+  font-size: var(--fs-meta);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.calib-readout {
+  font-size: var(--fs-meta);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  text-align: right;
+}
+
+.calib-readout b {
+  font-size: var(--fs-strong);
+  letter-spacing: 0.02em;
+}
+
+.calib-body {
+  padding: 10px 12px 4px;
+}
+
+.calib .legend {
+  border-top: 1px solid var(--rule);
+  margin: 0;
+  padding: 8px 12px 10px;
+}
+
+/* Empty and error bodies. A sentence naming what is absent, never a zero-valued chart. */
+.chart-empty {
+  margin: 0;
+  padding: 16px 12px;
+  font-size: var(--fs-body);
+  color: var(--ink-3);
+}
+
+.calib-error {
+  padding: 9px 14px;
+  font-size: var(--fs-body);
+  color: var(--ink-2);
+  border-top: 1px solid var(--rule);
+}

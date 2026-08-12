@@ -1,0 +1,241 @@
+/* ============================================================
+   MARGINAL SOURCE STAMP — provenance in the gutter.
+
+   A machine-printed source tag, not an ink stamp: axis-aligned,
+   hairline, monospace, uppercase, tight. It lives in a dedicated
+   56px left gutter on the row, never inline in a cell.
+
+   THE STYLE OF THE MARK ENCODES DATA HEALTH, so colour is never
+   spent on decoration:
+       solid border  — ledger-backed and current
+       dashed border — snapshot only, no transaction history
+       dotted border — derived from ledger rows, not observed
+   Alert ink is reserved strictly for stale, estimated or
+   unresolved data.
+
+   The mark is exactly 18px tall — one baseline unit — so it sits on
+   the rhythm without changing any row height. That is why it is two
+   stacked blocks of 11px and 7px, and why those numbers must not be
+   altered casually.
+   ============================================================ */
+
+.pgut {
+  width: var(--gutter);
+  border-right: 1px solid var(--rule);
+}
+
+td.pgut {
+  padding: 4px 6px 4px 12px;
+  vertical-align: middle;
+}
+
+th.pgut {
+  padding: 6px 6px 6px 12px;
+  vertical-align: bottom;
+}
+
+.pmark-wrap {
+  position: relative;
+  display: inline-block;
+}
+
+.pmark {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: max-content;
+  max-width: 100%;
+  text-align: left;
+}
+
+.pcode {
+  display: block;
+  height: 11px;
+  line-height: 9px;
+  padding: 0 3px;
+  border: 1px solid var(--ink-4);
+  font-size: var(--fs-stamp);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.pref {
+  display: block;
+  height: 7px;
+  line-height: 7px;
+  font-size: var(--fs-micro);
+  letter-spacing: 0.02em;
+  color: var(--ink-4);
+  white-space: nowrap;
+}
+
+.pmark:hover .pcode {
+  border-color: var(--ink-2);
+  color: var(--ink-1);
+}
+
+.pmark:hover .pref {
+  color: var(--ink-3);
+}
+
+/* health encodings — border style carries the meaning */
+.pmark-snapshot .pcode {
+  border-style: dashed;
+}
+
+.pmark-derived .pcode {
+  border-style: dotted;
+  color: var(--ink-3);
+}
+
+.pmark-alert .pcode {
+  border-color: var(--st-crit);
+  color: var(--neg);
+}
+
+.pmark-alert .pref {
+  color: var(--neg);
+}
+
+/* An empty gutter, used only where D1 applies: the panel-level statement
+   covers the group, and the spacer keeps the left edge aligned. */
+.pgut-empty {
+  display: block;
+  height: 18px;
+}
+
+/* ---- the description, shown on hover or focus after 400 ms ---- */
+.pmark-tip {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  left: 0;
+  width: 260px;
+  padding: 6px 8px;
+  background: var(--surface);
+  border: 1px solid var(--rule-2);
+  color: var(--ink-2);
+  font-size: var(--fs-label);
+  line-height: 13px;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  white-space: normal;
+}
+
+/* ---- the provenance popover ---- */
+.pmark-pop {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 6px);
+  left: 0;
+  width: 300px;
+  background: var(--surface);
+  border: 1px solid var(--rule-2);
+  border-left: 3px solid var(--ink-1);
+  padding: 9px 12px;
+  text-align: left;
+  white-space: normal;
+}
+
+.pmark-pop dl {
+  display: grid;
+  grid-template-columns: 88px 1fr;
+  margin: 0;
+  gap: 0;
+}
+
+.pmark-pop dt {
+  font-size: var(--fs-label);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  padding: 3px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.pmark-pop dd {
+  margin: 0;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--rule);
+  font-size: var(--fs-body);
+  overflow-wrap: anywhere;
+}
+
+.pmark-pop-actions {
+  margin-top: 8px;
+  display: flex;
+  gap: 8px;
+}
+
+/* ---- the stamp key, per D2 a help affordance rather than chrome ---- */
+.stampkey {
+  position: absolute;
+  z-index: 40;
+  right: 0;
+  top: calc(100% + 6px);
+  width: 520px;
+  max-width: 90vw;
+  background: var(--surface);
+  border: 1px solid var(--rule-2);
+  border-left: 3px solid var(--ink-1);
+  text-align: left;
+}
+
+.stampkey-lab {
+  font-size: var(--fs-meta);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  font-weight: 700;
+  padding: 8px 14px 7px;
+  border-bottom: 1px solid var(--rule);
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+}
+
+.stampkey-lab span {
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  color: var(--ink-3);
+}
+
+.stampkey-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px 24px;
+  padding: 9px 14px;
+  align-items: center;
+}
+
+.stampkey-row + .stampkey-row {
+  border-top: 1px solid var(--rule);
+}
+
+.ki {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-meta);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.ki .pcode {
+  flex: none;
+}
+
+.stampkey-trigger {
+  padding: 0 10px;
+  font-size: var(--fs-meta);
+  letter-spacing: 0.1em;
+  color: var(--ink-3);
+  border-left: 1px solid var(--rule);
+}
+
+.stampkey-trigger:hover {
+  color: var(--ink-1);
+}

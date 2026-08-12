@@ -1,0 +1,129 @@
+/* ============================================================
+   MISAL — DESIGN TOKENS
+   Extracted verbatim from docs/design/mockups/final-consolidated.html
+   and docs/specs/2026-08-12-desktop-ui.md §6. Values are not
+   reinvented here; a colour that does not appear in the mockup does
+   not appear in this file.
+
+   Theme switching has three states (§6.7):
+     1. bare :root                      — the complete light palette
+     2. prefers-color-scheme: dark      — guarded so a manual light
+                                          override wins
+     3. :root[data-theme="dark"]        — so a manual dark override
+                                          wins over a light system
+   No colour has its only definition inside a media query.
+   ============================================================ */
+
+:root {
+  color-scheme: light;
+
+  /* --- achromatic ground --- */
+  --page: #e8e8e8;
+  --surface: #fbfbfb;
+  --surface-2: #f3f3f3;
+  --surface-3: #e9e9e9;
+  --ink-1: #111111;
+  --ink-2: #4a4a4a;
+  --ink-3: #6d6d6d;
+  --ink-4: #8d8d8d;
+  --rule: #dedede;
+  --rule-2: #c6c6c6;
+  --tick: #ababab;
+
+  /* --- signed / status ink. Never a series colour; governed by H9. --- */
+  --pos: #006300;
+  --neg: #b4302e;
+  --warn-ink: #8a5d00;
+  --st-good: #0ca30c;
+  --st-warn: #fab219;
+  --st-serious: #ec835a;
+  --st-crit: #d03b3b;
+
+  /* --- categorical series: ASSET CLASS ONLY --- */
+  --s1: #2a78d6; /* indian_equity */
+  --s2: #eb6834; /* mutual_fund   */
+  --s3: #1baf7a; /* crypto        */
+  --s4: #eda100; /* us_equity     */
+  --s5: #e87ba4; /* gold          */
+  --other: #9a9a9a; /* bond, cash, aggregate "Other" */
+
+  /* D3: the focus ring is achromatic. The mockup's #2a78d6 is --s1, the
+     Indian-equity hue, and colour means asset class and nothing else. */
+  --focus: var(--ink-1);
+
+  --mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Monaco, Consolas,
+    'Liberation Mono', 'Courier New', monospace;
+
+  /* --- rhythm and measure (§6.5) --- */
+  --gutter: 56px;
+  --baseline: 18px;
+
+  /* --- type scale (§6.6) --- */
+  --fs-micro: 7.5px;
+  --fs-stamp: 8px;
+  --fs-label: 9px;
+  --fs-meta: 10px;
+  --fs-body: 11px;
+  --fs-base: 12px;
+  --fs-strong: 13px;
+  --fs-lead: 14px;
+  --fs-inst: 17px;
+  --fs-val: 19px;
+  --fs-dq: 20px;
+  --fs-nav: 24px;
+  --fs-hero: 38px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+    --page: #0b0b0b;
+    --surface: #1b1b1b;
+    --surface-2: #232323;
+    --surface-3: #2b2b2b;
+    --ink-1: #f0f0f0;
+    --ink-2: #b6b6b6;
+    --ink-3: #8c8c8c;
+    --ink-4: #707070;
+    --rule: #2f2f2f;
+    --rule-2: #414141;
+    --tick: #525252;
+
+    --pos: #0ca30c;
+    --neg: #e66767;
+    --warn-ink: #fab219;
+
+    --s1: #3987e5;
+    --s2: #d95926;
+    --s3: #199e70;
+    --s4: #c98500;
+    --s5: #d55181;
+    --other: #7d7d7d;
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --page: #0b0b0b;
+  --surface: #1b1b1b;
+  --surface-2: #232323;
+  --surface-3: #2b2b2b;
+  --ink-1: #f0f0f0;
+  --ink-2: #b6b6b6;
+  --ink-3: #8c8c8c;
+  --ink-4: #707070;
+  --rule: #2f2f2f;
+  --rule-2: #414141;
+  --tick: #525252;
+
+  --pos: #0ca30c;
+  --neg: #e66767;
+  --warn-ink: #fab219;
+
+  --s1: #3987e5;
+  --s2: #d95926;
+  --s3: #199e70;
+  --s4: #c98500;
+  --s5: #d55181;
+  --other: #7d7d7d;
+}
