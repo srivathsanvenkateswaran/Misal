@@ -25,6 +25,7 @@
  *   H11, H12 — screen-level and app-level, not component-level.
  */
 
+import { HATCH_ID } from '../charts/HatchPattern'
 import { HISTORY_DEPENDENT } from '../metrics'
 import type { MetricId } from '../metrics'
 
@@ -136,6 +137,28 @@ export function honestyViolations(
     problems.push(
       `The drawn segments total ${element.getAttribute('data-segments-total-minor') ?? '?'} paise, which is not the stated total.`,
     )
+  }
+
+  // ---- the hatch resolves inside its own <svg> ----
+  //
+  // `.hatch` fills from `url(#misal-hatch)`, and an SVG reference resolves against the first
+  // matching id anywhere in the document. So a chart that forgets its own <defs> still looks
+  // correct for as long as some other chart on the page supplies one, and loses its hatch the
+  // moment that chart unmounts — or in any context where it is alone, such as an export, a
+  // print stylesheet or a portal.
+  //
+  // The failure is silent and flatters us: without the hatch, value Misal has no transaction
+  // history for renders identically to value it does. That is the single most misleading thing
+  // this UI could do, so it is checked structurally rather than trusted to review.
+  for (const svg of container.querySelectorAll('svg')) {
+    if (svg.querySelector('[data-hatch]') === null) continue
+    if (svg.querySelector(`#${HATCH_ID}`) === null) {
+      problems.push(
+        `H5: an <svg> draws hatched geometry but does not define #${HATCH_ID} itself, so the ` +
+          `hatch resolves against another chart and will vanish when that chart does. ` +
+          `Snapshot-only value would then read as ledger-backed.`,
+      )
+    }
   }
 
   return problems
