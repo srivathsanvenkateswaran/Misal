@@ -28,15 +28,22 @@
     "@tanstack/react-table": "^9.1.2",
     "@tauri-apps/api": "^2.11.1",
     "decimal.js": "^10.6.0",
+    "luxon": "^3.7.2",
+    "papaparse": "^5.5.4",
+    "pdfjs-dist": "^6.2.108",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "react-dom": "^19.2.8",
+    "yaml": "^2.9.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@tauri-apps/cli": "^2.11.4",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.2",
+    "@types/luxon": "^3.7.4",
     "@types/node": "^26.2.0",
+    "@types/papaparse": "^5.5.2",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^6.0.5",
