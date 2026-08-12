@@ -1,0 +1,10 @@
+{
+  "method": "GET",
+  "path": "/api/v3/account",
+  "repeatable": true,
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-mbx-used-weight-1m": "12"
+  }
+}

@@ -1,0 +1,32 @@
+[
+  {
+    "symbol": "BTCUSDT",
+    "id": 28457,
+    "orderId": 28557,
+    "orderListId": -1,
+    "price": "60000.00000000",
+    "qty": "0.10000000",
+    "quoteQty": "0.00000000",
+    "commission": "0.00011400",
+    "commissionAsset": "BNB",
+    "time": 1718386312255,
+    "isBuyer": true,
+    "isMaker": false,
+    "isBestMatch": true
+  },
+  {
+    "symbol": "BTCUSDT",
+    "id": 28458,
+    "orderId": 28558,
+    "orderListId": -1,
+    "price": "61000.50000000",
+    "qty": "0.05000000",
+    "quoteQty": "0.00000000",
+    "commission": "0.00011400",
+    "commissionAsset": "BNB",
+    "time": 1718386412255,
+    "isBuyer": true,
+    "isMaker": false,
+    "isBestMatch": true
+  }
+]

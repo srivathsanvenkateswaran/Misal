@@ -1,0 +1,10 @@
+{
+  "method": "GET",
+  "path": "/api/v3/myTrades",
+  "query": "fromId=28459",
+  "repeatable": true,
+  "status": 500,
+  "headers": {
+    "content-type": "application/json"
+  }
+}

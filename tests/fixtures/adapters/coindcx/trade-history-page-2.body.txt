@@ -1,0 +1,5 @@
+[
+  {"id":90,"order_id":"ee7a3c19-8d2f-4b0a-9e51-2f0000000003","side":"sell","fee_amount":"3.10000000000000",
+   "ecode":"I","quantity":"0.00030000000000","price":"5200000.00000000000000","symbol":"BTCINR",
+   "timestamp":1718386512255.9999}
+]

@@ -1,0 +1,29 @@
+[
+  {
+    "asset": "BTC",
+    "free": "0.50000000",
+    "locked": "0.10000000",
+    "freeze": "0.00000000",
+    "withdrawing": "0.00000000",
+    "ipoable": "0.00000000",
+    "btcValuation": "0.60000000"
+  },
+  {
+    "asset": "USDT",
+    "free": "1250.12345678",
+    "locked": "0.00000000",
+    "freeze": "0.00000000",
+    "withdrawing": "0.00000000",
+    "ipoable": "0.00000000",
+    "btcValuation": "0.02000000"
+  },
+  {
+    "asset": "NEWCOIN",
+    "free": "42.000000000000000001",
+    "locked": "0.00000000",
+    "freeze": "0.00000000",
+    "withdrawing": "0.00000000",
+    "ipoable": "0.00000000",
+    "btcValuation": "0.00000000"
+  }
+]

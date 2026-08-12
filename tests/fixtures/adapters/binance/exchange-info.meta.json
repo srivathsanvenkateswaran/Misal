@@ -1,0 +1,9 @@
+{
+  "method": "GET",
+  "path": "/api/v3/exchangeInfo",
+  "repeatable": true,
+  "status": 200,
+  "headers": {
+    "content-type": "application/json"
+  }
+}

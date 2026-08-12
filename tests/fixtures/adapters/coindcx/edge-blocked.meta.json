@@ -1,0 +1,10 @@
+{
+  "method": "POST",
+  "path": "/exchange/v1/users/balances",
+  "repeatable": true,
+  "status": 403,
+  "headers": {
+    "content-type": "text/html; charset=UTF-8",
+    "server": "cloudflare"
+  }
+}

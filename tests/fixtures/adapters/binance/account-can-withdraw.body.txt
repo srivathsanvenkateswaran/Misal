@@ -1,0 +1,18 @@
+{
+  "makerCommission": 10,
+  "canTrade": true,
+  "canWithdraw": true,
+  "canDeposit": true,
+  "accountType": "SPOT",
+  "uid": 123456789,
+  "permissions": [
+    "SPOT"
+  ],
+  "balances": [
+    {
+      "asset": "BTC",
+      "free": "0.50000000",
+      "locked": "0.00000000"
+    }
+  ]
+}

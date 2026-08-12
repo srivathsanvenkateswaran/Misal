@@ -1,0 +1,57 @@
+{
+  "comment": [
+    "The cross-language conformance table for path classification.",
+    "Read by the TypeScript guard's tests (src/adapters/allowlist.test.ts) and by the Rust",
+    "transport's tests (src-tauri/src/exchange_guard.rs). Both implementations must agree on",
+    "every row, so neither can drift without a test failing on one side or the other.",
+    "",
+    "The awkward cases are the point: /sapi/v1/capital/withdraw/history reads withdrawals and",
+    "must be allowed, /sapi/v1/capital/withdraw/apply performs one and must not be, and the",
+    "difference between them is entirely in the last segment."
+  ],
+  "mutating": [
+    "/api/v3/order",
+    "/api/v3/order/test",
+    "/api/v3/orderList",
+    "/api/v3/openOrders",
+    "/api/v3/order/oco",
+    "/api/v3/order/cancelReplace",
+    "/sapi/v1/capital/withdraw/apply",
+    "/sapi/v1/asset/transfer",
+    "/sapi/v1/sub-account/transfer",
+    "/sapi/v1/margin/loan",
+    "/sapi/v1/margin/repay",
+    "/sapi/v1/convert/getQuote",
+    "/exchange/v1/orders/create",
+    "/exchange/v1/orders/create_multiple",
+    "/exchange/v1/orders/cancel",
+    "/exchange/v1/orders/cancel_all",
+    "/exchange/v1/orders/edit",
+    "/exchange/v1/wallets/withdrawals",
+    "/exchange/v1/derivatives/futures/orders/create"
+  ],
+  "readOnly": [
+    "/api/v3/time",
+    "/api/v3/exchangeInfo",
+    "/api/v3/account",
+    "/api/v3/myTrades",
+    "/sapi/v1/account/apiRestrictions",
+    "/sapi/v1/capital/deposit/hisrec",
+    "/sapi/v1/capital/withdraw/history",
+    "/sapi/v3/asset/getUserAsset",
+    "/exchange/v1/markets_details",
+    "/exchange/v1/users/balances",
+    "/exchange/v1/orders/trade_history",
+    "/exchange/v1/users/info"
+  ],
+  "wildcardComment": [
+    "A trailing wildcard is the hole an allowlist alone cannot close: '/api/v3/*' admits",
+    "'/api/v3/order' while looking innocent in review. So the concrete path of every outbound",
+    "request is classified again at send time, not only when the list was written."
+  ],
+  "wildcard": {
+    "pattern": "/api/v3/*",
+    "refused": "/api/v3/order",
+    "allowed": "/api/v3/myTrades"
+  }
+}

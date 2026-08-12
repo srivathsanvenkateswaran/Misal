@@ -1,0 +1,7 @@
+[
+  {"currency":"INR","balance":"12500.75000000","locked_balance":"0.00000000"},
+  {"currency":"BTC","balance":265.01745775027309,"locked_balance":0.00000000},
+  {"currency":"USDT","balance":"1000.00000000","locked_balance":"250.00000000"},
+  {"currency":"ZEROCOIN","balance":"0.00000000","locked_balance":"0.00000000"},
+  {"currency":"MYSTERY","balance":"7.12345678","locked_balance":"0.00000000"}
+]
