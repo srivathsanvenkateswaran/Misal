@@ -1,0 +1,1496 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Misal — Final consolidated direction · INSTRUMENT</title>
+<style>
+/* ============================================================
+   MISAL — FINAL CONSOLIDATED DIRECTION: "INSTRUMENT"
+   Direction B, with the marginal source stamp merged in from A.
+   Achromatic chrome. Colour encodes asset class and nothing else.
+   Palette: dataviz reference categorical slots 1–5, validated
+   against surface #fbfbfb (light) and #1b1b1b (dark).
+   ============================================================ */
+
+:root{
+  color-scheme: light;
+
+  /* --- achromatic ground (genuinely neutral greys) --- */
+  --page:      #e8e8e8;
+  --surface:   #fbfbfb;
+  --surface-2: #f3f3f3;
+  --surface-3: #e9e9e9;
+  --ink-1:     #111111;
+  --ink-2:     #4a4a4a;
+  --ink-3:     #6d6d6d;
+  --ink-4:     #8d8d8d;
+  --rule:      #dedede;
+  --rule-2:    #c6c6c6;
+  --tick:      #ababab;
+
+  /* --- signed / status ink (never used as a series colour) --- */
+  --pos:       #006300;
+  --neg:       #b4302e;
+  --warn-ink:  #8a5d00;
+  --st-good:   #0ca30c;
+  --st-warn:   #fab219;
+  --st-serious:#ec835a;
+  --st-crit:   #d03b3b;
+
+  /* --- categorical series: ASSET CLASS ONLY --- */
+  --s1: #2a78d6;   /* Indian equity   (ledger)   */
+  --s2: #eb6834;   /* Mutual funds    (ledger)   */
+  --s3: #1baf7a;   /* Crypto          (ledger)   */
+  --s4: #eda100;   /* US equity       (snapshot) */
+  --s5: #e87ba4;   /* Gold            (snapshot) */
+  --other: #9a9a9a;
+
+  --focus: #2a78d6;
+
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, Consolas,
+          "Liberation Mono", "Courier New", monospace;
+}
+
+@media (prefers-color-scheme: dark){
+  :root{
+    color-scheme: dark;
+    --page:      #0b0b0b;
+    --surface:   #1b1b1b;
+    --surface-2: #232323;
+    --surface-3: #2b2b2b;
+    --ink-1:     #f0f0f0;
+    --ink-2:     #b6b6b6;
+    --ink-3:     #8c8c8c;
+    --ink-4:     #707070;
+    --rule:      #2f2f2f;
+    --rule-2:    #414141;
+    --tick:      #525252;
+
+    --pos:       #0ca30c;
+    --neg:       #e66767;
+    --warn-ink:  #fab219;
+
+    --s1: #3987e5;
+    --s2: #d95926;
+    --s3: #199e70;
+    --s4: #c98500;
+    --s5: #d55181;
+    --other: #7d7d7d;
+
+    --focus: #3987e5;
+  }
+}
+
+/* ============================ base ============================ */
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0;
+  background:var(--page);
+  color:var(--ink-1);
+  font-family:var(--mono);
+  font-size:12px;
+  line-height:18px;                    /* strict 18px baseline rhythm */
+  font-variant-numeric:tabular-nums;
+  letter-spacing:0;
+}
+a{color:inherit;text-decoration:none}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+
+:focus-visible{
+  outline:2px solid var(--focus);
+  outline-offset:2px;
+}
+
+.wrap{max-width:1440px;margin:0 auto;padding:0 24px 96px}
+
+/* ============================ page masthead ============================ */
+.masthead{
+  border-bottom:1px solid var(--rule-2);
+  padding:22px 0 14px;
+  margin-bottom:22px;
+  display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap;
+}
+.mast-l{display:flex;align-items:baseline;gap:14px}
+.mark{
+  font-size:15px;font-weight:700;letter-spacing:.30em;text-transform:uppercase;
+}
+.mast-sub{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
+.mast-r{display:flex;gap:6px;flex-wrap:wrap}
+.idx{
+  font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2);
+  border:1px solid var(--rule-2);padding:3px 8px;
+}
+.idx:hover{background:var(--surface-2)}
+
+/* ============================ screen frame ============================ */
+.screen{margin:0 0 40px}
+.screen-head{
+  display:flex;align-items:baseline;gap:14px;
+  border-bottom:2px solid var(--ink-1);
+  padding-bottom:6px;margin-bottom:14px;
+}
+.screen-no{
+  font-size:10px;letter-spacing:.20em;text-transform:uppercase;
+  background:var(--ink-1);color:var(--page);padding:2px 7px;
+}
+.screen-title{font-size:13px;font-weight:700;letter-spacing:.20em;text-transform:uppercase}
+.screen-note{font-size:10px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink-3);margin-left:auto;text-align:right}
+
+.app{
+  background:var(--surface);
+  border:1px solid var(--rule-2);
+  overflow-x:auto;              /* wide tables scroll here — the page never does */
+}
+
+/* ---- app chrome ---- */
+.appbar{
+  display:flex;align-items:stretch;justify-content:space-between;
+  border-bottom:1px solid var(--rule-2);
+  background:var(--surface-2);
+}
+.nav{display:flex}
+.nav a{
+  font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);
+  padding:9px 16px;border-right:1px solid var(--rule);
+  display:flex;align-items:center;
+}
+.nav a:hover{background:var(--surface);color:var(--ink-1)}
+.nav a[aria-current="page"]{
+  color:var(--ink-1);background:var(--surface);
+  box-shadow:inset 0 -2px 0 var(--ink-1);
+}
+.statusline{
+  display:flex;align-items:center;gap:0;
+  font-size:10px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink-3);
+  padding-right:2px;
+}
+.statusline span{padding:0 12px;border-left:1px solid var(--rule)}
+.statusline b{color:var(--ink-2);font-weight:400}
+.dot-local{
+  display:inline-block;width:6px;height:6px;background:var(--st-good);
+  margin-right:6px;vertical-align:1px;
+}
+
+.pad{padding:16px}
+
+/* ============================ generic panel ============================ */
+.panel{border:1px solid var(--rule);background:var(--surface);overflow-x:auto}
+.panel-head{
+  display:flex;align-items:baseline;justify-content:space-between;gap:12px;
+  padding:7px 12px;border-bottom:1px solid var(--rule);background:var(--surface-2);
+}
+.panel-title{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-2)}
+.panel-meta{font-size:10px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink-4)}
+.panel-body{padding:12px}
+
+.lab{font-size:9px;letter-spacing:.20em;text-transform:uppercase;color:var(--ink-3);display:block}
+.sublab{font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-4)}
+
+/* ============================ calibration bar ============================ */
+.calib{
+  border:1px solid var(--rule-2);
+  border-left:3px solid var(--ink-1);
+  background:var(--surface);
+  margin-bottom:14px;
+}
+.calib-head{
+  display:flex;align-items:baseline;justify-content:space-between;gap:16px;
+  padding:8px 14px 6px;border-bottom:1px solid var(--rule);
+}
+.calib-name{font-size:10px;letter-spacing:.24em;text-transform:uppercase;font-weight:700}
+.calib-desc{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
+.calib-readout{font-size:10px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink-2)}
+.calib-readout b{font-size:13px;letter-spacing:.02em}
+.calib-body{padding:10px 12px 4px}
+svg.cal{width:100%;height:auto;display:block}
+
+/* ---- SVG shared classes ---- */
+.f-s1{fill:var(--s1)} .f-s2{fill:var(--s2)} .f-s3{fill:var(--s3)}
+.f-s4{fill:var(--s4)} .f-s5{fill:var(--s5)} .f-other{fill:var(--other)}
+.line-s2{fill:none;stroke:var(--s2);stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+.dot-s2{fill:var(--s2);stroke:var(--surface);stroke-width:2}
+.hatch{fill:url(#hx)}
+.hx-line{stroke:var(--surface);stroke-width:2}
+
+.grid{stroke:var(--rule);stroke-width:1}
+.axis{stroke:var(--rule-2);stroke-width:1}
+.rule-axis{stroke:var(--rule-2);stroke-width:1}
+.tick-min{stroke:var(--tick);stroke-width:1}
+.tick-maj{stroke:var(--ink-3);stroke-width:1}
+.thresh{stroke:var(--ink-3);stroke-width:1}
+.boundary{stroke:var(--ink-1);stroke-width:2}
+.boundary-caret{fill:var(--ink-1)}
+.total-mark{stroke:var(--ink-3);stroke-width:1}
+.bracket{fill:none;stroke:var(--ink-3);stroke-width:1}
+.rug-buy{stroke:var(--ink-3);stroke-width:1}
+.rug-sell{stroke:var(--ink-1);stroke-width:2}
+
+text{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.tick-lab{font-size:9px;letter-spacing:.06em;fill:var(--ink-3)}
+.ax{font-size:9px;letter-spacing:.06em;fill:var(--ink-3)}
+.ax-dim{font-size:8px;letter-spacing:.06em;fill:var(--ink-4)}
+/* in-fill labels: near-black on every slot (≥4.8:1 on all ten steps),
+   with a halo in the segment's own hue so they stay crisp over the hatch */
+.seg-name,.seg-pct{fill:#0d0d0d;font-weight:700;paint-order:stroke;stroke-linejoin:round}
+.seg-name{font-size:9px;letter-spacing:.16em}
+.seg-pct{font-size:12px;letter-spacing:.02em}
+.on-s1{stroke:var(--s1);stroke-width:3}
+.on-s2{stroke:var(--s2);stroke-width:3}
+.on-s3{stroke:var(--s3);stroke-width:3}
+.on-s4{stroke:var(--s4);stroke-width:3}
+.on-s5{stroke:var(--s5);stroke-width:3}
+.seg-name-out{font-size:9px;letter-spacing:.14em;fill:var(--ink-2)}
+.cal-lab-l{font-size:10px;letter-spacing:.12em;fill:var(--ink-1);font-weight:700}
+.cal-lab-r{font-size:10px;letter-spacing:.12em;fill:var(--ink-3)}
+.total-lab{font-size:9px;letter-spacing:.10em;fill:var(--ink-3)}
+.bracket-lab{font-size:9px;letter-spacing:.10em;fill:var(--ink-3)}
+.dlab{font-size:10px;letter-spacing:.04em;fill:var(--ink-1);font-weight:700}
+.conc-lab{font-size:10px;letter-spacing:.02em;fill:var(--ink-2)}
+.conc-val{font-size:10px;letter-spacing:.02em;fill:var(--ink-1)}
+.thresh-lab{font-size:8px;letter-spacing:.14em;fill:var(--ink-3)}
+.rug-lab{font-size:8px;letter-spacing:.14em;fill:var(--ink-4)}
+.rug-lab2{font-size:8px;letter-spacing:.14em;fill:var(--ink-3)}
+
+/* ============================ readout cells ============================ */
+.readout{
+  display:grid;
+  grid-template-columns:356px repeat(3,1fr);
+  gap:1px;background:var(--rule);
+  border:1px solid var(--rule);margin-bottom:14px;
+}
+.cell{background:var(--surface);display:grid;grid-template-columns:56px minmax(0,1fr)}
+.cell>.pgut{padding:11px 6px 12px 12px}
+.cell>.cell-body{padding:11px 13px 12px 12px;min-width:0}
+.cell-hero{grid-row:span 2}
+.cell-hero>.cell-body{display:flex;flex-direction:column;justify-content:space-between}
+.hero-fig{
+  font-size:38px;line-height:44px;font-weight:700;letter-spacing:-.02em;
+  margin:6px 0 2px;
+}
+.hero-sub{font-size:10px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink-3)}
+.val{font-size:19px;line-height:26px;font-weight:700;letter-spacing:-.01em;margin-top:3px}
+.val-sm{font-size:15px;line-height:22px;font-weight:700}
+.pos{color:var(--pos)} .neg{color:var(--neg)}
+.muted{color:var(--ink-3)}
+.cell-note{font-size:9px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink-4);margin-top:5px}
+.rowline{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+
+/* meter (achromatic — coverage is not an asset class) */
+.meter{
+  position:relative;height:9px;margin-top:8px;
+  border:1px solid var(--rule-2);
+  background:
+    linear-gradient(90deg,var(--rule-2) 1px,transparent 1px) 0 0/10% 100%,
+    repeating-linear-gradient(45deg,var(--surface-2) 0 3px,var(--surface-3) 3px 6px);
+}
+.meter-fill{position:absolute;inset:0 auto 0 0;background:var(--ink-2)}
+.meter-scale{display:flex;justify-content:space-between;font-size:8px;letter-spacing:.10em;color:var(--ink-4);margin-top:2px}
+
+/* split bar (currency) */
+.split{display:flex;height:11px;margin-top:8px}
+.split-a{background:var(--ink-2)}
+.split-b{margin-left:2px;background:repeating-linear-gradient(45deg,var(--ink-4) 0 2px,var(--surface) 2px 5px);border:1px solid var(--rule-2)}
+.split-key{display:flex;justify-content:space-between;font-size:9px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink-3);margin-top:4px}
+
+/* ============================ dashboard grid ============================ */
+.dashgrid{display:grid;grid-template-columns:1fr 576px;gap:14px;margin-bottom:14px;align-items:start}
+.dashgrid-2{display:grid;grid-template-columns:560px 1fr;gap:14px;align-items:start}
+.dashgrid>*,.dashgrid-2>*{min-width:0}
+svg.nwchart,svg.navchart,svg.concchart{width:100%;height:auto;display:block}
+
+/* legend */
+.legend{display:flex;flex-wrap:wrap;gap:4px 18px;padding:8px 12px 0;border-top:1px solid var(--rule);margin-top:10px}
+.lg{display:flex;align-items:center;gap:7px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+.sw{width:11px;height:11px;flex:none;border:1px solid rgba(0,0,0,.12)}
+.sw-h{background-image:repeating-linear-gradient(45deg,rgba(251,251,251,.95) 0 2px,transparent 2px 5px)}
+@media (prefers-color-scheme:dark){.sw-h{background-image:repeating-linear-gradient(45deg,rgba(27,27,27,.95) 0 2px,transparent 2px 5px)}}
+.sw1{background:var(--s1)}.sw2{background:var(--s2)}.sw3{background:var(--s3)}
+.sw4{background:var(--s4)}.sw5{background:var(--s5)}.swo{background:var(--other)}
+
+/* ============================ tables ============================ */
+table{border-collapse:collapse;width:100%;font-size:11px;line-height:16px}
+thead th{
+  font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);
+  font-weight:400;text-align:left;padding:6px 9px;border-bottom:1px solid var(--rule-2);
+  white-space:nowrap;vertical-align:bottom;
+}
+tbody td{padding:5px 9px;border-bottom:1px solid var(--rule);white-space:nowrap;vertical-align:middle}
+tbody tr:hover td{background:var(--surface-2)}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+table.compact td{white-space:normal}
+.grp td{
+  background:var(--surface-3);font-size:9px;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--ink-2);padding:5px 9px;border-bottom:1px solid var(--rule-2);
+}
+.tot td{border-top:1px solid var(--rule-2);border-bottom:1px solid var(--rule-2);font-weight:700;background:var(--surface-2)}
+.inst{color:var(--ink-1)}
+.sub{display:block;font-size:9px;letter-spacing:.08em;color:var(--ink-4);text-transform:uppercase}
+.na{color:var(--ink-4);letter-spacing:.10em;font-size:9px;text-transform:uppercase}
+.classdot{display:inline-block;width:8px;height:8px;margin-right:6px;vertical-align:0}
+.cd1{background:var(--s1)}.cd2{background:var(--s2)}.cd3{background:var(--s3)}
+.cd4{background:var(--s4)}.cd5{background:var(--s5)}
+
+/* weight micro-bar inside table cell */
+.wbar{display:inline-block;width:54px;height:6px;background:var(--surface-3);vertical-align:1px;margin-left:7px;border:1px solid var(--rule)}
+.wbar i{display:block;height:100%;background:var(--ink-3)}
+
+/* ============================ badges & buttons ============================ */
+.badge{
+  display:inline-block;font-size:9px;letter-spacing:.14em;text-transform:uppercase;
+  padding:1px 6px;border:1px solid var(--rule-2);color:var(--ink-2);
+}
+.badge-snap{background:repeating-linear-gradient(45deg,transparent 0 3px,var(--surface-3) 3px 6px)}
+.badge-ok{border-color:var(--st-good);color:var(--pos)}
+.badge-warn{border-color:var(--st-warn);color:var(--warn-ink)}
+.badge-crit{border-color:var(--st-crit);color:var(--neg)}
+
+.btn{
+  display:inline-block;font-size:9px;letter-spacing:.14em;text-transform:uppercase;
+  padding:4px 10px;border:1px solid var(--rule-2);color:var(--ink-2);background:var(--surface);
+}
+.btn:hover{background:var(--surface-2);color:var(--ink-1);border-color:var(--ink-3)}
+.btn-strong{border-color:var(--ink-1);color:var(--ink-1);font-weight:700}
+.btn-strong:hover{background:var(--ink-1);color:var(--surface)}
+/* ============================================================
+   MARGINAL SOURCE STAMP  (provenance — replaces the SRC chip)
+   A machine-printed source tag, not an ink stamp: axis-aligned,
+   hairline, monospace, uppercase, tight. It lives in a dedicated
+   left gutter on the row, never inline in a cell.
+   THE STYLE OF THE MARK ENCODES DATA HEALTH, so colour is never
+   spent on decoration:
+       solid border  — ledger-backed and current
+       dashed border — snapshot only, no transaction history
+       dotted border — derived from ledger rows, not observed
+   Alert ink is reserved strictly for stale, estimated or
+   unresolved data.
+   The mark is exactly 18px tall — one baseline unit — so it sits
+   on the rhythm without changing any row height.
+   ============================================================ */
+.pgut{width:56px;border-right:1px solid var(--rule)}
+td.pgut{padding:4px 6px 4px 12px;vertical-align:middle}
+th.pgut{padding:6px 6px 6px 12px;vertical-align:bottom}
+.pmark{
+  display:inline-flex;flex-direction:column;align-items:flex-start;
+  width:max-content;max-width:100%;text-align:left;
+}
+.pcode{
+  display:block;height:11px;line-height:9px;padding:0 3px;
+  border:1px solid var(--ink-4);
+  font-size:8px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--ink-2);white-space:nowrap;
+}
+.pref{
+  display:block;height:7px;line-height:7px;
+  font-size:7.5px;letter-spacing:.02em;color:var(--ink-4);white-space:nowrap;
+}
+.pmark:hover .pcode{border-color:var(--ink-2);color:var(--ink-1)}
+.pmark:hover .pref{color:var(--ink-3)}
+/* health encodings — border style carries the meaning */
+.pcode.snap,.pmark.snap .pcode{border-style:dashed}
+.pcode.derived,.pmark.derived .pcode{border-style:dotted;color:var(--ink-3)}
+.pcode.alert,.pmark.alert .pcode{border-color:var(--st-crit);color:var(--neg)}
+.pmark.alert .pref{color:var(--neg)}
+
+/* stamp key — sits under the top nav, explains the whole system */
+.srckey{
+  border:1px solid var(--rule-2);border-left:3px solid var(--ink-1);
+  background:var(--surface);margin-bottom:22px;
+}
+.srckey-lab{
+  font-size:10px;letter-spacing:.20em;text-transform:uppercase;font-weight:700;
+  padding:8px 14px 7px;border-bottom:1px solid var(--rule);
+}
+.srckey-lab span{font-weight:400;letter-spacing:.08em;color:var(--ink-3);margin-left:10px}
+.srckey-row{display:flex;flex-wrap:wrap;gap:9px 24px;padding:9px 14px;align-items:center}
+.srckey-row + .srckey-row{border-top:1px solid var(--rule)}
+.ki{
+  display:flex;align-items:center;gap:8px;
+  font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2);
+}
+.ki .pcode{flex:none}
+
+/* toolbar */
+.toolbar{
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  padding:8px 12px;border-bottom:1px solid var(--rule);background:var(--surface-2);
+}
+.tb-lab{font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-4)}
+.select{
+  font-size:10px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink-1);
+  border:1px solid var(--rule-2);background:var(--surface);padding:3px 22px 3px 8px;
+  position:relative;
+}
+.select::after{content:"▾";position:absolute;right:7px;color:var(--ink-3)}
+.spacer{margin-left:auto}
+
+/* ============================ data quality strip ============================ */
+.dq{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--rule);border:1px solid var(--rule)}
+.dq-cell{background:var(--surface);padding:9px 12px}
+.dq-n{font-size:20px;line-height:26px;font-weight:700}
+
+/* ============================ accounts ============================ */
+.acct-row{
+  display:grid;grid-template-columns:56px 26px 1fr 130px 150px 120px 150px 96px;
+  align-items:center;gap:12px;padding:10px 12px;border-bottom:1px solid var(--rule);
+}
+.acct-row:hover{background:var(--surface-2)}
+.acct-rail{width:6px;height:34px}
+.acct-row>.pgut{align-self:stretch;display:flex;align-items:center;padding-right:6px}
+.r1{background:var(--s1)}.r2{background:var(--s2)}.r3{background:var(--s3)}
+.r4{background:var(--s4)}.r5{background:var(--s5)}
+.r4,.r5{background-image:repeating-linear-gradient(45deg,var(--surface) 0 1.5px,transparent 1.5px 4px)}
+.acct-name{font-size:12px;font-weight:700;display:block}
+.acct-prov{display:block;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+
+/* ============================ import review ============================ */
+.kv{display:grid;grid-template-columns:150px 1fr;gap:0}
+.kv dt{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);padding:4px 0;border-bottom:1px solid var(--rule)}
+.kv dd{margin:0;padding:4px 0;border-bottom:1px solid var(--rule);font-size:11px}
+.queue-item{
+  display:grid;grid-template-columns:56px minmax(0,1fr);
+  border:1px solid var(--rule);border-left:3px solid var(--st-warn);
+  margin-bottom:8px;background:var(--surface);
+}
+.queue-item>.pgut{padding:10px 6px 10px 12px}
+.queue-item>.qi-body{padding:10px 12px;min-width:0}
+.queue-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.raw{font-size:12px;font-weight:700}
+.map{display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap}
+.combo{
+  flex:1;min-width:240px;border:1px solid var(--rule-2);background:var(--surface-2);
+  padding:5px 9px;font-size:11px;color:var(--ink-1);position:relative;text-align:left;
+}
+.combo .ph{color:var(--ink-4)}
+.combo::after{content:"⌕";position:absolute;right:9px;color:var(--ink-3)}
+.conf{font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+
+/* ============================ instrument detail ============================ */
+.inst-head{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;padding:14px 16px;border-bottom:1px solid var(--rule-2)}
+.inst-name{font-size:17px;font-weight:700;letter-spacing:-.01em}
+.inst-ids{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin-top:3px}
+.inst-nav{text-align:right}
+.splitpanel{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--rule)}
+.splitpanel>div{background:var(--surface);display:grid;grid-template-columns:56px minmax(0,1fr)}
+.splitpanel>div>.pgut{padding:10px 6px 10px 12px}
+.splitpanel>div>.cell-body{padding:10px 12px;min-width:0}
+
+/* footnote */
+.foot{padding:9px 12px;border-top:1px solid var(--rule);font-size:9px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink-4)}
+
+/* ============================ responsive floor: 1024px ============================ */
+@media (max-width:1360px){
+  .dashgrid{grid-template-columns:1fr 496px}
+  .dashgrid-2{grid-template-columns:480px 1fr}
+  .readout{grid-template-columns:316px repeat(3,1fr)}
+  .acct-row{grid-template-columns:56px 26px 1fr 112px 128px 104px 128px 88px;gap:8px}
+}
+@media (max-width:1140px){
+  .dashgrid{grid-template-columns:1fr 436px}
+  .dashgrid-2{grid-template-columns:420px 1fr}
+  .readout{grid-template-columns:286px repeat(3,1fr)}
+  .hero-fig{font-size:32px;line-height:38px}
+  .statusline span:nth-child(1){display:none}
+}
+</style>
+</head>
+<body>
+
+<!-- one shared hatch pattern; referenced by every chart in the document -->
+<svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute">
+  <defs>
+    <pattern id="hx" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)">
+      <rect width="6" height="6" fill="none"/>
+      <line x1="0" y1="0" x2="0" y2="6" class="hx-line"/>
+    </pattern>
+  </defs>
+</svg>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="mast-l">
+      <span class="mark">Misal</span>
+      <span class="mast-sub">Final consolidated direction — “Instrument” · marginal source stamps · static mockup · 1440px</span>
+    </div>
+    <nav class="mast-r" aria-label="Screen index">
+      <a class="idx" href="#s1">01 Dashboard</a>
+      <a class="idx" href="#s2">02 Holdings</a>
+      <a class="idx" href="#s3">03 Accounts</a>
+      <a class="idx" href="#s4">04 Import review</a>
+      <a class="idx" href="#s5">05 Instrument</a>
+    </nav>
+  </header>
+
+  <section class="srckey" aria-label="Marginal source stamp key">
+    <div class="srckey-lab">Marginal source stamp<span>Every figure carries, in the margin of its row, the document it came from</span></div>
+    <div class="srckey-row">
+      <span class="ki"><span class="pcode">CAS</span>CAMS / KFin consolidated statement</span>
+      <span class="ki"><span class="pcode">KIT</span>Zerodha Kite tradebook</span>
+      <span class="ki"><span class="pcode">GRW</span>Groww CSV export</span>
+      <span class="ki"><span class="pcode">DCX</span>CoinDCX read-only API</span>
+      <span class="ki"><span class="pcode snap">ETR</span>E*TRADE snapshot</span>
+      <span class="ki"><span class="pcode derived">DRV</span>Derived from ledger rows</span>
+      <span class="ki muted">Second line under each code is the page, row or key — <b style="font-weight:400;color:var(--ink-2)">p.12 · r.318 · api key</b></span>
+    </div>
+    <div class="srckey-row">
+      <span class="ki"><span class="pcode">Abc</span>Solid — ledger-backed and current</span>
+      <span class="ki"><span class="pcode snap">Abc</span>Dashed — snapshot only, no transaction history</span>
+      <span class="ki"><span class="pcode derived">Abc</span>Dotted — derived rather than observed</span>
+      <span class="ki"><span class="pcode alert">Abc</span>Alert ink — stale, estimated or unresolved. Colour is spent on nothing else.</span>
+    </div>
+  </section>
+
+<!-- ==================================================================
+     SCREEN 01 — DASHBOARD
+     ================================================================== -->
+<section class="screen" id="s1">
+  <div class="screen-head">
+    <span class="screen-no">Screen 01</span>
+    <h2 class="screen-title">Dashboard</h2>
+    <span class="screen-note">Calibration bar · portfolio readout · allocation · concentration · data quality</span>
+  </div>
+
+  <div class="app">
+    <div class="appbar">
+      <nav class="nav" aria-label="Primary">
+        <a href="#s1" aria-current="page">Dashboard</a>
+        <a href="#s2">Holdings</a>
+        <a href="#s3">Accounts</a>
+        <a href="#s4">Import</a>
+        <a href="#s5">Instruments</a>
+      </nav>
+      <div class="statusline">
+        <span><span class="dot-local"></span>Local · <b>~/Library/Application Support/Misal/misal.db</b> · 4.2 MB</span>
+        <span>Base <b>₹ INR</b></span>
+        <span>USD/INR <b>87.4400</b></span>
+        <span>Prices <b>12 Aug 2026 10:52 IST</b></span>
+      </div>
+    </div>
+
+    <div class="pad">
+
+      <!-- ============ SIGNATURE: CALIBRATION BAR ============ -->
+      <div class="calib">
+        <div class="calib-head">
+          <div>
+            <div class="calib-name">Calibration — history coverage</div>
+            <div class="calib-desc">What fraction of net worth the deeper metrics can actually measure</div>
+          </div>
+          <div class="calib-readout">Ledger-backed <b>71.9%</b> &nbsp;·&nbsp; ₹34,73,722 of ₹48,32,150 &nbsp;·&nbsp; 4 of 6 accounts</div>
+        </div>
+        <div class="calib-body">
+          <svg class="cal" viewBox="0 0 1360 156" role="img" aria-label="Calibration bar: 71.9 percent of net worth is backed by full transaction history.">
+  <rect class="f-s1"  x="44" y="46" width="326.86" height="46"/><rect class="f-s2"  x="372.86" y="46" width="418.45" height="46"/><rect class="f-s3"  x="793.31" y="46" width="137.97" height="46"/><rect class="f-s4"  x="933.27" y="46" width="284.32" height="46"/><rect class="hatch"  x="933.27" y="46" width="284.32" height="46"/><path class="f-s5"  d="M1219.59 46 L1277.03 46 Q1281.03 46 1281.03 50 L1281.03 88 Q1281.03 92 1277.03 92 L1219.59 92 Z"/><path class="hatch"  d="M1219.59 46 L1277.03 46 Q1281.03 46 1281.03 50 L1281.03 88 Q1281.03 92 1277.03 92 L1219.59 92 Z"/>
+<text class="seg-name on-s1" x="52" y="65">INDIAN EQUITY</text><text class="seg-pct on-s1" x="52" y="82">26.58%</text><text class="seg-name on-s2" x="380.86" y="65">MUTUAL FUNDS</text><text class="seg-pct on-s2" x="380.86" y="82">33.99%</text><text class="seg-name on-s3" x="801.31" y="65">CRYPTO</text><text class="seg-pct on-s3" x="801.31" y="82">11.31%</text><text class="seg-name on-s4" x="941.27" y="65">US EQUITY</text><text class="seg-pct on-s4" x="941.27" y="82">23.15%</text><text class="seg-name-out" x="1250.31" y="38" text-anchor="middle">GOLD 4.97%</text>
+<line class="rule-axis" x1="44" y1="102" x2="1324" y2="102"/><line class="tick-maj" x1="44" y1="102" x2="44" y2="111"/><text class="tick-lab" x="44" y="124" text-anchor="middle">0</text><line class="tick-min" x1="69.6" y1="102" x2="69.6" y2="106"/><line class="tick-min" x1="95.2" y1="102" x2="95.2" y2="106"/><line class="tick-min" x1="120.8" y1="102" x2="120.8" y2="106"/><line class="tick-min" x1="146.4" y1="102" x2="146.4" y2="106"/><line class="tick-maj" x1="172" y1="102" x2="172" y2="111"/><text class="tick-lab" x="172" y="124" text-anchor="middle">₹5L</text><line class="tick-min" x1="197.6" y1="102" x2="197.6" y2="106"/><line class="tick-min" x1="223.2" y1="102" x2="223.2" y2="106"/><line class="tick-min" x1="248.8" y1="102" x2="248.8" y2="106"/><line class="tick-min" x1="274.4" y1="102" x2="274.4" y2="106"/><line class="tick-maj" x1="300" y1="102" x2="300" y2="111"/><text class="tick-lab" x="300" y="124" text-anchor="middle">₹10L</text><line class="tick-min" x1="325.6" y1="102" x2="325.6" y2="106"/><line class="tick-min" x1="351.2" y1="102" x2="351.2" y2="106"/><line class="tick-min" x1="376.8" y1="102" x2="376.8" y2="106"/><line class="tick-min" x1="402.4" y1="102" x2="402.4" y2="106"/><line class="tick-maj" x1="428" y1="102" x2="428" y2="111"/><text class="tick-lab" x="428" y="124" text-anchor="middle">₹15L</text><line class="tick-min" x1="453.6" y1="102" x2="453.6" y2="106"/><line class="tick-min" x1="479.2" y1="102" x2="479.2" y2="106"/><line class="tick-min" x1="504.8" y1="102" x2="504.8" y2="106"/><line class="tick-min" x1="530.4" y1="102" x2="530.4" y2="106"/><line class="tick-maj" x1="556" y1="102" x2="556" y2="111"/><text class="tick-lab" x="556" y="124" text-anchor="middle">₹20L</text><line class="tick-min" x1="581.6" y1="102" x2="581.6" y2="106"/><line class="tick-min" x1="607.2" y1="102" x2="607.2" y2="106"/><line class="tick-min" x1="632.8" y1="102" x2="632.8" y2="106"/><line class="tick-min" x1="658.4" y1="102" x2="658.4" y2="106"/><line class="tick-maj" x1="684" y1="102" x2="684" y2="111"/><text class="tick-lab" x="684" y="124" text-anchor="middle">₹25L</text><line class="tick-min" x1="709.6" y1="102" x2="709.6" y2="106"/><line class="tick-min" x1="735.2" y1="102" x2="735.2" y2="106"/><line class="tick-min" x1="760.8" y1="102" x2="760.8" y2="106"/><line class="tick-min" x1="786.4" y1="102" x2="786.4" y2="106"/><line class="tick-maj" x1="812" y1="102" x2="812" y2="111"/><text class="tick-lab" x="812" y="124" text-anchor="middle">₹30L</text><line class="tick-min" x1="837.6" y1="102" x2="837.6" y2="106"/><line class="tick-min" x1="863.2" y1="102" x2="863.2" y2="106"/><line class="tick-min" x1="888.8" y1="102" x2="888.8" y2="106"/><line class="tick-min" x1="914.4" y1="102" x2="914.4" y2="106"/><line class="tick-maj" x1="940" y1="102" x2="940" y2="111"/><text class="tick-lab" x="940" y="124" text-anchor="middle">₹35L</text><line class="tick-min" x1="965.6" y1="102" x2="965.6" y2="106"/><line class="tick-min" x1="991.2" y1="102" x2="991.2" y2="106"/><line class="tick-min" x1="1016.8" y1="102" x2="1016.8" y2="106"/><line class="tick-min" x1="1042.4" y1="102" x2="1042.4" y2="106"/><line class="tick-maj" x1="1068" y1="102" x2="1068" y2="111"/><text class="tick-lab" x="1068" y="124" text-anchor="middle">₹40L</text><line class="tick-min" x1="1093.6" y1="102" x2="1093.6" y2="106"/><line class="tick-min" x1="1119.2" y1="102" x2="1119.2" y2="106"/><line class="tick-min" x1="1144.8" y1="102" x2="1144.8" y2="106"/><line class="tick-min" x1="1170.4" y1="102" x2="1170.4" y2="106"/><line class="tick-maj" x1="1196" y1="102" x2="1196" y2="111"/><text class="tick-lab" x="1196" y="124" text-anchor="middle">₹45L</text><line class="tick-min" x1="1221.6" y1="102" x2="1221.6" y2="106"/><line class="tick-min" x1="1247.2" y1="102" x2="1247.2" y2="106"/><line class="tick-min" x1="1272.8" y1="102" x2="1272.8" y2="106"/><line class="tick-min" x1="1298.4" y1="102" x2="1298.4" y2="106"/><line class="tick-maj" x1="1324" y1="102" x2="1324" y2="111"/><text class="tick-lab" x="1324" y="124" text-anchor="middle">₹50L</text>
+  <line class="boundary" x1="933.27" y1="24" x2="933.27" y2="98"/>
+  <path class="boundary-caret" d="M928.27 24 L938.27 24 L933.27 32 Z"/>
+  <text class="cal-lab-l" x="923.27" y="19" text-anchor="end">71.9% LEDGER-BACKED · ₹34,73,722</text>
+  <text class="cal-lab-r" x="943.27" y="19">28.1% SNAPSHOT ONLY · ₹13,58,428</text>
+  <line class="total-mark" x1="1281.03" y1="94" x2="1281.03" y2="108"/>
+  <text class="total-lab" x="1324" y="19" text-anchor="end">NET WORTH ₹48,32,150</text>
+  <path class="bracket" d="M935.27 126 L935.27 132 L1281.03 132 L1281.03 126"/>
+  <text class="bracket-lab" x="1107.15" y="146" text-anchor="middle">NO HISTORY — XIRR, COST BASIS &amp; REALISED P&amp;L EXCLUDE ₹13,58,428</text>
+</svg>
+        </div>
+        <div class="legend" style="border-top:1px solid var(--rule);margin:0;padding:8px 12px 10px">
+          <span class="lg"><span class="sw sw1"></span>Indian equity — ledger</span>
+          <span class="lg"><span class="sw sw2"></span>Mutual funds — ledger</span>
+          <span class="lg"><span class="sw sw3"></span>Crypto — ledger</span>
+          <span class="lg"><span class="sw sw4 sw-h"></span>US equity — snapshot</span>
+          <span class="lg"><span class="sw sw5 sw-h"></span>Gold — snapshot</span>
+          <span class="lg muted" style="margin-left:auto">Hatched fill = holdings snapshot only, no transaction history</span>
+        </div>
+      </div>
+
+      <!-- ============ PORTFOLIO READOUT ============ -->
+      <div class="readout">
+
+        <div class="cell cell-hero">
+          <div class="pgut"><button class="pmark derived" type="button"><span class="pcode">DRV</span><span class="pref">6 accts</span></button></div>
+          <div class="cell-body">
+          <div>
+            <span class="lab">Net worth · all accounts</span>
+            <div class="hero-fig">₹48,32,150</div>
+            <div class="rowline">
+              <span class="hero-sub">Day change</span>
+              <span class="val-sm pos">+₹18,506</span>
+            </div>
+            <div class="rowline">
+              <span class="hero-sub">&nbsp;</span>
+              <span class="pos" style="font-size:12px">+0.38%</span>
+            </div>
+          </div>
+          <div>
+            <div class="rowline" style="border-top:1px solid var(--rule);padding-top:7px;margin-top:9px">
+              <span class="sublab">Ledger-backed</span><span>₹34,73,722</span>
+            </div>
+            <div class="rowline">
+              <span class="sublab">Snapshot only</span><span class="muted">₹13,58,428</span>
+            </div>
+            <div class="cell-note">6 accounts · 12 positions · 5 asset classes</div>
+          </div>
+          </div>
+        </div>
+
+        <div class="cell">
+          <div class="pgut"><button class="pmark derived" type="button"><span class="pcode">DRV</span><span class="pref">ledger</span></button></div>
+          <div class="cell-body">
+          <span class="lab">Invested — cost basis</span>
+          <div class="val">₹28,25,329</div>
+          <div class="cell-note">Ledger accounts only · excludes ₹13,58,428 of snapshot holdings</div>
+          </div>
+        </div>
+
+        <div class="cell">
+          <div class="pgut"><button class="pmark derived" type="button"><span class="pcode">DRV</span><span class="pref">fifo</span></button></div>
+          <div class="cell-body">
+          <span class="lab">Unrealised P&amp;L</span>
+          <div class="val pos">+₹6,48,393</div>
+          <div class="rowline"><span class="sublab">on measured cost</span><span class="pos val-sm">+22.95%</span></div>
+          <div class="cell-note">Covers ₹34,73,722 / 71.9% of net worth</div>
+          </div>
+        </div>
+
+        <div class="cell">
+          <div class="pgut"><button class="pmark derived" type="button"><span class="pcode">DRV</span><span class="pref">214 cf</span></button></div>
+          <div class="cell-body">
+          <span class="lab">XIRR — annualised</span>
+          <div class="val">18.42%</div>
+          <div class="meter" role="img" aria-label="Coverage 71.9 percent of portfolio value">
+            <span class="meter-fill" style="width:71.9%"></span>
+          </div>
+          <div class="meter-scale"><span>0</span><span>25</span><span>50</span><span>75</span><span>100%</span></div>
+          <div class="cell-note">Computed on 71.9% of portfolio value · 214 cash flows since 07 Jul 2023</div>
+          </div>
+        </div>
+
+        <div class="cell">
+          <div class="pgut"><button class="pmark derived" type="button"><span class="pcode">DRV</span><span class="pref">fifo</span></button></div>
+          <div class="cell-body">
+          <span class="lab">Realised P&amp;L — FY 2026-27</span>
+          <div class="val pos">+₹1,42,380</div>
+          <div class="rowline"><span class="sublab">STCG</span><span>+₹38,900</span></div>
+          <div class="rowline"><span class="sublab">LTCG</span><span>+₹1,03,480</span></div>
+          <div class="cell-note">01 Apr 2026 → 12 Aug 2026 · ledger accounts only</div>
+          </div>
+        </div>
+
+        <div class="cell">
+          <div class="pgut"><button class="pmark derived" type="button"><span class="pcode">DRV</span><span class="pref">usd/inr</span></button></div>
+          <div class="cell-body">
+          <span class="lab">Currency exposure</span>
+          <div class="val-sm" style="margin-top:3px">₹37,13,722 <span class="muted" style="font-size:11px">INR</span></div>
+          <div class="split" role="img" aria-label="Currency exposure: 76.85 percent INR, 23.15 percent USD">
+            <span class="split-a" style="width:76.85%"></span>
+            <span class="split-b" style="width:23.15%"></span>
+          </div>
+          <div class="split-key"><span>INR 76.85%</span><span>USD 23.15%</span></div>
+          <div class="cell-note">USD $12,790.80 @ ₹87.4400 · rate 12 Aug 2026</div>
+          </div>
+        </div>
+
+        <div class="cell">
+          <div class="pgut"><button class="pmark derived" type="button"><span class="pcode">DRV</span><span class="pref">top 5</span></button></div>
+          <div class="cell-body">
+          <span class="lab">Concentration — top 5</span>
+          <div class="val">68.70%</div>
+          <div class="rowline"><span class="sublab">Largest position</span><span>23.15%</span></div>
+          <div class="cell-note">Caterpillar (CAT) exceeds the 20% single-position flag</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ TREND + ALLOCATION ============ -->
+      <div class="dashgrid">
+
+        <div class="panel">
+          <div class="panel-head">
+            <span class="panel-title">Net worth by asset class — 12 months</span>
+            <span class="panel-meta">Sep 2025 → Aug 2026 · month end · ₹ lakh</span>
+          </div>
+          <div class="panel-body" style="padding:12px 12px 0">
+            <svg class="nwchart" viewBox="0 0 700 268" role="img" aria-label="Net worth by asset class, monthly, September 2025 to August 2026. Values in the table below.">
+<line class="grid" x1="54" y1="214" x2="690" y2="214"/><text class="ax" x="46" y="217.5" text-anchor="end">0</text><line class="grid" x1="54" y1="174.8" x2="690" y2="174.8"/><text class="ax" x="46" y="178.3" text-anchor="end">₹10L</text><line class="grid" x1="54" y1="135.6" x2="690" y2="135.6"/><text class="ax" x="46" y="139.1" text-anchor="end">₹20L</text><line class="grid" x1="54" y1="96.4" x2="690" y2="96.4"/><text class="ax" x="46" y="99.9" text-anchor="end">₹30L</text><line class="grid" x1="54" y1="57.2" x2="690" y2="57.2"/><text class="ax" x="46" y="60.7" text-anchor="end">₹40L</text><line class="grid" x1="54" y1="18" x2="690" y2="18"/><text class="ax" x="46" y="21.5" text-anchor="end">₹50L</text>
+<line class="axis" x1="54" y1="214" x2="690" y2="214"/>
+<rect class="f-s1"  x="69.5" y="182.99" width="22" height="31.01"/><rect class="f-s2"  x="69.5" y="142.15" width="22" height="38.85"/><rect class="f-s3"  x="69.5" y="129.68" width="22" height="10.47"/><rect class="f-s4"  x="69.5" y="98.09" width="22" height="29.6"/><rect class="hatch"  x="69.5" y="98.09" width="22" height="29.6"/><path class="f-s5"  d="M69.5 96.09 L69.5 93.5 Q69.5 89.5 73.5 89.5 L87.5 89.5 Q91.5 89.5 91.5 93.5 L91.5 96.09 Z"/><path class="hatch"  d="M69.5 96.09 L69.5 93.5 Q69.5 89.5 73.5 89.5 L87.5 89.5 Q91.5 89.5 91.5 93.5 L91.5 96.09 Z"/><rect class="f-s1"  x="122.5" y="181.58" width="22" height="32.42"/><rect class="f-s2"  x="122.5" y="139.01" width="22" height="40.57"/><rect class="f-s3"  x="122.5" y="125.6" width="22" height="11.41"/><rect class="f-s4"  x="122.5" y="92.6" width="22" height="31.01"/><rect class="hatch"  x="122.5" y="92.6" width="22" height="31.01"/><path class="f-s5"  d="M122.5 90.6 L122.5 87.78 Q122.5 83.78 126.5 83.78 L140.5 83.78 Q144.5 83.78 144.5 87.78 L144.5 90.6 Z"/><path class="hatch"  d="M122.5 90.6 L122.5 87.78 Q122.5 83.78 126.5 83.78 L140.5 83.78 Q144.5 83.78 144.5 87.78 L144.5 90.6 Z"/><rect class="f-s1"  x="175.5" y="180.6" width="22" height="33.4"/><rect class="f-s2"  x="175.5" y="136.54" width="22" height="42.06"/><rect class="f-s3"  x="175.5" y="122.19" width="22" height="12.35"/><rect class="f-s4"  x="175.5" y="88.44" width="22" height="31.75"/><rect class="hatch"  x="175.5" y="88.44" width="22" height="31.75"/><path class="f-s5"  d="M175.5 86.44 L175.5 83.31 Q175.5 79.31 179.5 79.31 L193.5 79.31 Q197.5 79.31 197.5 83.31 L197.5 86.44 Z"/><path class="hatch"  d="M175.5 86.44 L175.5 83.31 Q175.5 79.31 179.5 79.31 L193.5 79.31 Q197.5 79.31 197.5 83.31 L197.5 86.44 Z"/><rect class="f-s1"  x="228.5" y="179.74" width="22" height="34.26"/><rect class="f-s2"  x="228.5" y="133.95" width="22" height="43.79"/><rect class="f-s3"  x="228.5" y="118.59" width="22" height="13.37"/><rect class="f-s4"  x="228.5" y="83.74" width="22" height="32.85"/><rect class="hatch"  x="228.5" y="83.74" width="22" height="32.85"/><path class="f-s5"  d="M228.5 81.74 L228.5 78.37 Q228.5 74.37 232.5 74.37 L246.5 74.37 Q250.5 74.37 250.5 78.37 L250.5 81.74 Z"/><path class="hatch"  d="M228.5 81.74 L228.5 78.37 Q228.5 74.37 232.5 74.37 L246.5 74.37 Q250.5 74.37 250.5 78.37 L250.5 81.74 Z"/><rect class="f-s1"  x="281.5" y="178.33" width="22" height="35.67"/><rect class="f-s2"  x="281.5" y="131.25" width="22" height="45.08"/><rect class="f-s3"  x="281.5" y="114.47" width="22" height="14.78"/><rect class="f-s4"  x="281.5" y="78.49" width="22" height="33.99"/><rect class="hatch"  x="281.5" y="78.49" width="22" height="33.99"/><path class="f-s5"  d="M281.5 76.49 L281.5 72.8 Q281.5 68.8 285.5 68.8 L299.5 68.8 Q303.5 68.8 303.5 72.8 L303.5 76.49 Z"/><path class="hatch"  d="M281.5 76.49 L281.5 72.8 Q281.5 68.8 285.5 68.8 L299.5 68.8 Q303.5 68.8 303.5 72.8 L303.5 76.49 Z"/><rect class="f-s1"  x="334.5" y="179.15" width="22" height="34.85"/><rect class="f-s2"  x="334.5" y="132.97" width="22" height="44.18"/><rect class="f-s3"  x="334.5" y="117.45" width="22" height="13.52"/><rect class="f-s4"  x="334.5" y="82.09" width="22" height="33.36"/><rect class="hatch"  x="334.5" y="82.09" width="22" height="33.36"/><path class="f-s5"  d="M334.5 80.09 L334.5 76.17 Q334.5 72.17 338.5 72.17 L352.5 72.17 Q356.5 72.17 356.5 76.17 L356.5 80.09 Z"/><path class="hatch"  d="M334.5 80.09 L334.5 76.17 Q334.5 72.17 338.5 72.17 L352.5 72.17 Q356.5 72.17 356.5 76.17 L356.5 80.09 Z"/><rect class="f-s1"  x="387.5" y="176.72" width="22" height="37.28"/><rect class="f-s2"  x="387.5" y="127.8" width="22" height="46.92"/><rect class="f-s3"  x="387.5" y="110.51" width="22" height="15.29"/><rect class="f-s4"  x="387.5" y="73.43" width="22" height="35.08"/><rect class="hatch"  x="387.5" y="73.43" width="22" height="35.08"/><path class="f-s5"  d="M387.5 71.43 L387.5 67.2 Q387.5 63.2 391.5 63.2 L405.5 63.2 Q409.5 63.2 409.5 67.2 L409.5 71.43 Z"/><path class="hatch"  d="M387.5 71.43 L387.5 67.2 Q387.5 63.2 391.5 63.2 L405.5 63.2 Q409.5 63.2 409.5 67.2 L409.5 71.43 Z"/><rect class="f-s1"  x="440.5" y="174.92" width="22" height="39.08"/><rect class="f-s2"  x="440.5" y="123.49" width="22" height="49.43"/><rect class="f-s3"  x="440.5" y="105.14" width="22" height="16.35"/><rect class="f-s4"  x="440.5" y="66.41" width="22" height="36.73"/><rect class="hatch"  x="440.5" y="66.41" width="22" height="36.73"/><path class="f-s5"  d="M440.5 64.41 L440.5 59.87 Q440.5 55.87 444.5 55.87 L458.5 55.87 Q462.5 55.87 462.5 59.87 L462.5 64.41 Z"/><path class="hatch"  d="M440.5 64.41 L440.5 59.87 Q440.5 55.87 444.5 55.87 L458.5 55.87 Q462.5 55.87 462.5 59.87 L462.5 64.41 Z"/><rect class="f-s1"  x="493.5" y="173.04" width="22" height="40.96"/><rect class="f-s2"  x="493.5" y="119.02" width="22" height="52.02"/><rect class="f-s3"  x="493.5" y="99.73" width="22" height="17.29"/><rect class="f-s4"  x="493.5" y="59.59" width="22" height="38.14"/><rect class="hatch"  x="493.5" y="59.59" width="22" height="38.14"/><path class="f-s5"  d="M493.5 57.59 L493.5 52.81 Q493.5 48.81 497.5 48.81 L511.5 48.81 Q515.5 48.81 515.5 52.81 L515.5 57.59 Z"/><path class="hatch"  d="M493.5 57.59 L493.5 52.81 Q493.5 48.81 497.5 48.81 L511.5 48.81 Q515.5 48.81 515.5 52.81 L515.5 57.59 Z"/><rect class="f-s1"  x="546.5" y="170.84" width="22" height="43.16"/><rect class="f-s2"  x="546.5" y="113.92" width="22" height="54.92"/><rect class="f-s3"  x="546.5" y="94.01" width="22" height="17.91"/><rect class="f-s4"  x="546.5" y="52.38" width="22" height="39.63"/><rect class="hatch"  x="546.5" y="52.38" width="22" height="39.63"/><path class="f-s5"  d="M546.5 50.38 L546.5 45.36 Q546.5 41.36 550.5 41.36 L564.5 41.36 Q568.5 41.36 568.5 45.36 L568.5 50.38 Z"/><path class="hatch"  d="M546.5 50.38 L546.5 45.36 Q546.5 41.36 550.5 41.36 L564.5 41.36 Q568.5 41.36 568.5 45.36 L568.5 50.38 Z"/><rect class="f-s1"  x="599.5" y="168.22" width="22" height="45.78"/><rect class="f-s2"  x="599.5" y="107.53" width="22" height="58.68"/><rect class="f-s3"  x="599.5" y="86.84" width="22" height="18.7"/><rect class="f-s4"  x="599.5" y="43.95" width="22" height="40.88"/><rect class="hatch"  x="599.5" y="43.95" width="22" height="40.88"/><path class="f-s5"  d="M599.5 41.95 L599.5 36.7 Q599.5 32.7 603.5 32.7 L617.5 32.7 Q621.5 32.7 621.5 36.7 L621.5 41.95 Z"/><path class="hatch"  d="M599.5 41.95 L599.5 36.7 Q599.5 32.7 603.5 32.7 L617.5 32.7 Q621.5 32.7 621.5 36.7 L621.5 41.95 Z"/><rect class="f-s1"  x="652.5" y="165.64" width="22" height="48.36"/><rect class="f-s2"  x="652.5" y="101.26" width="22" height="62.38"/><rect class="f-s3"  x="652.5" y="79.83" width="22" height="19.43"/><rect class="f-s4"  x="652.5" y="35.99" width="22" height="41.84"/><rect class="hatch"  x="652.5" y="35.99" width="22" height="41.84"/><path class="f-s5"  d="M652.5 33.99 L652.5 28.58 Q652.5 24.58 656.5 24.58 L670.5 24.58 Q674.5 24.58 674.5 28.58 L674.5 33.99 Z"/><path class="hatch"  d="M652.5 33.99 L652.5 28.58 Q652.5 24.58 656.5 24.58 L670.5 24.58 Q674.5 24.58 674.5 28.58 L674.5 33.99 Z"/>
+<text class="dlab" x="663.5" y="14.58" text-anchor="middle">₹48.32L</text>
+<text class="ax" x="80.5" y="230" text-anchor="middle">SEP</text><text class="ax-dim" x="80.5" y="241" text-anchor="middle">25</text><text class="ax" x="133.5" y="230" text-anchor="middle">OCT</text><text class="ax-dim" x="133.5" y="241" text-anchor="middle">25</text><text class="ax" x="186.5" y="230" text-anchor="middle">NOV</text><text class="ax-dim" x="186.5" y="241" text-anchor="middle">25</text><text class="ax" x="239.5" y="230" text-anchor="middle">DEC</text><text class="ax-dim" x="239.5" y="241" text-anchor="middle">25</text><text class="ax" x="292.5" y="230" text-anchor="middle">JAN</text><text class="ax-dim" x="292.5" y="241" text-anchor="middle">26</text><text class="ax" x="345.5" y="230" text-anchor="middle">FEB</text><text class="ax-dim" x="345.5" y="241" text-anchor="middle">26</text><text class="ax" x="398.5" y="230" text-anchor="middle">MAR</text><text class="ax-dim" x="398.5" y="241" text-anchor="middle">26</text><text class="ax" x="451.5" y="230" text-anchor="middle">APR</text><text class="ax-dim" x="451.5" y="241" text-anchor="middle">26</text><text class="ax" x="504.5" y="230" text-anchor="middle">MAY</text><text class="ax-dim" x="504.5" y="241" text-anchor="middle">26</text><text class="ax" x="557.5" y="230" text-anchor="middle">JUN</text><text class="ax-dim" x="557.5" y="241" text-anchor="middle">26</text><text class="ax" x="610.5" y="230" text-anchor="middle">JUL</text><text class="ax-dim" x="610.5" y="241" text-anchor="middle">26</text><text class="ax" x="663.5" y="230" text-anchor="middle">AUG</text><text class="ax-dim" x="663.5" y="241" text-anchor="middle">26</text>
+</svg>
+          </div>
+          <div class="legend">
+            <span class="lg"><span class="sw sw1"></span>Indian equity</span>
+            <span class="lg"><span class="sw sw2"></span>Mutual funds</span>
+            <span class="lg"><span class="sw sw3"></span>Crypto</span>
+            <span class="lg"><span class="sw sw4 sw-h"></span>US equity</span>
+            <span class="lg"><span class="sw sw5 sw-h"></span>Gold</span>
+          </div>
+          <div class="foot">Table view: allocation panel, right — every plotted value is listed there. Snapshot classes stack above the ledger classes so the coverage line is readable in the column too.</div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <span class="panel-title">Asset allocation</span>
+            <span class="panel-meta">12 Aug 2026</span>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th class="pgut">Src</th>
+                <th>Asset class</th>
+                <th class="num">Value ₹</th>
+                <th class="num">Weight</th>
+                <th class="num">Day</th>
+                <th>Coverage</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td class="pgut"><button class="pmark" type="button"><span class="pcode">CAS</span><span class="pref">p.4-9</span></button></td>
+                <td><span class="classdot cd2"></span>Mutual funds<span class="sub">3 schemes · CAS</span></td>
+                <td class="num">16,42,380</td>
+                <td class="num">33.99%<span class="wbar"><i style="width:33.99%"></i></span></td>
+                <td class="num pos">+0.37%</td>
+                <td><span class="badge">Ledger</span></td>
+              </tr>
+              <tr><td class="pgut"><button class="pmark" type="button"><span class="pcode">KIT</span><span class="pref">r.1-214</span></button></td>
+                <td><span class="classdot cd1"></span>Indian equity<span class="sub">4 stocks · Zerodha Kite</span></td>
+                <td class="num">12,84,600</td>
+                <td class="num">26.58%<span class="wbar"><i style="width:26.58%"></i></span></td>
+                <td class="num pos">+0.77%</td>
+                <td><span class="badge">Ledger</span></td>
+              </tr>
+              <tr><td class="pgut"><button class="pmark snap" type="button"><span class="pcode">ETR</span><span class="pref">csv p.2</span></button></td>
+                <td><span class="classdot cd4"></span>US equity<span class="sub">1 RSU lot · E*TRADE</span></td>
+                <td class="num">11,18,428</td>
+                <td class="num">23.15%<span class="wbar"><i style="width:23.15%"></i></span></td>
+                <td class="num neg">−0.30%</td>
+                <td><span class="badge badge-snap">Snapshot</span></td>
+              </tr>
+              <tr><td class="pgut"><button class="pmark" type="button"><span class="pcode">DCX</span><span class="pref">api key</span></button></td>
+                <td><span class="classdot cd3"></span>Crypto<span class="sub">3 assets · CoinDCX</span></td>
+                <td class="num">5,46,742</td>
+                <td class="num">11.31%<span class="wbar"><i style="width:11.31%"></i></span></td>
+                <td class="num pos">+0.96%</td>
+                <td><span class="badge">Ledger</span></td>
+              </tr>
+              <tr><td class="pgut"><button class="pmark snap" type="button"><span class="pcode">GRW</span><span class="pref">csv r.1</span></button></td>
+                <td><span class="classdot cd5"></span>Gold<span class="sub">21.4790 g · Augmont</span></td>
+                <td class="num">2,40,000</td>
+                <td class="num">4.97%<span class="wbar"><i style="width:4.97%"></i></span></td>
+                <td class="num pos">+0.31%</td>
+                <td><span class="badge badge-snap">Snapshot</span></td>
+              </tr>
+              <tr class="tot"><td class="pgut"><button class="pmark derived" type="button"><span class="pcode">DRV</span><span class="pref">5 cls</span></button></td>
+                <td>Total net worth</td>
+                <td class="num">48,32,150</td>
+                <td class="num">100.00%</td>
+                <td class="num pos">+0.38%</td>
+                <td><span class="badge">71.9% ledger</span></td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="panel-head" style="border-top:1px solid var(--rule);border-bottom:0;background:var(--surface)">
+            <span class="panel-title">Coverage by metric</span>
+          </div>
+          <table>
+            <tbody>
+              <tr><td class="pgut"><button class="pmark derived" type="button"><span class="pcode">DRV</span><span class="pref">all 6</span></button></td><td>Net worth · day change</td><td class="num">₹48,32,150</td><td class="num">100.0%</td><td><span class="badge badge-ok">Exact</span></td></tr>
+              <tr><td class="pgut"><button class="pmark derived" type="button"><span class="pcode">DRV</span><span class="pref">ledger</span></button></td><td>Cost basis · unrealised P&amp;L</td><td class="num">₹34,73,722</td><td class="num">71.9%</td><td><span class="badge badge-warn">Partial</span></td></tr>
+              <tr><td class="pgut"><button class="pmark derived" type="button"><span class="pcode">DRV</span><span class="pref">ledger</span></button></td><td>XIRR</td><td class="num">₹34,73,722</td><td class="num">71.9%</td><td><span class="badge badge-warn">Partial</span></td></tr>
+              <tr><td class="pgut"><button class="pmark derived" type="button"><span class="pcode">DRV</span><span class="pref">ledger</span></button></td><td>Realised P&amp;L · FY 2026-27</td><td class="num">₹34,73,722</td><td class="num">71.9%</td><td><span class="badge badge-warn">Partial</span></td></tr>
+            </tbody>
+          </table>
+          <div class="foot">Partial metrics are computed on ledger-backed value only. Misal does not estimate the remainder.</div>
+        </div>
+      </div>
+
+      <!-- ============ CONCENTRATION + DATA QUALITY ============ -->
+      <div class="dashgrid-2">
+
+        <div class="panel">
+          <div class="panel-head">
+            <span class="panel-title">Concentration — position share of net worth</span>
+            <span class="panel-meta">Top 10 of 12</span>
+          </div>
+          <div class="panel-body" style="padding:12px 12px 4px">
+            <svg class="concchart" viewBox="0 0 560 285" role="img" aria-label="Top holdings by share of net worth. Values listed beside each bar.">
+<line class="grid" x1="176" y1="22" x2="176" y2="257"/><text class="ax" x="176" y="16" text-anchor="middle">0%</text><line class="grid" x1="226.8" y1="22" x2="226.8" y2="257"/><text class="ax" x="226.8" y="16" text-anchor="middle">5%</text><line class="grid" x1="277.6" y1="22" x2="277.6" y2="257"/><text class="ax" x="277.6" y="16" text-anchor="middle">10%</text><line class="grid" x1="328.4" y1="22" x2="328.4" y2="257"/><text class="ax" x="328.4" y="16" text-anchor="middle">15%</text><line class="grid" x1="379.2" y1="22" x2="379.2" y2="257"/><text class="ax" x="379.2" y="16" text-anchor="middle">20%</text><line class="grid" x1="430" y1="22" x2="430" y2="257"/><text class="ax" x="430" y="16" text-anchor="middle">25%</text>
+<text class="conc-lab" x="166" y="42" text-anchor="end">Caterpillar Inc (CAT)</text><path class="f-s4"  d="M176 32 L407.2 32 Q411.2 32 411.2 36 L411.2 41 Q411.2 45 407.2 45 L176 45 Z"/><path class="hatch"  d="M176 32 L407.2 32 Q411.2 32 411.2 36 L411.2 41 Q411.2 45 407.2 45 L176 45 Z"/><text class="conc-val" x="419.2" y="42">23.15%</text><text class="conc-lab" x="166" y="63" text-anchor="end">Parag Parikh Flexi Cap</text><path class="f-s2"  d="M176 53 L336.9 53 Q340.9 53 340.9 57 L340.9 62 Q340.9 66 336.9 66 L176 66 Z"/><text class="conc-val" x="348.9" y="63">16.23%</text><text class="conc-lab" x="166" y="84" text-anchor="end">UTI Nifty 50 Index</text><path class="f-s2"  d="M176 74 L279.39 74 Q283.39 74 283.39 78 L283.39 83 Q283.39 87 279.39 87 L176 87 Z"/><text class="conc-val" x="291.39" y="84">10.57%</text><text class="conc-lab" x="166" y="105" text-anchor="end">Reliance Industries</text><path class="f-s1"  d="M176 95 L272.89 95 Q276.89 95 276.89 99 L276.89 104 Q276.89 108 272.89 108 L176 108 Z"/><text class="conc-val" x="284.89" y="105">9.93%</text><text class="conc-lab" x="166" y="126" text-anchor="end">HDFC Bank</text><path class="f-s1"  d="M176 116 L261.61 116 Q265.61 116 265.61 120 L265.61 125 Q265.61 129 261.61 129 L176 129 Z"/><text class="conc-val" x="273.61" y="126">8.82%</text><text class="conc-lab" x="166" y="147" text-anchor="end">SBI Small Cap</text><path class="f-s2"  d="M176 137 L245.05 137 Q249.05 137 249.05 141 L249.05 146 Q249.05 150 245.05 150 L176 150 Z"/><text class="conc-val" x="257.05" y="147">7.19%</text><text class="conc-lab" x="166" y="168" text-anchor="end">Infosys</text><path class="f-s1"  d="M176 158 L232.05 158 Q236.05 158 236.05 162 L236.05 167 Q236.05 171 232.05 171 L176 171 Z"/><text class="conc-val" x="244.05" y="168">5.91%</text><text class="conc-lab" x="166" y="189" text-anchor="end">Bitcoin (BTC)</text><path class="f-s3"  d="M176 179 L223 179 Q227 179 227 183 L227 188 Q227 192 223 192 L176 192 Z"/><text class="conc-val" x="235" y="189">5.02%</text><text class="conc-lab" x="166" y="210" text-anchor="end">Augmont Digital Gold</text><path class="f-s5"  d="M176 200 L222.5 200 Q226.5 200 226.5 204 L226.5 209 Q226.5 213 222.5 213 L176 213 Z"/><path class="hatch"  d="M176 200 L222.5 200 Q226.5 200 226.5 204 L226.5 209 Q226.5 213 222.5 213 L176 213 Z"/><text class="conc-val" x="234.5" y="210">4.97%</text><text class="conc-lab" x="166" y="231" text-anchor="end">Ethereum (ETH)</text><path class="f-s3"  d="M176 221 L210.51 221 Q214.51 221 214.51 225 L214.51 230 Q214.51 234 210.51 234 L176 234 Z"/><text class="conc-val" x="222.51" y="231">3.79%</text><text class="conc-lab" x="166" y="252" text-anchor="end">Other (2 positions)</text><path class="f-other"  d="M176 242 L217.01 242 Q221.01 242 221.01 246 L221.01 251 Q221.01 255 217.01 255 L176 255 Z"/><text class="conc-val" x="229.01" y="252">4.43%</text><line class="thresh" x1="379.2" y1="22" x2="379.2" y2="265"/><text class="thresh-lab" x="384.2" y="278">20% SINGLE-POSITION FLAG</text>
+</svg>
+          </div>
+          <div class="foot">Bars carry the asset-class hue. Values are labelled on every bar — no colour-only reading.</div>
+        </div>
+
+        <div>
+          <div class="dq" style="margin-bottom:14px">
+            <div class="dq-cell">
+              <span class="lab">Stale prices</span>
+              <div class="dq-n">2</div>
+              <div class="cell-note">Augmont gold 15 d · CAT 3 d</div>
+            </div>
+            <div class="dq-cell">
+              <span class="lab">Unresolved instruments</span>
+              <div class="dq-n">3</div>
+              <div class="cell-note" style="margin-top:6px"><a class="btn" href="#s4">Review queue</a></div>
+            </div>
+            <div class="dq-cell">
+              <span class="lab">Accounts</span>
+              <div class="dq-n">6</div>
+              <div class="cell-note">4 ledger · 2 snapshot</div>
+            </div>
+            <div class="dq-cell">
+              <span class="lab">Price feed</span>
+              <div class="dq-n">10:52</div>
+              <div class="cell-note">NSE · AMFI · CoinDCX · IEX</div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head">
+              <span class="panel-title">Sync log — per account</span>
+              <span class="panel-meta">All timestamps local · IST</span>
+            </div>
+            <table>
+              <thead>
+                <tr><th class="pgut">Src</th><th>Account</th><th>Source</th><th class="num">Value ₹</th><th>Last synced</th><th>State</th></tr>
+              </thead>
+              <tbody>
+                <tr><td class="pgut"><button class="pmark" type="button"><span class="pcode">KIT</span><span class="pref">api key</span></button></td><td><span class="classdot cd1"></span>Zerodha Kite</td><td>Kite API (read-only)</td><td class="num">12,84,600</td><td>12 Aug 2026 09:12</td><td><span class="badge badge-ok">Fresh</span></td></tr>
+                <tr><td class="pgut"><button class="pmark" type="button"><span class="pcode">CAS</span><span class="pref">p.4-8</span></button></td><td><span class="classdot cd2"></span>Zerodha Coin</td><td>CAMS CAS · PDF</td><td class="num">10,72,784</td><td>12 Aug 2026 10:44</td><td><span class="badge badge-ok">Fresh</span></td></tr>
+                <tr><td class="pgut"><button class="pmark" type="button"><span class="pcode">CAS</span><span class="pref">p.9-12</span></button></td><td><span class="classdot cd2"></span>Groww</td><td>KFintech CAS · PDF</td><td class="num">5,69,596</td><td>12 Aug 2026 10:44</td><td><span class="badge badge-ok">Fresh</span></td></tr>
+                <tr><td class="pgut"><button class="pmark" type="button"><span class="pcode">DCX</span><span class="pref">api key</span></button></td><td><span class="classdot cd3"></span>CoinDCX</td><td>API key (read-only)</td><td class="num">5,46,742</td><td>12 Aug 2026 10:51</td><td><span class="badge badge-ok">Fresh</span></td></tr>
+                <tr><td class="pgut"><button class="pmark snap" type="button"><span class="pcode">ETR</span><span class="pref">csv p.2</span></button></td><td><span class="classdot cd4"></span>E*TRADE — Morgan Stanley</td><td>Positions CSV</td><td class="num">11,18,428</td><td>09 Aug 2026 21:03</td><td><span class="badge badge-warn">3 d old</span></td></tr>
+                <tr><td class="pgut"><button class="pmark snap alert" type="button"><span class="pcode">GRW</span><span class="pref">csv 15 d</span></button></td><td><span class="classdot cd5"></span>Augmont Digital Gold</td><td>Holdings CSV</td><td class="num">2,40,000</td><td>28 Jul 2026 18:20</td><td><span class="badge badge-crit">15 d old</span></td></tr>
+              </tbody>
+            </table>
+            <div class="foot">Nothing here is uploaded. Every row was parsed from a file or a read-only key on this machine.</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ==================================================================
+     SCREEN 02 — HOLDINGS
+     ================================================================== -->
+<section class="screen" id="s2">
+  <div class="screen-head">
+    <span class="screen-no">Screen 02</span>
+    <h2 class="screen-title">Holdings</h2>
+    <span class="screen-note">Grouped by asset class · snapshot rows visibly withhold cost and P&amp;L</span>
+  </div>
+
+  <div class="app">
+    <div class="appbar">
+      <nav class="nav" aria-label="Primary">
+        <a href="#s1">Dashboard</a>
+        <a href="#s2" aria-current="page">Holdings</a>
+        <a href="#s3">Accounts</a>
+        <a href="#s4">Import</a>
+        <a href="#s5">Instruments</a>
+      </nav>
+      <div class="statusline">
+        <span><span class="dot-local"></span>Local</span>
+        <span>12 positions</span>
+        <span>₹48,32,150</span>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <span class="tb-lab">Group</span>
+      <button class="select" type="button">Asset class</button>
+      <span class="tb-lab">Sort</span>
+      <button class="select" type="button">Current value ↓</button>
+      <span class="tb-lab">Account</span>
+      <button class="select" type="button">All 6</button>
+      <span class="tb-lab">Coverage</span>
+      <button class="select" type="button">All</button>
+      <span class="spacer"></span>
+      <button class="btn" type="button">Columns</button>
+      <button class="btn" type="button">Export CSV</button>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th class="pgut">Src</th>
+          <th style="width:250px">Instrument</th>
+          <th>Accounts</th>
+          <th class="num">Quantity</th>
+          <th class="num">Avg cost</th>
+          <th class="num">Last price</th>
+          <th class="num">Value ₹</th>
+          <th class="num">Unrealised ₹</th>
+          <th class="num">Unrealised %</th>
+          <th class="num">Weight</th>
+          <th class="num">Day %</th>
+        </tr>
+      </thead>
+      <tbody>
+
+        <tr class="grp"><td class="pgut"></td><td colspan="10"><span class="classdot cd2"></span>Mutual funds · 3 positions · ₹16,42,380 · 33.99% · <span class="badge">Ledger</span></td></tr>
+        <tr><td class="pgut"><button class="pmark" type="button"><span class="pcode">CAS</span><span class="pref">p.4</span></button></td>
+          <td class="inst">Parag Parikh Flexi Cap<span class="sub">Direct growth · INF879O01019</span></td>
+          <td>Zerodha Coin, Groww<span class="sub">2 folios</span></td>
+          <td class="num">11,240.556</td><td class="num">55.8400</td><td class="num">69.7670</td>
+          <td class="num">7,84,220</td><td class="num pos">+1,56,547</td><td class="num pos">+24.94%</td>
+          <td class="num">16.23%</td><td class="num pos">+0.41%</td>
+        </tr>
+        <tr><td class="pgut"><button class="pmark" type="button"><span class="pcode">CAS</span><span class="pref">p.5</span></button></td>
+          <td class="inst">UTI Nifty 50 Index<span class="sub">Direct growth · INF789F1AUB4</span></td>
+          <td>Zerodha Coin</td>
+          <td class="num">3,428.104</td><td class="num">128.4000</td><td class="num">148.9560</td>
+          <td class="num">5,10,640</td><td class="num pos">+70,471</td><td class="num pos">+16.01%</td>
+          <td class="num">10.57%</td><td class="num pos">+0.33%</td>
+        </tr>
+        <tr><td class="pgut"><button class="pmark" type="button"><span class="pcode">CAS</span><span class="pref">p.9</span></button></td>
+          <td class="inst">SBI Small Cap<span class="sub">Direct growth · INF200K01T28</span></td>
+          <td>Groww</td>
+          <td class="num">1,460.482</td><td class="num">196.2000</td><td class="num">237.9500</td>
+          <td class="num">3,47,520</td><td class="num pos">+60,973</td><td class="num pos">+21.28%</td>
+          <td class="num">7.19%</td><td class="num pos">+0.35%</td>
+        </tr>
+
+        <tr class="grp"><td class="pgut"></td><td colspan="10"><span class="classdot cd1"></span>Indian equity · 4 positions · ₹12,84,600 · 26.58% · <span class="badge">Ledger</span></td></tr>
+        <tr><td class="pgut"><button class="pmark" type="button"><span class="pcode">KIT</span><span class="pref">r.18</span></button></td>
+          <td class="inst">Reliance Industries<span class="sub">NSE:RELIANCE · INE002A01018</span></td>
+          <td>Zerodha Kite</td>
+          <td class="num">165</td><td class="num">2,412.75</td><td class="num">2,908.60</td>
+          <td class="num">4,79,919</td><td class="num pos">+81,815</td><td class="num pos">+20.55%</td>
+          <td class="num">9.93%</td><td class="num pos">+1.12%</td>
+        </tr>
+        <tr><td class="pgut"><button class="pmark" type="button"><span class="pcode">KIT</span><span class="pref">r.47</span></button></td>
+          <td class="inst">HDFC Bank<span class="sub">NSE:HDFCBANK · INE040A01034</span></td>
+          <td>Zerodha Kite</td>
+          <td class="num">245</td><td class="num">1,412.60</td><td class="num">1,739.85</td>
+          <td class="num">4,26,263</td><td class="num pos">+80,176</td><td class="num pos">+23.17%</td>
+          <td class="num">8.82%</td><td class="num pos">+0.64%</td>
+        </tr>
+        <tr><td class="pgut"><button class="pmark" type="button"><span class="pcode">KIT</span><span class="pref">r.63</span></button></td>
+          <td class="inst">Infosys<span class="sub">NSE:INFY · INE009A01021</span></td>
+          <td>Zerodha Kite</td>
+          <td class="num">180</td><td class="num">1,338.20</td><td class="num">1,586.40</td>
+          <td class="num">2,85,552</td><td class="num pos">+44,676</td><td class="num pos">+18.55%</td>
+          <td class="num">5.91%</td><td class="num pos">+0.82%</td>
+        </tr>
+        <tr><td class="pgut"><button class="pmark" type="button"><span class="pcode">KIT</span><span class="pref">r.91</span></button></td>
+          <td class="inst">Tata Motors<span class="sub">NSE:TATAMOTORS · INE155A01022</span></td>
+          <td>Zerodha Kite</td>
+          <td class="num">130</td><td class="num">642.10</td><td class="num">714.35</td>
+          <td class="num">92,866</td><td class="num pos">+9,393</td><td class="num pos">+11.25%</td>
+          <td class="num">1.92%</td><td class="num neg">−0.41%</td>
+        </tr>
+
+        <tr class="grp"><td class="pgut"></td><td colspan="10"><span class="classdot cd4"></span>US equity · 1 position · ₹11,18,428 · 23.15% · <span class="badge badge-snap">Snapshot — no transaction history</span></td></tr>
+        <tr><td class="pgut"><button class="pmark snap" type="button"><span class="pcode">ETR</span><span class="pref">csv p.2</span></button></td>
+          <td class="inst">Caterpillar Inc<span class="sub">NYSE:CAT · US1491231015 · RSU</span></td>
+          <td>E*TRADE — Morgan Stanley</td>
+          <td class="num">34</td>
+          <td class="num"><span class="na">Not measured</span></td>
+          <td class="num">$376.20<span class="sub">₹32,895.41</span></td>
+          <td class="num">11,18,428</td>
+          <td class="num"><span class="na">Not measured</span></td>
+          <td class="num"><span class="na">Not measured</span></td>
+          <td class="num">23.15%</td><td class="num neg">−0.30%</td>
+        </tr>
+
+        <tr class="grp"><td class="pgut"></td><td colspan="10"><span class="classdot cd3"></span>Crypto · 3 positions · ₹5,46,742 · 11.31% · <span class="badge">Ledger</span></td></tr>
+        <tr><td class="pgut"><button class="pmark" type="button"><span class="pcode">DCX</span><span class="pref">api key</span></button></td>
+          <td class="inst">Bitcoin<span class="sub">BTC · spot</span></td>
+          <td>CoinDCX</td>
+          <td class="num">0.04150000</td><td class="num">39,56,627</td><td class="num">58,42,300</td>
+          <td class="num">2,42,455</td><td class="num pos">+78,255</td><td class="num pos">+47.66%</td>
+          <td class="num">5.02%</td><td class="num pos">+1.24%</td>
+        </tr>
+        <tr><td class="pgut"><button class="pmark" type="button"><span class="pcode">DCX</span><span class="pref">api key</span></button></td>
+          <td class="inst">Ethereum<span class="sub">ETH · spot</span></td>
+          <td>CoinDCX</td>
+          <td class="num">0.64000000</td><td class="num">2,21,562</td><td class="num">2,86,400</td>
+          <td class="num">1,83,296</td><td class="num pos">+41,496</td><td class="num pos">+29.26%</td>
+          <td class="num">3.79%</td><td class="num pos">+0.71%</td>
+        </tr>
+        <tr><td class="pgut"><button class="pmark" type="button"><span class="pcode">DCX</span><span class="pref">api key</span></button></td>
+          <td class="inst">Solana<span class="sub">SOL · spot</span></td>
+          <td>CoinDCX</td>
+          <td class="num">6.09770000</td><td class="num">15,809</td><td class="num">19,842</td>
+          <td class="num">1,20,991</td><td class="num pos">+24,591</td><td class="num pos">+25.51%</td>
+          <td class="num">2.50%</td><td class="num pos">+0.42%</td>
+        </tr>
+
+        <tr class="grp"><td class="pgut"></td><td colspan="10"><span class="classdot cd5"></span>Gold · 1 position · ₹2,40,000 · 4.97% · <span class="badge badge-snap">Snapshot — no transaction history</span></td></tr>
+        <tr><td class="pgut"><button class="pmark snap alert" type="button"><span class="pcode">GRW</span><span class="pref">csv 15 d</span></button></td>
+          <td class="inst">Augmont Digital Gold<span class="sub">999 fine · vaulted</span></td>
+          <td>Augmont</td>
+          <td class="num">21.4790 g</td>
+          <td class="num"><span class="na">Not measured</span></td>
+          <td class="num">11,173.65<span class="sub">per g · 15 d old</span></td>
+          <td class="num">2,40,000</td>
+          <td class="num"><span class="na">Not measured</span></td>
+          <td class="num"><span class="na">Not measured</span></td>
+          <td class="num">4.97%</td><td class="num pos">+0.31%</td>
+        </tr>
+
+        <tr class="tot"><td class="pgut"><button class="pmark derived" type="button"><span class="pcode">DRV</span><span class="pref">12 pos</span></button></td>
+          <td>Total · 12 positions</td>
+          <td>6 accounts</td>
+          <td class="num">—</td>
+          <td class="num">28,25,329<span class="sub">total cost · ledger</span></td>
+          <td class="num">—</td>
+          <td class="num">48,32,150</td>
+          <td class="num pos">+6,48,393</td>
+          <td class="num pos">+22.95%</td>
+          <td class="num">100.00%</td>
+          <td class="num pos">+0.38%</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="foot">“Not measured” means Misal has no transaction history for that position — it is not zero, and it is not a loss. Cost, unrealised P&amp;L and the total above cover ₹34,73,722 of ₹48,32,150 (71.9%).</div>
+  </div>
+</section>
+
+<!-- ==================================================================
+     SCREEN 03 — ACCOUNTS
+     ================================================================== -->
+<section class="screen" id="s3">
+  <div class="screen-head">
+    <span class="screen-no">Screen 03</span>
+    <h2 class="screen-title">Accounts</h2>
+    <span class="screen-note">Capability is stated per account · re-sync is manual · nothing leaves the machine</span>
+  </div>
+
+  <div class="app">
+    <div class="appbar">
+      <nav class="nav" aria-label="Primary">
+        <a href="#s1">Dashboard</a>
+        <a href="#s2">Holdings</a>
+        <a href="#s3" aria-current="page">Accounts</a>
+        <a href="#s4">Import</a>
+        <a href="#s5">Instruments</a>
+      </nav>
+      <div class="statusline">
+        <span><span class="dot-local"></span>Local</span>
+        <span>6 accounts</span>
+        <span>4 full history · 2 holdings only</span>
+      </div>
+    </div>
+
+    <div class="acct-row" style="background:var(--surface-2);border-bottom:1px solid var(--rule-2)">
+      <span class="pgut"><span class="tb-lab">Src</span></span>
+      <span></span>
+      <span class="tb-lab">Account</span>
+      <span class="tb-lab">Capability</span>
+      <span class="tb-lab num" style="text-align:right">Value ₹</span>
+      <span class="tb-lab num" style="text-align:right">Holdings</span>
+      <span class="tb-lab">Last synced</span>
+      <span></span>
+    </div>
+
+    <div class="acct-row">
+      <span class="pgut"><button class="pmark" type="button"><span class="pcode">KIT</span><span class="pref">api key</span></button></span>
+      <span class="acct-rail r1"></span>
+      <span><span class="acct-name">Zerodha Kite</span><span class="acct-prov">Zerodha Broking Ltd · equity &amp; SGB · UCC ZR8842</span></span>
+      <span><span class="badge">Full history</span></span>
+      <span class="num" style="text-align:right">12,84,600</span>
+      <span class="num" style="text-align:right">4</span>
+      <span>12 Aug 2026 09:12<span class="acct-prov">API key · read-only</span></span>
+      <span><button class="btn" type="button">Re-sync</button></span>
+    </div>
+
+    <div class="acct-row">
+      <span class="pgut"><button class="pmark" type="button"><span class="pcode">CAS</span><span class="pref">p.4-8</span></button></span>
+      <span class="acct-rail r2"></span>
+      <span><span class="acct-name">Zerodha Coin</span><span class="acct-prov">Mutual funds · CAMS folios 91043278/22, 30114552/09</span></span>
+      <span><span class="badge">Full history</span></span>
+      <span class="num" style="text-align:right">10,72,784</span>
+      <span class="num" style="text-align:right">2</span>
+      <span>12 Aug 2026 10:44<span class="acct-prov">CAS PDF · Apr 2023 → Jul 2026</span></span>
+      <span><button class="btn" type="button">Re-import</button></span>
+    </div>
+
+    <div class="acct-row">
+      <span class="pgut"><button class="pmark" type="button"><span class="pcode">CAS</span><span class="pref">p.9-12</span></button></span>
+      <span class="acct-rail r2"></span>
+      <span><span class="acct-name">Groww</span><span class="acct-prov">Mutual funds · KFintech folio 51229944/11</span></span>
+      <span><span class="badge">Full history</span></span>
+      <span class="num" style="text-align:right">5,69,596</span>
+      <span class="num" style="text-align:right">2</span>
+      <span>12 Aug 2026 10:44<span class="acct-prov">CAS PDF · same statement</span></span>
+      <span><button class="btn" type="button">Re-import</button></span>
+    </div>
+
+    <div class="acct-row">
+      <span class="pgut"><button class="pmark" type="button"><span class="pcode">DCX</span><span class="pref">api key</span></button></span>
+      <span class="acct-rail r3"></span>
+      <span><span class="acct-name">CoinDCX</span><span class="acct-prov">Crypto spot · read-only API key · trade + deposit ledger</span></span>
+      <span><span class="badge">Full history</span></span>
+      <span class="num" style="text-align:right">5,46,742</span>
+      <span class="num" style="text-align:right">3</span>
+      <span>12 Aug 2026 10:51<span class="acct-prov">API key · read-only</span></span>
+      <span><button class="btn" type="button">Re-sync</button></span>
+    </div>
+
+    <div class="acct-row">
+      <span class="pgut"><button class="pmark snap" type="button"><span class="pcode">ETR</span><span class="pref">csv p.2</span></button></span>
+      <span class="acct-rail r4"></span>
+      <span><span class="acct-name">E*TRADE — Morgan Stanley</span><span class="acct-prov">Employer equity · RSU plan · USD</span></span>
+      <span><span class="badge badge-snap">Holdings only</span></span>
+      <span class="num" style="text-align:right">11,18,428</span>
+      <span class="num" style="text-align:right">1</span>
+      <span>09 Aug 2026 21:03<span class="acct-prov">Positions CSV · 3 d old</span></span>
+      <span><button class="btn" type="button">Import CSV</button></span>
+    </div>
+
+    <div class="acct-row" style="border-bottom:1px solid var(--rule-2)">
+      <span class="pgut"><button class="pmark snap alert" type="button"><span class="pcode">GRW</span><span class="pref">csv 15 d</span></button></span>
+      <span class="acct-rail r5"></span>
+      <span><span class="acct-name">Augmont Digital Gold</span><span class="acct-prov">Vaulted 999 gold · via Groww</span></span>
+      <span><span class="badge badge-snap">Holdings only</span></span>
+      <span class="num" style="text-align:right">2,40,000</span>
+      <span class="num" style="text-align:right">1</span>
+      <span>28 Jul 2026 18:20<span class="acct-prov">Holdings CSV · <span class="neg">15 d old</span></span></span>
+      <span><button class="btn" type="button">Import CSV</button></span>
+    </div>
+
+    <div class="dashgrid-2" style="padding:16px">
+      <div class="panel">
+        <div class="panel-head"><span class="panel-title">Add an account</span><span class="panel-meta">Two ways in</span></div>
+        <div class="panel-body">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div style="border:1px solid var(--rule-2);padding:12px">
+              <span class="lab">Option A</span>
+              <div style="font-size:13px;font-weight:700;margin:4px 0 6px">Import a statement</div>
+              <p style="margin:0 0 10px;color:var(--ink-3);font-size:11px">CAMS / KFintech CAS PDF, NSDL or CDSL holding statement, broker tradebook CSV, exchange ledger CSV. A statement with transactions gives full history; a holdings-only file gives a snapshot.</p>
+              <button class="btn btn-strong" type="button">Choose file…</button>
+            </div>
+            <div style="border:1px solid var(--rule-2);padding:12px">
+              <span class="lab">Option B</span>
+              <div style="font-size:13px;font-weight:700;margin:4px 0 6px">Connect via read-only API key</div>
+              <p style="margin:0 0 10px;color:var(--ink-3);font-size:11px">Zerodha Kite, CoinDCX, WazirX. The key is stored in the OS keychain on this machine and is never transmitted anywhere except to the exchange. Withdrawal-enabled keys are rejected.</p>
+              <button class="btn btn-strong" type="button">Add key…</button>
+            </div>
+          </div>
+        </div>
+        <div class="foot">No sign-in, no account, no sync. Misal reads files and read-only keys, and writes one SQLite database on this machine.</div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><span class="panel-title">What each capability unlocks</span><span class="panel-meta">Honest by construction</span></div>
+        <table>
+          <thead><tr><th>Metric</th><th>Full history</th><th>Holdings only</th></tr></thead>
+          <tbody>
+            <tr><td>Current value · weight · day change</td><td><span class="badge badge-ok">Yes</span></td><td><span class="badge badge-ok">Yes</span></td></tr>
+            <tr><td>Cost basis (FIFO)</td><td><span class="badge badge-ok">Yes</span></td><td><span class="na">Not measured</span></td></tr>
+            <tr><td>Unrealised P&amp;L</td><td><span class="badge badge-ok">Yes</span></td><td><span class="na">Not measured</span></td></tr>
+            <tr><td>Realised P&amp;L · capital gains</td><td><span class="badge badge-ok">Yes</span></td><td><span class="na">Not measured</span></td></tr>
+            <tr><td>XIRR</td><td><span class="badge badge-ok">Yes</span></td><td><span class="na">Not measured</span></td></tr>
+            <tr><td>Contribution to calibration bar</td><td>71.9%</td><td>28.1%</td></tr>
+          </tbody>
+        </table>
+        <div class="foot">Uploading an E*TRADE transaction history would move ₹11,18,428 across the calibration line and raise coverage to 95.0%.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================================================================
+     SCREEN 04 — IMPORT REVIEW
+     ================================================================== -->
+<section class="screen" id="s4">
+  <div class="screen-head">
+    <span class="screen-no">Screen 04</span>
+    <h2 class="screen-title">Import review</h2>
+    <span class="screen-note">The import completed · unresolved rows are a queue, not an error</span>
+  </div>
+
+  <div class="app">
+    <div class="appbar">
+      <nav class="nav" aria-label="Primary">
+        <a href="#s1">Dashboard</a>
+        <a href="#s2">Holdings</a>
+        <a href="#s3">Accounts</a>
+        <a href="#s4" aria-current="page">Import</a>
+        <a href="#s5">Instruments</a>
+      </nav>
+      <div class="statusline">
+        <span><span class="dot-local"></span>Local</span>
+        <span>Import #47</span>
+        <span>Completed 12 Aug 2026 10:44</span>
+      </div>
+    </div>
+
+    <div style="border-left:3px solid var(--st-good);background:var(--surface-2);padding:11px 14px;border-bottom:1px solid var(--rule)">
+      <span class="lab">Result</span>
+      <div style="font-size:14px;font-weight:700;margin-top:2px">Import completed — 183 transactions applied, 3 instruments need your input</div>
+      <div style="font-size:11px;color:var(--ink-3);margin-top:2px">Nothing was rolled back. The three unresolved rows are parked below and can be mapped whenever you like.</div>
+    </div>
+
+    <div class="dashgrid-2" style="padding:16px;grid-template-columns:1fr 1fr">
+
+      <div>
+        <div class="panel" style="margin-bottom:14px">
+          <div class="panel-head"><span class="panel-title">Source document</span><span class="panel-meta">Provenance</span></div>
+          <div class="panel-body">
+            <dl class="kv">
+              <dt>File</dt><dd>CAS_CAMS_KFIN_APR2023_JUL2026.pdf <span class="muted">· 2.4 MB</span></dd>
+              <dt>Parser</dt><dd>CAMS / KFintech consolidated account statement · v3</dd>
+              <dt>Unlocked with</dt><dd>PAN + date of birth <span class="muted">· not stored</span></dd>
+              <dt>Period covered</dt><dd>01 Apr 2023 → 31 Jul 2026</dd>
+              <dt>Checksum</dt><dd>sha256 4f9c…a713</dd>
+              <dt>Stored at</dt><dd>~/Library/Application Support/Misal/documents/47/</dd>
+            </dl>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><span class="panel-title">What was read</span><span class="panel-meta">Row-level</span></div>
+          <table class="compact">
+            <tbody>
+              <tr><td class="pgut"><button class="pmark" type="button"><span class="pcode">CAS</span><span class="pref">p.1</span></button></td><td>Folios found</td><td class="num">4</td><td class="muted">2 CAMS · 2 KFintech</td></tr>
+              <tr><td class="pgut"><button class="pmark" type="button"><span class="pcode">CAS</span><span class="pref">p.1</span></button></td><td>Schemes found</td><td class="num">5</td><td class="muted">3 matched to existing holdings</td></tr>
+              <tr><td class="pgut"><button class="pmark" type="button"><span class="pcode">CAS</span><span class="pref">p.4-12</span></button></td><td>Transactions read</td><td class="num">218</td><td class="muted">purchase, SIP, redemption, switch, stamp duty</td></tr>
+              <tr><td class="pgut"><button class="pmark derived" type="button"><span class="pcode">DRV</span><span class="pref">ledger</span></button></td><td>Transactions applied</td><td class="num">183</td><td><span class="badge badge-ok">Applied</span></td></tr>
+              <tr><td class="pgut"><button class="pmark derived" type="button"><span class="pcode">DRV</span><span class="pref">sha256</span></button></td><td>Duplicates skipped</td><td class="num">35</td><td class="muted">already present from import #41 (14 Mar 2026)</td></tr>
+              <tr><td class="pgut"><button class="pmark" type="button"><span class="pcode">CAS</span><span class="pref">p.13</span></button></td><td>Closing positions</td><td class="num">5</td><td class="muted">reconciled against parsed transactions</td></tr>
+              <tr><td class="pgut"><button class="pmark alert" type="button"><span class="pcode">CAS</span><span class="pref">p.7·11</span></button></td><td>Rows with errors</td><td class="num">2</td><td><span class="badge badge-warn">Skipped</span></td></tr>
+              <tr><td class="pgut"><button class="pmark alert" type="button"><span class="pcode">CAS</span><span class="pref">3 rows</span></button></td><td>Unresolved instruments</td><td class="num">3</td><td><span class="badge badge-warn">Queued</span></td></tr>
+            </tbody>
+          </table>
+          <div class="panel-head" style="border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);background:var(--surface)">
+            <span class="panel-title">Row errors — 2</span>
+          </div>
+          <table class="compact">
+            <thead><tr><th class="pgut">Src</th><th>Location</th><th>Row</th><th>Reason</th></tr></thead>
+            <tbody>
+              <tr><td class="pgut"><button class="pmark alert" type="button"><span class="pcode">CAS</span><span class="pref">p.7 r.14</span></button></td><td>p.7 · line 14</td><td>SWITCH OUT — HDFC Liquid Fund</td><td class="muted">Amount column empty — row skipped</td></tr>
+              <tr><td class="pgut"><button class="pmark alert" type="button"><span class="pcode">CAS</span><span class="pref">p.11 r.3</span></button></td><td>p.11 · line 3</td><td>PURCHASE — SBI Small Cap</td><td class="muted">Date “31-02-2025” is not a valid date — row skipped</td></tr>
+            </tbody>
+          </table>
+          <div class="foot">Skipped rows do not affect the applied 183. Fix them by re-importing a corrected statement — Misal will skip everything it already has.</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <span class="panel-title">Unresolved instruments — review queue</span>
+          <span class="panel-meta">3 open · dismissible</span>
+        </div>
+        <div class="panel-body">
+
+          <div class="queue-item">
+            <div class="pgut"><button class="pmark alert" type="button"><span class="pcode">CAS</span><span class="pref">p.9</span></button></div>
+            <div class="qi-body">
+            <div class="queue-head">
+              <div>
+                <span class="lab">Unrecognised ISIN · CAS p.9</span>
+                <div class="raw">INF179K01YV8</div>
+                <div class="sublab">“HDFC BALANCED ADVANTAGE FUND - DIRECT PLAN - GROWTH” · 412.882 units · ₹1,18,640</div>
+              </div>
+              <span class="badge badge-warn">Needs mapping</span>
+            </div>
+            <div class="map">
+              <button class="combo" type="button">HDFC Balanced Advantage Fund — Direct Growth</button>
+              <span class="conf">Match 0.96 · AMFI master</span>
+              <button class="btn btn-strong" type="button">Map</button>
+              <button class="btn" type="button">Create new</button>
+              <button class="btn" type="button">Ignore</button>
+            </div>
+            </div>
+          </div>
+
+          <div class="queue-item">
+            <div class="pgut"><button class="pmark alert" type="button"><span class="pcode">DCX</span><span class="pref">api key</span></button></div>
+            <div class="qi-body">
+            <div class="queue-head">
+              <div>
+                <span class="lab">Unrecognised symbol · CoinDCX ledger</span>
+                <div class="raw">SOL-PERP</div>
+                <div class="sublab">4 rows · derivative contract, not a spot holding</div>
+              </div>
+              <span class="badge badge-warn">Needs decision</span>
+            </div>
+            <div class="map">
+              <button class="combo" type="button"><span class="ph">Search instruments…</span></button>
+              <span class="conf">No confident match</span>
+              <button class="btn" type="button">Map to Solana</button>
+              <button class="btn btn-strong" type="button">Exclude derivatives</button>
+              <button class="btn" type="button">Ignore</button>
+            </div>
+            </div>
+          </div>
+
+          <div class="queue-item">
+            <div class="pgut"><button class="pmark snap alert" type="button"><span class="pcode">ETR</span><span class="pref">csv r.1</span></button></div>
+            <div class="qi-body">
+            <div class="queue-head">
+              <div>
+                <span class="lab">Unrecognised identifier · E*TRADE CSV</span>
+                <div class="raw">CAT-RSU-VEST-2024-11</div>
+                <div class="sublab">1 row · 34 shares · treated as a snapshot position pending mapping</div>
+              </div>
+              <span class="badge badge-warn">Needs mapping</span>
+            </div>
+            <div class="map">
+              <button class="combo" type="button">Caterpillar Inc — NYSE:CAT — US1491231015</button>
+              <span class="conf">Match 0.88 · ticker prefix</span>
+              <button class="btn btn-strong" type="button">Map</button>
+              <button class="btn" type="button">Create new</button>
+              <button class="btn" type="button">Ignore</button>
+            </div>
+            </div>
+          </div>
+
+          <div style="border-top:1px solid var(--rule);padding-top:10px;margin-top:2px;display:flex;gap:8px;align-items:center">
+            <button class="btn" type="button">Dismiss for now</button>
+            <span class="conf">Dismissed items stay in Settings → Review queue. The import stands either way.</span>
+          </div>
+
+        </div>
+        <div class="foot">Effect on the calibration bar: mapping <b>CAT-RSU-VEST-2024-11</b> does not add history — E*TRADE supplied positions only, so coverage stays at 71.9%.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================================================================
+     SCREEN 05 — INSTRUMENT DETAIL
+     ================================================================== -->
+<section class="screen" id="s5">
+  <div class="screen-head">
+    <span class="screen-no">Screen 05</span>
+    <h2 class="screen-title">Instrument</h2>
+    <span class="screen-note">One holding across all accounts · FIFO lots · every row traces to a document</span>
+  </div>
+
+  <div class="app">
+    <div class="appbar">
+      <nav class="nav" aria-label="Primary">
+        <a href="#s1">Dashboard</a>
+        <a href="#s2">Holdings</a>
+        <a href="#s3">Accounts</a>
+        <a href="#s4">Import</a>
+        <a href="#s5" aria-current="page">Instruments</a>
+      </nav>
+      <div class="statusline">
+        <span><span class="dot-local"></span>Local</span>
+        <span>2 accounts</span>
+        <span>36 transactions</span>
+      </div>
+    </div>
+
+    <div class="inst-head">
+      <div>
+        <div class="inst-name">Parag Parikh Flexi Cap Fund — Direct Plan, Growth</div>
+        <div class="inst-ids">
+          <span class="classdot cd2"></span>Mutual fund · flexi cap · PPFAS Mutual Fund · INF879O01019 · scheme 122639 · <span class="badge">Ledger</span>
+        </div>
+      </div>
+      <div class="inst-nav">
+        <span class="lab" style="text-align:right">NAV · 11 Aug 2026</span>
+        <div class="val" style="font-size:24px;line-height:30px">₹69.7670</div>
+        <div class="pos" style="font-size:11px">+₹0.2850 &nbsp;+0.41% 1D</div>
+      </div>
+    </div>
+
+    <div class="splitpanel">
+      <div><div class="pgut"><button class="pmark" type="button"><span class="pcode">CAS</span><span class="pref">p.4</span></button></div><div class="cell-body"><span class="lab">Units held</span><div class="val-sm">11,240.556</div><div class="cell-note">Across 2 folios</div></div></div>
+      <div><div class="pgut"><button class="pmark derived" type="button"><span class="pcode">DRV</span><span class="pref">nav</span></button></div><div class="cell-body"><span class="lab">Current value</span><div class="val-sm">₹7,84,220</div><div class="cell-note">16.23% of net worth</div></div></div>
+      <div><div class="pgut"><button class="pmark derived" type="button"><span class="pcode">DRV</span><span class="pref">35 lots</span></button></div><div class="cell-body"><span class="lab">Invested — FIFO cost</span><div class="val-sm">₹6,27,673</div><div class="cell-note">35 open lots · avg NAV ₹55.8400</div></div></div>
+      <div><div class="pgut"><button class="pmark derived" type="button"><span class="pcode">DRV</span><span class="pref">36 cf</span></button></div><div class="cell-body"><span class="lab">XIRR</span><div class="val-sm">21.62%</div><div class="cell-note">36 cash flows since 07 Jul 2023</div></div></div>
+    </div>
+
+    <div class="dashgrid-2" style="padding:16px;grid-template-columns:1fr 576px">
+
+      <div class="panel">
+        <div class="panel-head">
+          <span class="panel-title">NAV history — 36 months</span>
+          <span class="panel-meta">Sep 2023 → Aug 2026 · AMFI end-of-day · ₹ per unit</span>
+        </div>
+        <div class="panel-body" style="padding:12px 12px 0">
+          <svg class="navchart" viewBox="0 0 700 244" role="img" aria-label="Net asset value of Parag Parikh Flexi Cap Direct Growth, monthly, September 2023 to August 2026, rising from 48.21 to 69.7670 rupees.">
+<line class="grid" x1="52" y1="184" x2="636" y2="184"/><text class="ax" x="44" y="187.5" text-anchor="end">₹45</text><line class="grid" x1="52" y1="152.89" x2="636" y2="152.89"/><text class="ax" x="44" y="156.39" text-anchor="end">₹50</text><line class="grid" x1="52" y1="121.78" x2="636" y2="121.78"/><text class="ax" x="44" y="125.28" text-anchor="end">₹55</text><line class="grid" x1="52" y1="90.67" x2="636" y2="90.67"/><text class="ax" x="44" y="94.17" text-anchor="end">₹60</text><line class="grid" x1="52" y1="59.56" x2="636" y2="59.56"/><text class="ax" x="44" y="63.06" text-anchor="end">₹65</text><line class="grid" x1="52" y1="28.44" x2="636" y2="28.44"/><text class="ax" x="44" y="31.94" text-anchor="end">₹70</text>
+<line class="axis" x1="52" y1="184" x2="636" y2="184"/>
+<path class="line-s2" d="M52 164.03 L68.69 158.74 L85.37 152.14 L102.06 144.55 L118.74 147.41 L135.43 137.89 L152.11 130.49 L168.8 127.25 L185.49 133.91 L202.17 120.66 L218.86 112.82 L235.54 103.73 L252.23 99.25 L268.91 106.6 L285.6 116.18 L302.29 110.45 L318.97 101.18 L335.66 92.28 L352.34 87.24 L369.03 96.14 L385.71 103.98 L402.4 94.4 L419.09 84.32 L435.77 74.8 L452.46 70.88 L469.14 78.6 L485.83 88.05 L502.51 77.6 L519.2 66.52 L535.89 59.43 L552.57 63.91 L569.26 54.08 L585.94 46.36 L602.63 40.58 L619.31 34.04 L636 29.89"/>
+<circle class="dot-s2" cx="636" cy="29.89" r="4"/>
+  <text class="dlab" x="648" y="33.89">₹69.7670</text>
+<line class="tick-min" x1="52" y1="184" x2="52" y2="188"/><text class="ax" x="52" y="200" text-anchor="start">SEP 23</text><line class="tick-min" x1="152.11" y1="184" x2="152.11" y2="188"/><text class="ax" x="152.11" y="200" text-anchor="middle">MAR 24</text><line class="tick-min" x1="252.23" y1="184" x2="252.23" y2="188"/><text class="ax" x="252.23" y="200" text-anchor="middle">SEP 24</text><line class="tick-min" x1="352.34" y1="184" x2="352.34" y2="188"/><text class="ax" x="352.34" y="200" text-anchor="middle">MAR 25</text><line class="tick-min" x1="452.46" y1="184" x2="452.46" y2="188"/><text class="ax" x="452.46" y="200" text-anchor="middle">SEP 25</text><line class="tick-min" x1="552.57" y1="184" x2="552.57" y2="188"/><text class="ax" x="552.57" y="200" text-anchor="middle">MAR 26</text><line class="tick-min" x1="636" y1="184" x2="636" y2="188"/><text class="ax" x="636" y="200" text-anchor="end">AUG 26</text>
+<line class="rule-axis" x1="52" y1="214" x2="636" y2="214"/><line class="rug-buy" x1="52" y1="214" x2="52" y2="207"/><line class="rug-buy" x1="68.69" y1="214" x2="68.69" y2="207"/><line class="rug-buy" x1="85.37" y1="214" x2="85.37" y2="207"/><line class="rug-buy" x1="102.06" y1="214" x2="102.06" y2="207"/><line class="rug-buy" x1="118.74" y1="214" x2="118.74" y2="207"/><line class="rug-buy" x1="135.43" y1="214" x2="135.43" y2="207"/><line class="rug-buy" x1="152.11" y1="214" x2="152.11" y2="207"/><line class="rug-buy" x1="168.8" y1="214" x2="168.8" y2="207"/><line class="rug-buy" x1="185.49" y1="214" x2="185.49" y2="207"/><line class="rug-buy" x1="202.17" y1="214" x2="202.17" y2="207"/><line class="rug-buy" x1="218.86" y1="214" x2="218.86" y2="207"/><line class="rug-buy" x1="235.54" y1="214" x2="235.54" y2="207"/><line class="rug-buy" x1="252.23" y1="214" x2="252.23" y2="207"/><line class="rug-buy" x1="268.91" y1="214" x2="268.91" y2="207"/><line class="rug-buy" x1="285.6" y1="214" x2="285.6" y2="207"/><line class="rug-buy" x1="302.29" y1="214" x2="302.29" y2="207"/><line class="rug-buy" x1="318.97" y1="214" x2="318.97" y2="207"/><line class="rug-buy" x1="335.66" y1="214" x2="335.66" y2="207"/><line class="rug-buy" x1="352.34" y1="214" x2="352.34" y2="207"/><line class="rug-buy" x1="369.03" y1="214" x2="369.03" y2="207"/><line class="rug-buy" x1="385.71" y1="214" x2="385.71" y2="207"/><line class="rug-buy" x1="402.4" y1="214" x2="402.4" y2="207"/><line class="rug-buy" x1="419.09" y1="214" x2="419.09" y2="207"/><line class="rug-buy" x1="435.77" y1="214" x2="435.77" y2="207"/><line class="rug-buy" x1="452.46" y1="214" x2="452.46" y2="207"/><line class="rug-buy" x1="469.14" y1="214" x2="469.14" y2="207"/><line class="rug-buy" x1="485.83" y1="214" x2="485.83" y2="207"/><line class="rug-buy" x1="502.51" y1="214" x2="502.51" y2="207"/><line class="rug-buy" x1="519.2" y1="214" x2="519.2" y2="207"/><line class="rug-buy" x1="535.89" y1="214" x2="535.89" y2="207"/><line class="rug-buy" x1="552.57" y1="214" x2="552.57" y2="207"/><line class="rug-buy" x1="569.26" y1="214" x2="569.26" y2="207"/><line class="rug-buy" x1="602.63" y1="214" x2="602.63" y2="207"/><line class="rug-buy" x1="619.31" y1="214" x2="619.31" y2="207"/><line class="rug-buy" x1="636" y1="214" x2="636" y2="207"/><line class="rug-sell" x1="585.94" y1="214" x2="585.94" y2="221"/><text class="rug-lab" x="52" y="236">▲ 35 SIP PURCHASES</text><text class="rug-lab2" x="636" y="236" text-anchor="end">▼ 1 REDEMPTION · 12 MAY 2026</text>
+</svg>
+        </div>
+        <div class="foot">Single series — the panel title names it. The rug below the axis marks every transaction Misal holds for this scheme; all 36 are listed in the ledger table below.</div>
+      </div>
+
+      <div>
+        <div class="panel" style="margin-bottom:14px">
+          <div class="panel-head"><span class="panel-title">Position by account</span><span class="panel-meta">2 folios</span></div>
+          <table>
+            <thead><tr><th class="pgut">Src</th><th>Account · folio</th><th class="num">Units</th><th class="num">Avg NAV</th><th class="num">Cost ₹</th><th class="num">Value ₹</th><th class="num">Unrealised</th></tr></thead>
+            <tbody>
+              <tr><td class="pgut"><button class="pmark" type="button"><span class="pcode">CAS</span><span class="pref">p.4</span></button></td><td>Zerodha Coin<span class="sub">CAMS 91043278/22</span></td><td class="num">8,057.482</td><td class="num">54.1200</td><td class="num">4,36,071</td><td class="num">5,62,144</td><td class="num pos">+1,26,073<span class="sub pos">+28.91%</span></td></tr>
+              <tr><td class="pgut"><button class="pmark" type="button"><span class="pcode">CAS</span><span class="pref">p.9</span></button></td><td>Groww<span class="sub">KFintech 51229944/11</span></td><td class="num">3,183.074</td><td class="num">60.1940</td><td class="num">1,91,602</td><td class="num">2,22,076</td><td class="num pos">+30,474<span class="sub pos">+15.90%</span></td></tr>
+              <tr class="tot"><td class="pgut"><button class="pmark derived" type="button"><span class="pcode">DRV</span><span class="pref">2 folios</span></button></td><td>Total</td><td class="num">11,240.556</td><td class="num">55.8400</td><td class="num">6,27,673</td><td class="num">7,84,220</td><td class="num pos">+1,56,547<span class="sub pos">+24.94%</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><span class="panel-title">Unrealised / realised split</span><span class="panel-meta">FIFO · Indian FY</span></div>
+          <table>
+            <tbody>
+              <tr><td class="pgut"><button class="pmark derived" type="button"><span class="pcode">DRV</span><span class="pref">35 lots</span></button></td><td>Unrealised — 35 open lots</td><td class="num pos">+₹1,56,547</td><td class="num muted">+24.94%</td></tr>
+              <tr><td class="pgut"><button class="pmark derived" type="button"><span class="pcode">DRV</span><span class="pref">1 redem</span></button></td><td>Realised — lifetime</td><td class="num pos">+₹4,206</td><td class="num muted">1 redemption</td></tr>
+              <tr><td class="pgut"><button class="pmark derived" type="button"><span class="pcode">DRV</span><span class="pref">fy26-27</span></button></td><td>Realised — FY 2026-27</td><td class="num pos">+₹4,206</td><td class="num muted">LTCG · held 2 y 10 m</td></tr>
+              <tr><td class="pgut"><button class="pmark derived" type="button"><span class="pcode">DRV</span><span class="pref">fy25-26</span></button></td><td>Realised — FY 2025-26</td><td class="num muted">₹0</td><td class="num muted">no redemptions</td></tr>
+              <tr class="tot"><td class="pgut"><button class="pmark derived" type="button"><span class="pcode">DRV</span><span class="pref">fifo</span></button></td><td>Total P&amp;L</td><td class="num pos">+₹1,60,753</td><td class="num muted">since 07 Jul 2023</td></tr>
+            </tbody>
+          </table>
+          <div class="foot">Both folios are ledger-backed, so every figure on this screen is exact — nothing is estimated.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="dashgrid-2" style="padding:0 16px 16px;grid-template-columns:1fr 1fr">
+
+      <div class="panel">
+        <div class="panel-head"><span class="panel-title">Open lots — FIFO cost basis</span><span class="panel-meta">35 lots · oldest first</span></div>
+        <table>
+          <thead><tr><th class="pgut">Src</th><th>Acquired</th><th>Account</th><th class="num">Units</th><th class="num">NAV ₹</th><th class="num">Cost ₹</th><th class="num">Value ₹</th><th>Holding</th></tr></thead>
+          <tbody>
+            <tr><td class="pgut"><button class="pmark" type="button"><span class="pcode">CAS</span><span class="pref">p.4 r.01</span></button></td><td>07 Jul 2023</td><td>Coin</td><td class="num">311.113</td><td class="num">48.2140</td><td class="num">15,000</td><td class="num">21,703</td><td><span class="badge">Long</span></td></tr>
+            <tr><td class="pgut"><button class="pmark" type="button"><span class="pcode">CAS</span><span class="pref">p.4 r.02</span></button></td><td>07 Aug 2023</td><td>Coin</td><td class="num">305.741</td><td class="num">49.0620</td><td class="num">15,000</td><td class="num">21,328</td><td><span class="badge">Long</span></td></tr>
+            <tr><td class="pgut"><button class="pmark" type="button"><span class="pcode">CAS</span><span class="pref">p.4 r.03</span></button></td><td>07 Sep 2023</td><td>Coin</td><td class="num">299.271</td><td class="num">50.1220</td><td class="num">15,000</td><td class="num">20,877</td><td><span class="badge">Long</span></td></tr>
+            <tr><td class="pgut"><button class="pmark" type="button"><span class="pcode">CAS</span><span class="pref">p.4 r.04</span></button></td><td>07 Oct 2023</td><td>Coin</td><td class="num">292.157</td><td class="num">51.3420</td><td class="num">15,000</td><td class="num">20,381</td><td><span class="badge">Long</span></td></tr>
+            <tr><td class="pgut"><button class="pmark" type="button"><span class="pcode">CAS</span><span class="pref">p.9 r.01</span></button></td><td>05 Jan 2024</td><td>Groww</td><td class="num">213.865</td><td class="num">56.1120</td><td class="num">12,000</td><td class="num">14,918</td><td><span class="badge">Long</span></td></tr>
+            <tr><td class="pgut"><button class="pmark" type="button"><span class="pcode">CAS</span><span class="pref">p.9 r.02</span></button></td><td>07 Feb 2024</td><td>Groww</td><td class="num">207.286</td><td class="num">57.8940</td><td class="num">12,000</td><td class="num">14,459</td><td><span class="badge">Long</span></td></tr>
+            <tr><td class="pgut"></td><td colspan="7" class="muted" style="text-align:center;letter-spacing:.14em;font-size:9px;text-transform:uppercase">29 more open lots</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><span class="panel-title">Transactions</span><span class="panel-meta">36 total · most recent first · source stamped in the margin</span></div>
+        <table>
+          <thead><tr><th class="pgut">Src</th><th>Date</th><th>Type</th><th>Account</th><th class="num">Units</th><th class="num">NAV ₹</th><th class="num">Amount ₹</th></tr></thead>
+          <tbody>
+            <tr><td class="pgut"><button class="pmark" type="button"><span class="pcode">CAS</span><span class="pref">p.4 r.22</span></button></td><td>07 Aug 2026</td><td>SIP purchase</td><td>Coin</td><td class="num">215.001</td><td class="num">69.7670</td><td class="num">15,000</td></tr>
+            <tr><td class="pgut"><button class="pmark" type="button"><span class="pcode">CAS</span><span class="pref">p.4 r.21</span></button></td><td>07 Jul 2026</td><td>SIP purchase</td><td>Coin</td><td class="num">217.075</td><td class="num">69.1000</td><td class="num">15,000</td></tr>
+            <tr><td class="pgut"><button class="pmark" type="button"><span class="pcode">CAS</span><span class="pref">p.4 r.20</span></button></td><td>07 Jun 2026</td><td>SIP purchase</td><td>Coin</td><td class="num">220.276</td><td class="num">68.0500</td><td class="num">15,000</td></tr>
+            <tr><td class="pgut"><button class="pmark" type="button"><span class="pcode">CAS</span><span class="pref">p.6 r.09</span></button></td><td>12 May 2026</td><td>Redemption</td><td>Groww</td><td class="num">−300.000</td><td class="num">65.0200</td><td class="num">19,506</td></tr>
+            <tr><td class="pgut"><button class="pmark" type="button"><span class="pcode">CAS</span><span class="pref">p.4 r.19</span></button></td><td>07 May 2026</td><td>SIP purchase</td><td>Coin</td><td class="num">227.848</td><td class="num">65.8330</td><td class="num">15,000</td></tr>
+            <tr><td class="pgut"><button class="pmark" type="button"><span class="pcode">CAS</span><span class="pref">p.4 r.18</span></button></td><td>07 Apr 2026</td><td>SIP purchase</td><td>Coin</td><td class="num">232.396</td><td class="num">64.5450</td><td class="num">15,000</td></tr>
+            <tr><td class="pgut"><button class="pmark" type="button"><span class="pcode">CAS</span><span class="pref">p.6 r.08</span></button></td><td>05 Mar 2026</td><td>SIP purchase</td><td>Groww</td><td class="num">184.559</td><td class="num">65.0200</td><td class="num">12,000</td></tr>
+            <tr><td class="pgut"></td><td colspan="6" class="muted" style="text-align:center;letter-spacing:.14em;font-size:9px;text-transform:uppercase">29 earlier transactions</td></tr>
+          </tbody>
+        </table>
+        <div class="foot">The 12 May 2026 redemption consumed 300.000 units from the 07 Jul 2023 and 07 Aug 2023 lots — cost ₹15,300, realised gain ₹4,206, long-term.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</div>
+</body>
+</html>
