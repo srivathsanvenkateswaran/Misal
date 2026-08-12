@@ -1,0 +1,51 @@
+{
+  "name": "misal",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Local-first investment tracker. One view of everything you own.",
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/srivathsanvenkateswaran/Misal.git"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.101.4",
+    "@tanstack/react-table": "^9.1.2",
+    "@tauri-apps/api": "^2.11.1",
+    "decimal.js": "^10.6.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@tauri-apps/cli": "^2.11.4",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.0.5",
+    "@vitest/coverage-v8": "^4.1.10",
+    "eslint": "^10.8.1",
+    "globals": "^17.9.0",
+    "jsdom": "^30.0.1",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.67.0",
+    "vite": "^8.2.1",
+    "vitest": "^4.1.10"
+  }
+}
