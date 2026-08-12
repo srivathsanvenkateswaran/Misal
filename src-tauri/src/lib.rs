@@ -1,6 +1,7 @@
 pub mod db;
 pub mod error;
 pub mod exchange_guard;
+pub mod queries;
 pub mod secrets;
 
 use error::Result;
@@ -51,7 +52,16 @@ pub fn run() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![storage_status])
+        .invoke_handler(tauri::generate_handler![
+            storage_status,
+            queries::list_accounts,
+            queries::list_instruments,
+            queries::list_transactions,
+            queries::list_positions,
+            queries::list_prices,
+            queries::list_unresolved,
+            queries::get_settings
+        ])
         .run(tauri::generate_context!())
         .expect("error while running Misal");
 }
