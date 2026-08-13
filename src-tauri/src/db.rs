@@ -16,6 +16,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         "sync-state",
         include_str!("../migrations/0002-sync-state.sql"),
     ),
+    (
+        3,
+        "alias-uniqueness",
+        include_str!("../migrations/0003-alias-uniqueness.sql"),
+    ),
 ];
 
 /// Location of the database file for this platform.
@@ -262,6 +267,75 @@ mod tests {
             .query_row("SELECT count(*) FROM sync_state", [], |r| r.get(0))
             .unwrap();
         assert_eq!(left, 0, "sync cursors outlived their account");
+    }
+
+    #[test]
+    fn a_global_alias_cannot_be_claimed_by_two_instruments() {
+        // instrument_alias's PRIMARY KEY does not constrain these rows: provider_id is NULL for
+        // every global scheme, and SQLite treats NULLs in a unique index as distinct. One ISIN
+        // resolving to two instruments would double a holding in net worth, and pick a different
+        // one between runs.
+        let (_dir, path) = temp_db();
+        let conn = open_at(&path, TEST_KEY).unwrap();
+        migrate(&conn, &path).unwrap();
+
+        conn.execute_batch(
+            "INSERT INTO instrument (id, asset_class, display_name, currency, created_at)
+               VALUES ('i1', 'indian_equity', 'Infosys', 'INR', 'now'),
+                      ('i2', 'indian_equity', 'Infosys duplicate', 'INR', 'now');",
+        )
+        .unwrap();
+
+        let insert = "INSERT INTO instrument_alias (instrument_id, scheme, value, provider_id)
+                      VALUES (?1, 'isin', 'INE009A01021', NULL)";
+        conn.execute(insert, ["i1"]).unwrap();
+        assert!(
+            conn.execute(insert, ["i2"]).is_err(),
+            "the same ISIN was claimed by two instruments"
+        );
+
+        // A provider-local code is genuinely per-provider and must still be allowed twice.
+        let local = "INSERT INTO instrument_alias (instrument_id, scheme, value, provider_id)
+                     VALUES (?1, 'provider-local', 'INFY', ?2)";
+        conn.execute(local, ["i1", "zerodha-kite"]).unwrap();
+        conn.execute(local, ["i2", "groww"]).unwrap();
+    }
+
+    #[test]
+    fn the_alias_migration_deduplicates_an_existing_database() {
+        // A database written before migration 3 can already hold duplicates, so the migration has
+        // to clean up before it can constrain - otherwise it fails and the user is stuck.
+        let (_dir, path) = temp_db();
+        let conn = open_at(&path, TEST_KEY).unwrap();
+        conn.execute_batch(MIGRATIONS[0].2).unwrap();
+        conn.execute_batch(MIGRATIONS[1].2).unwrap();
+        conn.execute(
+            "INSERT INTO schema_migration (version, name, applied_at)
+             VALUES (1, 'initial', 'now'), (2, 'sync-state', 'now')",
+            [],
+        )
+        .unwrap();
+
+        conn.execute_batch(
+            "INSERT INTO instrument (id, asset_class, display_name, currency, created_at)
+               VALUES ('i1', 'indian_equity', 'A', 'INR', 'now'),
+                      ('i2', 'indian_equity', 'B', 'INR', 'now');
+             INSERT INTO instrument_alias (instrument_id, scheme, value, provider_id)
+               VALUES ('i1', 'isin', 'INE009A01021', NULL),
+                      ('i2', 'isin', 'INE009A01021', NULL);",
+        )
+        .unwrap();
+
+        migrate(&conn, &path).unwrap();
+
+        let left: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM instrument_alias WHERE scheme = 'isin'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(left, 1, "duplicates survived the migration");
     }
 
     #[test]
