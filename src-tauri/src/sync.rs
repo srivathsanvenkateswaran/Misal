@@ -33,6 +33,7 @@ use crate::exchange_guard::{
     Transport,
 };
 use crate::http::ReqwestTransport;
+use crate::ingest;
 use crate::secrets;
 use crate::AppState;
 use chrono::SecondsFormat;
@@ -1014,6 +1015,12 @@ pub fn commit_positions(
             ],
         )?;
     }
+    // An asset the catalogue could not name last time queued an entry, and the entry is the only
+    // statement anywhere that its value is missing from every total. Once the catalogue learns the
+    // coin, its balance lands here — and nothing used to close the entry, because this path never
+    // released anything at all. The disclosure went on subtracting a holding that was back in the
+    // totals, with no file to re-import and no way to make it stop.
+    ingest::release_landed_rows_in_account(&tx, document_id, account_id)?;
     tx.commit()?;
     Ok(())
 }
@@ -1054,6 +1061,18 @@ pub fn commit_transactions(conn: &mut Connection, rows: &[TxnRow]) -> Result<Com
             ],
         )?;
         committed += i64::from(changed > 0);
+    }
+
+    // The trade and transfer pages queue their own unresolved assets, so they close their own too.
+    // Scoped per (account, document) pair the page actually wrote, which for one page is one pair.
+    let mut released_for: Vec<(&str, &str)> = Vec::new();
+    for row in rows {
+        let pair = (row.source_document_id.as_str(), row.account_id.as_str());
+        if released_for.contains(&pair) {
+            continue;
+        }
+        released_for.push(pair);
+        ingest::release_landed_rows_in_account(&tx, pair.0, pair.1)?;
     }
 
     tx.commit()?;
@@ -2405,6 +2424,121 @@ mod tests {
             )
             .unwrap();
         assert_eq!(quantity, "42.000000000000000001");
+    }
+
+    /// Defect. A coin the catalogue learns later must stop being disclosed once its balance lands.
+    ///
+    /// This path queues unresolved assets and never released one: `record_unresolved` is called
+    /// from four places in `runner.ts` and `release_landed_rows` from none. The entry has no file
+    /// behind it either — a sync page's content hash is its response body, so every sweep mints a
+    /// fresh `source_document` and the document that queued the coin is never the one that lands
+    /// it. So the disclosure had no way to end at all: the review queue went on asking about an
+    /// asset that resolves, and the dashboard went on subtracting a holding that was back inside
+    /// every total, for as long as the account existed.
+    #[test]
+    fn a_coin_the_catalogue_learns_stops_being_disclosed_once_its_balance_lands() {
+        let (_dir, mut conn) = open_test_db();
+        record_unresolved(
+            &conn,
+            &UnresolvedRecord {
+                account_id: "a1".to_string(),
+                source_document_id: "d1".to_string(),
+                raw_identifier: "NEWCOIN".to_string(),
+                raw_name: None,
+                asset_class_hint: Some("crypto".to_string()),
+                observed_quantity: Some("42.5".to_string()),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            count(&conn, "unresolved_instrument WHERE resolved_at IS NULL"),
+            1
+        );
+
+        // The next release of the seed catalogue knows the coin, so `resolveAsset` mints the
+        // instrument and remembers the answer as a provider-local alias. Nobody clicked anything.
+        let instrument = create_instrument(
+            &conn,
+            &InstrumentSpec {
+                asset_class: "crypto".to_string(),
+                display_name: "Newcoin".to_string(),
+                currency: "USD".to_string(),
+                precision: 8,
+                tax_regime: Some("vda".to_string()),
+            },
+        )
+        .unwrap();
+        add_alias(
+            &conn,
+            &instrument,
+            "provider-local",
+            "NEWCOIN",
+            Some("binance"),
+        )
+        .unwrap();
+
+        // The sweep that finally carries the balance is a new page, and therefore a new document.
+        conn.execute(
+            "INSERT INTO source_document (id, account_id, provider_id, kind, content_hash,
+                imported_at)
+             VALUES ('d2', 'a1', 'binance', 'api-response', 'hash-2', 'now')",
+            [],
+        )
+        .unwrap();
+        commit_positions(
+            &mut conn,
+            "a1",
+            "2026-08-13",
+            &[PositionRow {
+                instrument_id: instrument,
+                quantity: "42.5".to_string(),
+            }],
+            "d2",
+        )
+        .unwrap();
+
+        assert_eq!(
+            count(&conn, "unresolved_instrument WHERE resolved_at IS NULL"),
+            0,
+            "the coin went on being reported as withheld from a total it is inside"
+        );
+    }
+
+    /// And an asset the catalogue still cannot name keeps its entry, sweep after sweep.
+    #[test]
+    fn a_sweep_does_not_close_an_entry_whose_asset_still_does_not_resolve() {
+        let (_dir, mut conn) = open_test_db();
+        record_unresolved(
+            &conn,
+            &UnresolvedRecord {
+                account_id: "a1".to_string(),
+                source_document_id: "d1".to_string(),
+                raw_identifier: "NEWCOIN".to_string(),
+                raw_name: None,
+                asset_class_hint: Some("crypto".to_string()),
+                observed_quantity: Some("42.5".to_string()),
+            },
+        )
+        .unwrap();
+
+        // The sweep lands every asset it *could* name. NEWCOIN is not among them.
+        commit_positions(
+            &mut conn,
+            "a1",
+            "2026-08-13",
+            &[PositionRow {
+                instrument_id: "i-btc".to_string(),
+                quantity: "0.5".to_string(),
+            }],
+            "d1",
+        )
+        .unwrap();
+
+        assert_eq!(
+            count(&conn, "unresolved_instrument WHERE resolved_at IS NULL"),
+            1,
+            "a disclosure about missing money was deleted by an unrelated holding"
+        );
     }
 
     #[test]

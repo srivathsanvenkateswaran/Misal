@@ -47,6 +47,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         "outstanding-repair",
         include_str!("../migrations/0008-outstanding-repair.sql"),
     ),
+    (
+        9,
+        "dismissal-lockout-repair",
+        include_str!("../migrations/0009-dismissal-lockout-repair.sql"),
+    ),
 ];
 
 /// Location of the database file for this platform.

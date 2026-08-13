@@ -592,6 +592,116 @@ Migration 0008 repairs databases the sweep has already run against, by re-derivi
 migration 0007's own backfill rule. Neither code fix can reach them: the flag is gone, nothing else
 recomputes it, and the rows exist nowhere but in the files.
 
+### ~~A dismissed queue entry stripped every later statement of its re-import flag~~ — FIXED
+
+The third entrance to the lockout above, and the widest: it needs no second document sharing an
+entry and no crashing plugin, only the button the import report puts in front of the user.
+
+`record_outstanding_rows` derived the `'withheld'` half of `import_run.outstanding_reason` from
+`withheld_for_document`, which filters `ignored_at IS NULL`. Migration 0006 permits one open entry
+per `(account_id, raw_identifier)`, and `record_unresolved`'s guarded INSERT tests only
+`resolved_at IS NULL` — so a dismissed entry silently absorbed each new statement's sighting,
+advancing its `last_seen_document_id`, while raising nothing the count could see.
+
+**Consequence:** import January's eCAS naming an unmapped ISIN, press "Dismiss for now", then import
+February and March. All three runs commit with `outstanding_reason = NULL`, so `runImport` answers
+`already-imported` for all three, forever, and February's rows can never be landed. Neither reversal
+path repairs it: `map_unresolved` never touches `import_run`, and `restore_entry` re-stamps only the
+two documents the entry names as source and last-seen. The rows exist nowhere else — no `txn` rows
+were written, `import_issue.raw_payload` cannot reconstruct a CAS row, and Misal never copies the
+file. Twelve monthly statements lose the ten in the middle. `ImportReview.tsx` meanwhile tells the
+user to "Import this file again after mapping to release them", which `runImport` then refuses.
+
+Fixed by separating the two questions instead of by teaching one of them about the other.
+`withheld_for_document` is unchanged — it is the *queue's* figure, which the review queue and the
+import report read, and dismissal genuinely does belong in it. `record_outstanding_rows` now counts
+through `unlanded_for_document`, which is the same population minus the `ignored_at` clause: a
+dismissal is an answer about being asked, and only `resolved_at` — "the rows are in the ledger" —
+can retire a document's debt. The alternative fix, having `record_unresolved` stamp the new
+document's debt as it advances `last_seen_document_id` onto a dismissed entry, would have put queue
+bookkeeping in the business of writing `import_run`, which is precisely the entanglement that
+produced the two defects above.
+
+The dismissal path keeps working because it never depended on the commit-time count:
+`ignore_unresolved` clears the flag itself, then and there, over the documents the dismissed entry
+names. A dismissal is therefore a decision with a date and a scope rather than a filter every later
+import silently inherits.
+
+**Standing lesson, and it is about the fixture ordering rather than its shape.** Every dismissal
+test in the suite — three in `ingest.rs`, four in `accounts.rs` — dismissed *after* every statement
+had been imported, which is the safe direction and the one `ignore_unresolved`'s own comment reasons
+about. Nothing anywhere imported a statement *while a dismissal stood*. The new test does, and finds
+`outstanding_reason = NULL` on February's run against the old code.
+
+Migration 0009 repairs databases the defect has already run in, because none of the above can reach
+one. It is 0008's rule with a single clause changed: a dismissal that came *after* a run answers for
+it, and a dismissal that came *before* it cannot have spoken about rows it had not yet seen.
+
+### ~~Rows that landed without the user mapping anything never closed their queue entry~~ — FIXED
+
+`release_landed_rows` required `mapped_at IS NOT NULL AND resolved_instrument_id IS NOT NULL`, both
+written only by `map_unresolved`. An identifier can become resolvable without anybody clicking
+anything about it, and then the rows land while the entry stays open.
+
+The trigger is a scheme mismatch, and it needs no unusual data. A tradebook row whose ISIN cell was
+blank — `csv-plugin.ts` drops a blank cell — is queued under `nse:SYM`, because the exchange symbol
+is then the strongest identifier the row printed. The user maps a *different* entry, keyed
+`isin:INE…`, raised by another statement; re-reading that statement lands its row and writes the
+`nse:SYM` alias `aliasesProvenBy` derives from an ISIN and a symbol printed side by side.
+Re-importing the tradebook now resolves off that alias and lands its rows — but its entry is matched
+on the exact `raw_identifier`, so the mapping never claimed it and `mapped_at` is still NULL.
+
+**Consequence:** `withheld_for_document` stays 1, the review queue goes on asking about an instrument
+that resolves, `outstanding_reason` is re-stamped `'withheld'` on every further pass so the file is
+never idempotent again, and the dashboard prints rupees as withheld from totals they are already
+inside. That is double-counting in the one figure this codebase documents as existing to be believed
+literally — the same class of error as the folio doubling, arriving through the queue instead of
+through the identity key.
+
+Deleting the `mapped_at` predicate alone changes nothing, because both `EXISTS` subqueries join on
+`resolved_instrument_id`, which is mapping-only as well. So the release now asks the question the
+pipeline itself asks: *what does this identifier name today?* `resolves_now` walks the same ladder
+`resolveInstrument` walks — ISIN against `instrument.isin` and then the alias table, AMFI code,
+exchange symbol, provider-scoped local code — reusing `alias_for_identifier` so the two cannot
+drift. A mapping still wins where there is one: it is the user's own answer and may name an
+instrument no alias reaches.
+
+**The release moved earlier in `commit_batch`, and that order is now load-bearing.** One pass can
+prove an alias and withhold a row under it: the row printing both identifiers resolves and teaches
+`nse:SYM`, while the row whose ISIN cell was blank was read before that alias existed and is queued
+under exactly that identifier. Releasing after the queue has been updated would find the first row's
+transaction sitting under the instrument the entry now resolves to and close an entry whose own rows
+are not in the ledger — deleting a disclosure about missing money, which is the failure this whole
+area exists to prevent. Reading the queue as it stood before the pass asks the only answerable
+question: did rows land for something this document was *already* withholding? Both directions are
+tested.
+
+**A second live instance of the same class, fixed in the same pass.** The exchange sync
+(`sync.rs`) called `record_unresolved` from four places in `runner.ts` and `release_landed_rows` from
+none, so a crypto asset the seed catalogue learned later went on being disclosed forever — and
+unlike a statement there is no file to re-import, so nothing could ever end it. `commit_positions`
+and `commit_transactions` now release, scoped to the account rather than to the document:
+a sync page's content hash is its response body, so every sweep mints a fresh `source_document` and
+the document that queued the coin is never the one that lands it. Widening the scope is sound there
+for the reason `commit_positions` already states about the same rows — an exchange account is fed by
+this sync and nothing else, and a sweep writes the whole asset set for one `as_of` or none of it.
+
+**Two residuals, both outside this change.**
+
+- **A shared entry still only names two documents**, its first sighting and its last, so with a year
+  of monthly statements the months in between cannot close it even after their rows land. Their own
+  `outstanding_reason` is cleared correctly once the entry is closed by a document it does name, so
+  nothing is locked out; what remains is that the *order* of re-imports decides how long the entry
+  keeps disclosing. Closing that needs a per-document record of what was withheld, which is a schema
+  change rather than a predicate change.
+- **Mapping an exchange asset still writes no alias.** `record_unresolved` in `sync.rs` writes a bare
+  asset code with no scheme prefix, `alias_for_identifier` yields nothing for it, and so
+  `resolveAsset` cannot see the user's answer on the next sweep — the entry is answered in the queue
+  and the balance goes on failing to resolve. The release path handles it (a mapped entry closes when
+  rows land under the instrument the user chose), but nothing makes those rows land. The fix is for
+  `map_unresolved` to write a `provider-local` alias for a scheme-less identifier, which is a change
+  to the mapping path and to what `MappingScope::Account` means.
+
 ### ~~Two positions in one import annihilated each other in silence~~ — FIXED
 
 `planPositions` in `src/ingestion/pipeline.ts` decided insert/restate/duplicate purely from

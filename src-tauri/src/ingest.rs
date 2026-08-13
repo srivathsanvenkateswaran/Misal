@@ -426,6 +426,40 @@ pub fn withheld_for_document(conn: &Connection, document_id: &str) -> Result<i64
     )?)
 }
 
+/// How many rows this document is still owed by the ledger, dismissal or no dismissal.
+///
+/// The same population as `withheld_for_document` minus its `ignored_at` clause, and the
+/// difference is the whole point. Those two clauses answer two different questions, and reading one
+/// for the other is what let a single dismissal strip every later statement of its re-import flag:
+///
+///   `ignored_at` is the *queue's* state — "stop asking me about this identifier". It is set once,
+///   on one entry, and migration 0006 permits only one open entry per (account, identifier), so
+///   every statement that arrives afterwards has its sighting absorbed by the dismissed entry
+///   (`record_unresolved` advances `last_seen_document_id` on any entry that is not yet
+///   `resolved_at`) while raising nothing the queue counts.
+///
+///   `resolved_at` is the *ledger's* state — "these rows are in". It is the only thing that can
+///   make a document's debt go away, because it is the only one that means the money arrived.
+///
+/// A dismissal is an answer about being asked, never about the rows. February's rows are exactly as
+/// absent from net worth as they were before January's entry was dismissed, and if February's run
+/// does not record that, `runImport` answers `already-imported` for a file whose transactions exist
+/// nowhere but in the PDF.
+///
+/// The dismissal path is unaffected because it clears the flag *itself*, at the moment of
+/// dismissal, over the documents the dismissed entry names — `ignore_unresolved` — rather than by
+/// making the commit-time count blind to dismissals. That keeps "stop asking me" a decision with a
+/// date and a scope, instead of a filter every later import silently inherits.
+fn unlanded_for_document(conn: &Connection, document_id: &str) -> Result<i64> {
+    Ok(conn.query_row(
+        "SELECT count(*) FROM unresolved_instrument
+          WHERE (source_document_id = ?1 OR last_seen_document_id = ?1)
+            AND resolved_at IS NULL",
+        [document_id],
+        |row| row.get(0),
+    )?)
+}
+
 /// Whether this document's own last pass left rows it still owes the ledger.
 ///
 /// The predicate that decides whether re-importing the same file is a no-op, and the one thing the
@@ -570,6 +604,18 @@ pub fn commit_batch(conn: &mut Connection, batch: &ImportBatch) -> Result<()> {
         )?;
     }
 
+    // Before this batch's own withheld rows are queued, and that order is load-bearing now that a
+    // release is keyed on the identifier resolving rather than on a mapping. A file can prove an
+    // alias and withhold a row under it in the same pass — one row printing an ISIN beside its NSE
+    // symbol resolves and teaches `nse:SYM`, while a second row whose ISIN cell was blank was read
+    // before that alias existed and is queued under exactly that identifier. Releasing afterwards
+    // would see the first row's transaction sitting under the instrument the entry now resolves to
+    // and close an entry whose own rows are not in the ledger — destroying the disclosure that they
+    // are missing, which is the failure this whole area exists to prevent. Reading the queue as it
+    // stood before this pass asks the only answerable question: did rows land for something this
+    // document was *already* withholding?
+    release_landed_rows(&tx, &document_id)?;
+
     for entry in &batch.unresolved {
         record_unresolved(&tx, entry)?;
     }
@@ -612,7 +658,6 @@ pub fn commit_batch(conn: &mut Connection, batch: &ImportBatch) -> Result<()> {
         )?;
     }
 
-    release_landed_rows(&tx, &document_id)?;
     record_outstanding_rows(&tx, &batch.run.id, &document_id, &batch.issues)?;
 
     tx.commit()?;
@@ -624,7 +669,14 @@ pub fn commit_batch(conn: &mut Connection, batch: &ImportBatch) -> Result<()> {
 /// Derived here rather than sent from the pipeline because everything it is derived from is already
 /// in the batch, and because the withheld half can only be evaluated *after* `record_unresolved`
 /// and `release_landed_rows` have run: an entry this very import closed is not outstanding, and an
-/// entry the user dismissed never was.
+/// entry this very import raised is.
+///
+/// It counts through `unlanded_for_document`, which is deliberately blind to `ignored_at`. A
+/// dismissal is answered where it is made — `ignore_unresolved` clears the flag on the documents
+/// the dismissed entry names, then and there — so that a statement imported *afterwards*, whose
+/// sighting the dismissed entry silently absorbs, still records the rows it owes. Deriving it from
+/// a dismissal-blind queue instead made every later statement claim it owed nothing, which is the
+/// same permanent lockout migration 0007 exists to end.
 ///
 /// A crash outranks a withholding. A run that withheld rows knows which ones; a run whose plugin
 /// threw knows nothing about the pages it never reached, and `withheld_for_document` would report
@@ -641,7 +693,7 @@ fn record_outstanding_rows(
     let crashed = issues.iter().any(|issue| issue.code == "E_PLUGIN_CRASH");
     let reason: Option<&str> = if crashed {
         Some("crashed")
-    } else if withheld_for_document(conn, document_id)? > 0 {
+    } else if unlanded_for_document(conn, document_id)? > 0 {
         Some("withheld")
     } else {
         None
@@ -716,14 +768,119 @@ fn record_unresolved(conn: &Connection, entry: &UnresolvedInstrumentRow) -> Resu
     Ok(())
 }
 
-/// Close every mapped entry whose rows this document just put into the ledger.
+/// One queue entry, considered for release.
+struct Candidate {
+    id: String,
+    account_id: String,
+    raw_identifier: String,
+    /// The instrument the user named, where they named one.
+    mapped_instrument_id: Option<String>,
+    /// The provider whose statement raised the entry, which is what scopes a `provider-local`
+    /// alias. Falls back to the account's own provider for an entry whose document has been
+    /// detached by an account deletion.
+    provider_id: String,
+}
+
+const CANDIDATE_SELECT: &str = "SELECT u.id, u.account_id, u.raw_identifier,
+            u.resolved_instrument_id, coalesce(d.provider_id, a.provider_id, '')
+       FROM unresolved_instrument u
+       LEFT JOIN source_document d ON d.id = u.source_document_id
+       LEFT JOIN account a ON a.id = u.account_id
+      WHERE u.resolved_at IS NULL";
+
+fn candidate_of(row: &Row<'_>) -> rusqlite::Result<Candidate> {
+    Ok(Candidate {
+        id: row.get(0)?,
+        account_id: row.get(1)?,
+        raw_identifier: row.get(2)?,
+        mapped_instrument_id: row.get(3)?,
+        provider_id: row.get(4)?,
+    })
+}
+
+/// The instrument an identifier resolves to *now*, by the ladder `resolveInstrument` walks.
+///
+/// `src/ingestion/resolve.ts` is the original: ISIN, then AMFI code, then exchange symbol, then a
+/// provider-scoped local code, stopping at the first hit. `alias_for_identifier` already decides
+/// which of those a queue entry's `raw_identifier` names, so it decides it here too rather than a
+/// second table of prefixes drifting away from the first.
+///
+/// Two forms it adds. `isin:` is answered by `instrument.isin` before the alias table, exactly as
+/// the pipeline answers it — an instrument carrying the ISIN is the strongest possible statement
+/// that the ISIN names it. And an identifier with **no scheme at all** is the bare asset code
+/// `sync.rs::record_unresolved` writes, whose ladder (`resolveAsset` in
+/// `src/adapters/resolution/resolve.ts`) is a provider-local alias; that is the memory of both the
+/// seed catalogue and of everything it has learned since.
+///
+/// `name:` resolves to nothing, and must not: a display name is not an identifier.
+fn resolves_now(
+    conn: &Connection,
+    raw_identifier: &str,
+    provider_id: &str,
+) -> Result<Option<String>> {
+    if raw_identifier.is_empty() {
+        return Ok(None);
+    }
+    if let Some(isin) = raw_identifier.strip_prefix("isin:") {
+        if !isin.is_empty() {
+            if let Some(instrument) = find_instrument_by_isin(conn, isin)? {
+                return Ok(Some(instrument.id));
+            }
+        }
+    }
+    match alias_for_identifier(raw_identifier, provider_id) {
+        Some((scheme, value, true)) => find_alias_target(conn, &scheme, &value, Some(provider_id)),
+        Some((scheme, value, false)) => find_alias_target(conn, &scheme, &value, None),
+        None if raw_identifier.contains(':') => Ok(None),
+        None => find_alias_target(conn, "provider-local", raw_identifier, Some(provider_id)),
+    }
+}
+
+/// Whether this document put rows for that instrument into that account's ledger.
+fn landed_here(
+    conn: &Connection,
+    document_id: &str,
+    account_id: &str,
+    instrument_id: &str,
+) -> Result<bool> {
+    let found: i64 = conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM txn t
+                         WHERE t.source_document_id = ?1 AND t.account_id = ?2
+                           AND t.instrument_id = ?3)
+             OR EXISTS (SELECT 1 FROM position p
+                         WHERE p.source_document_id = ?1 AND p.account_id = ?2
+                           AND p.instrument_id = ?3)",
+        rusqlite::params![document_id, account_id, instrument_id],
+        |row| row.get(0),
+    )?;
+    Ok(found != 0)
+}
+
+/// Close every open entry whose rows this document just put into the ledger.
 ///
 /// The only event that may set `resolved_at`, because `resolved_at` is the whole system's "no
 /// longer missing from any total" predicate. Mapping an identifier learns the alias but moves no
 /// money: until a document carrying those rows is imported, the value is still absent from net
 /// worth and must still be disclosed. This is the moment it stops being absent, so it is the moment
-/// the disclosure stops — and it is keyed on rows that actually exist rather than on the user
-/// having clicked something.
+/// the disclosure stops.
+///
+/// **Keyed on the identifier resolving, not on the user having clicked.** This used to require
+/// `mapped_at IS NOT NULL AND resolved_instrument_id IS NOT NULL`, both written only by
+/// `map_unresolved` — so an identifier that became resolvable without anybody mapping *it* landed
+/// its rows while its entry stayed open forever. A row whose ISIN cell was blank queues under
+/// `nse:SYM`; the user maps a different entry, keyed `isin:INE…`, on another statement; committing
+/// that proves the `nse:SYM` alias from a row printing both; re-importing the first file lands its
+/// rows off that alias, and its entry — matched on the exact `raw_identifier` and therefore never
+/// claimed by the mapping — went on withholding value that was already inside every total. The
+/// dashboard reported the same rupees as held out of a figure they were counted in, which is
+/// double-counting in the one number the schema documents as existing to be believed literally.
+/// Deleting the `mapped_at` clause alone would have changed nothing, because the row check joined
+/// on `resolved_instrument_id`, which is mapping-only as well.
+///
+/// So the question asked of each entry is the one the pipeline itself asks: *what does this
+/// identifier name today?* A mapping still wins where there is one — it is the user's own answer,
+/// and it may name an instrument no alias reaches — and `resolves_now` walks the same ladder
+/// otherwise.
 ///
 /// **Scoped to entries this document is named on.** One open entry is shared by every statement
 /// carrying the same unmapped identifier, so an unscoped release let any document that happened to
@@ -732,23 +889,63 @@ fn record_unresolved(conn: &Connection, entry: &UnresolvedInstrumentRow) -> Resu
 /// on this (see `outstanding_for_document`), but a document that did not withhold these rows still
 /// has no standing to say they have landed.
 fn release_landed_rows(conn: &Connection, document_id: &str) -> Result<usize> {
-    Ok(conn.execute(
-        "UPDATE unresolved_instrument
-            SET resolved_at = ?1
-          WHERE resolved_at IS NULL
-            AND mapped_at IS NOT NULL
-            AND resolved_instrument_id IS NOT NULL
-            AND (source_document_id = ?2 OR last_seen_document_id = ?2)
-            AND (EXISTS (SELECT 1 FROM txn t
-                          WHERE t.source_document_id = ?2
-                            AND t.account_id = unresolved_instrument.account_id
-                            AND t.instrument_id = unresolved_instrument.resolved_instrument_id)
-              OR EXISTS (SELECT 1 FROM position p
-                          WHERE p.source_document_id = ?2
-                            AND p.account_id = unresolved_instrument.account_id
-                            AND p.instrument_id = unresolved_instrument.resolved_instrument_id))",
-        rusqlite::params![now_iso(), document_id],
-    )?)
+    let candidates = {
+        let sql = format!(
+            "{CANDIDATE_SELECT}
+            AND (u.source_document_id = ?1 OR u.last_seen_document_id = ?1)"
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map([document_id], candidate_of)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    release_each(conn, document_id, &candidates)
+}
+
+/// The exchange sync's release, scoped to the account rather than to the document.
+///
+/// A sync page is a fresh `source_document` every time — its content hash is the response body —
+/// so the sweep that finally lands a coin's balance is never the document that queued it, and
+/// `release_landed_rows`' scoping would refuse it forever. There is no file to re-import either:
+/// the entry would go on disclosing value that is in the totals for as long as the account exists.
+///
+/// Widening the scope is sound here for the reason `commit_positions` states about the same rows:
+/// an exchange account is fed by this sync and nothing else, and a balance sweep writes the whole
+/// asset set for one `as_of` or none of it — so a sweep that carries the asset is authoritative
+/// about the account holding it, in a way that one statement among twelve is not.
+pub(crate) fn release_landed_rows_in_account(
+    conn: &Connection,
+    document_id: &str,
+    account_id: &str,
+) -> Result<usize> {
+    let candidates = {
+        let sql = format!("{CANDIDATE_SELECT} AND u.account_id = ?1");
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map([account_id], candidate_of)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    release_each(conn, document_id, &candidates)
+}
+
+fn release_each(conn: &Connection, document_id: &str, candidates: &[Candidate]) -> Result<usize> {
+    let mut released = 0;
+    for candidate in candidates {
+        let instrument_id = match &candidate.mapped_instrument_id {
+            Some(chosen) => Some(chosen.clone()),
+            None => resolves_now(conn, &candidate.raw_identifier, &candidate.provider_id)?,
+        };
+        let Some(instrument_id) = instrument_id else {
+            continue;
+        };
+        if !landed_here(conn, document_id, &candidate.account_id, &instrument_id)? {
+            continue;
+        }
+        released += conn.execute(
+            "UPDATE unresolved_instrument SET resolved_at = ?1
+              WHERE id = ?2 AND resolved_at IS NULL",
+            rusqlite::params![now_iso(), candidate.id],
+        )?;
+    }
+    Ok(released)
 }
 
 /// Insert an alias only where none exists for that identifier.
@@ -2229,6 +2426,317 @@ mod tests {
             "a document that never withheld these rows closed the entry for them"
         );
         assert_eq!(withheld_for_document(&conn, "d-jan").unwrap(), 1);
+    }
+
+    /// Defect. A dismissal must not strip every *later* statement of its re-import flag.
+    ///
+    /// The ordering is the whole test, and it is the one ordering the suite never had: every other
+    /// dismissal test here dismisses after all the statements are in, which is the safe direction —
+    /// the direction `ignore_unresolved`'s own comment reasons about. Importing *while a dismissal
+    /// stands* runs the same machinery backwards.
+    ///
+    /// One entry exists per (account, identifier), so February's and March's sightings are absorbed
+    /// by the entry January raised and the user dismissed. `withheld_for_document` filters
+    /// `ignored_at IS NULL`, so it answered zero for both; `record_unresolved`'s guarded insert
+    /// tests only `resolved_at IS NULL`, so nothing was raised in their place. Both runs committed
+    /// with `outstanding_reason = NULL` and `runImport` answered `already-imported` for statements
+    /// whose rows had never been written — permanently, since neither `map_unresolved` nor
+    /// `restore_entry` touches a run belonging to a document the entry does not name. Twelve
+    /// monthly statements lose the ten in the middle, and their transactions exist nowhere but in
+    /// the PDFs.
+    #[test]
+    fn a_statement_imported_while_a_dismissal_stands_still_owes_its_rows() {
+        let (_dir, mut conn) = open_test_db();
+        learn_hdfc(&conn);
+
+        let mut january = monthly(
+            "d-jan",
+            "r-jan",
+            "u-jan",
+            "hash-jan",
+            "2026-02-01T10:00:00Z",
+        );
+        january.accounts = vec![account("a1")];
+        commit_batch(&mut conn, &january).unwrap();
+
+        // "Dismiss for now", pressed on January's import report. January itself goes back to being
+        // idempotent, which is the deliberate meaning of that button and is not what is at stake.
+        ignore_unresolved(&mut conn, "u-jan").unwrap();
+        assert!(!outstanding_for_document(&conn, "d-jan").unwrap());
+
+        // February and March are imported while the dismissal stands. Each withholds its own rows.
+        commit_batch(
+            &mut conn,
+            &monthly(
+                "d-feb",
+                "r-feb",
+                "u-feb",
+                "hash-feb",
+                "2026-03-01T10:00:00Z",
+            ),
+        )
+        .unwrap();
+        commit_batch(
+            &mut conn,
+            &monthly(
+                "d-mar",
+                "r-mar",
+                "u-mar",
+                "hash-mar",
+                "2026-04-01T10:00:00Z",
+            ),
+        )
+        .unwrap();
+        assert_eq!(
+            count(&conn, "txn"),
+            0,
+            "no rows landed, which is the premise"
+        );
+        assert_eq!(
+            count(&conn, "unresolved_instrument"),
+            1,
+            "the dismissed entry absorbed both sightings, which is also the premise"
+        );
+        assert_eq!(
+            withheld_for_document(&conn, "d-feb").unwrap(),
+            0,
+            "the queue cannot answer for February: its one entry is dismissed"
+        );
+
+        // The fix: each statement's own run records what that statement owes, dismissal or no
+        // dismissal. A dismissal is an answer about being asked, never about the rows.
+        assert_eq!(
+            outstanding_reason(&conn, "r-feb").as_deref(),
+            Some("withheld"),
+            "a dismissal made in January locked February out of the ledger for good"
+        );
+        assert_eq!(
+            outstanding_reason(&conn, "r-mar").as_deref(),
+            Some("withheld")
+        );
+
+        // So naming the fund still gets those months in. March first, because the shared entry
+        // points at the last sighting; February's own run is what let it be read at all.
+        map_unresolved(&mut conn, "u-jan", "i-hdfc").unwrap();
+        commit_batch(&mut conn, &re_read("d-mar", "r-mar-2", "t-mar", "key-mar")).unwrap();
+        commit_batch(&mut conn, &re_read("d-feb", "r-feb-2", "t-feb", "key-feb")).unwrap();
+
+        assert_eq!(count(&conn, "txn"), 2, "a month's transactions were lost");
+        assert!(!outstanding_for_document(&conn, "d-mar").unwrap());
+        assert!(!outstanding_for_document(&conn, "d-feb").unwrap());
+        assert_eq!(
+            count(&conn, "unresolved_instrument WHERE resolved_at IS NULL"),
+            0,
+            "value in the ledger is still being reported as withheld from it"
+        );
+    }
+
+    /// Migration 0009, against a database the dismissal lockout has already run in.
+    ///
+    /// The call-site fix cannot reach one: the flag is gone, nothing else recomputes it, and those
+    /// statements' transactions exist nowhere but in the files. The repair tells the two dismissals
+    /// apart by when each was made — a dismissal that came after a run answered for it, one that
+    /// came before it did not — and is applied here directly, against a state built to look like
+    /// the aftermath. `db::migrate` has already run it once on this connection, so running it twice
+    /// is part of what is being asserted.
+    #[test]
+    fn the_repair_migration_gives_a_statement_imported_during_a_dismissal_its_flag_back() {
+        let (_dir, mut conn) = open_test_db();
+        learn_hdfc(&conn);
+
+        let mut january = monthly(
+            "d-jan",
+            "r-jan",
+            "u-jan",
+            "hash-jan",
+            "2026-02-01T10:00:00Z",
+        );
+        january.accounts = vec![account("a1")];
+        commit_batch(&mut conn, &january).unwrap();
+        ignore_unresolved(&mut conn, "u-jan").unwrap();
+        // `ignore_unresolved` stamps wall-clock time, while these fixtures date their runs
+        // historically. In a real database the dismissal happened between the two imports, and
+        // *when* it happened is the whole discriminator, so it is dated to match.
+        conn.execute(
+            "UPDATE unresolved_instrument SET ignored_at = '2026-02-15T10:00:00Z'
+              WHERE id = 'u-jan'",
+            [],
+        )
+        .unwrap();
+        commit_batch(
+            &mut conn,
+            &monthly(
+                "d-feb",
+                "r-feb",
+                "u-feb",
+                "hash-feb",
+                "2026-03-01T10:00:00Z",
+            ),
+        )
+        .unwrap();
+
+        // The database as the defect left it: February committed saying it owed nothing.
+        conn.execute(
+            "UPDATE import_run SET outstanding_reason = NULL WHERE id = 'r-feb'",
+            [],
+        )
+        .unwrap();
+        assert!(!outstanding_for_document(&conn, "d-feb").unwrap());
+
+        conn.execute_batch(include_str!(
+            "../migrations/0009-dismissal-lockout-repair.sql"
+        ))
+        .unwrap();
+
+        assert_eq!(
+            outstanding_reason(&conn, "r-feb").as_deref(),
+            Some("withheld"),
+            "February stayed locked out of the ledger after the repair"
+        );
+        // And January, the statement the dismissal was actually made about, stays idempotent.
+        assert_eq!(outstanding_reason(&conn, "r-jan"), None);
+    }
+
+    /// Defect. Rows that land without the user mapping anything must close their queue entry.
+    ///
+    /// The trigger is a scheme mismatch, and nobody clicks anything about the entry that is stuck.
+    /// A tradebook row whose ISIN cell was blank — `csv-plugin.ts` drops a blank cell — queues under
+    /// `nse:INFY`, because the exchange symbol is then the strongest identifier the row printed. The
+    /// user maps a *different* entry, keyed `isin:INE009A01021`, raised by another statement;
+    /// re-reading that statement lands its row and writes the `nse:INFY` alias `aliasesProvenBy`
+    /// derives from an ISIN and a symbol printed side by side. Now the tradebook resolves, and
+    /// re-importing it lands its rows — but its entry is matched on the exact `raw_identifier`, so
+    /// the mapping never claimed it and `mapped_at` is still NULL.
+    ///
+    /// The release used to require `mapped_at IS NOT NULL AND resolved_instrument_id IS NOT NULL`,
+    /// so the entry stayed open with its rows in the ledger: the review queue kept asking about an
+    /// instrument that resolves, `outstanding_reason` was re-stamped `'withheld'` on every further
+    /// pass, and the dashboard printed the value as held out of totals it was already inside.
+    #[test]
+    fn rows_that_land_without_a_mapping_close_the_entry_that_withheld_them() {
+        let (_dir, mut conn) = open_test_db();
+        conn.execute(
+            "INSERT INTO instrument (id, asset_class, display_name, isin, currency, created_at)
+             VALUES ('i-infy', 'indian_equity', 'Infosys', 'INE009A01021', 'INR', 'now')",
+            [],
+        )
+        .unwrap();
+
+        let mut tradebook = monthly(
+            "d-book",
+            "r-book",
+            "u-book",
+            "hash-book",
+            "2026-02-01T10:00:00Z",
+        );
+        tradebook.accounts = vec![account("a1")];
+        tradebook.document.as_mut().unwrap().kind = "csv".to_string();
+        tradebook.document.as_mut().unwrap().provider_id = "zerodha-kite".to_string();
+        tradebook.unresolved[0].raw_identifier = "nse:INFY".to_string();
+        tradebook.unresolved[0].raw_name = Some("INFOSYS LIMITED".to_string());
+        commit_batch(&mut conn, &tradebook).unwrap();
+        assert_eq!(withheld_for_document(&conn, "d-book").unwrap(), 1);
+
+        // The other statement, re-read after its own entry was mapped: one row lands and the alias
+        // it proves is written with it. Nothing here answers for `nse:INFY` as a question.
+        let mut proving = re_read("d-ecas", "r-ecas", "t-ecas", "key-ecas");
+        proving.txns[0].instrument_id = "i-infy".to_string();
+        proving.document = Some(SourceDocumentRow {
+            id: "d-ecas".to_string(),
+            account_id: Some("a1".to_string()),
+            provider_id: "nsdl-cas".to_string(),
+            kind: "cas-pdf".to_string(),
+            content_hash: "hash-ecas".to_string(),
+            original_name: Some("ecas.pdf".to_string()),
+            period_start: None,
+            period_end: None,
+            imported_at: "2026-03-01T10:00:00Z".to_string(),
+            page_ref: Some("p.2".to_string()),
+        });
+        proving.aliases = vec![AliasRow {
+            instrument_id: "i-infy".to_string(),
+            scheme: "nse".to_string(),
+            value: "INFY".to_string(),
+            provider_id: None,
+        }];
+        commit_batch(&mut conn, &proving).unwrap();
+
+        // The eCAS never withheld the tradebook's rows, so it does not get to say they landed.
+        assert_eq!(
+            count(&conn, "unresolved_instrument WHERE resolved_at IS NULL"),
+            1
+        );
+        assert!(outstanding_for_document(&conn, "d-book").unwrap());
+
+        // The tradebook, read again. Its rows resolve off the alias and land.
+        let mut again = re_read("d-book", "r-book-2", "t-book", "key-book");
+        again.txns[0].instrument_id = "i-infy".to_string();
+        commit_batch(&mut conn, &again).unwrap();
+
+        assert_eq!(count(&conn, "txn"), 2);
+        assert_eq!(
+            count(&conn, "unresolved_instrument WHERE mapped_at IS NOT NULL"),
+            0,
+            "nobody mapped anything, which is the point"
+        );
+        assert_eq!(
+            count(&conn, "unresolved_instrument WHERE resolved_at IS NULL"),
+            0,
+            "the entry kept withholding rupees that are inside the totals — counted twice"
+        );
+        assert_eq!(withheld_for_document(&conn, "d-book").unwrap(), 0);
+        assert!(
+            !outstanding_for_document(&conn, "d-book").unwrap(),
+            "the file kept asking to be imported after its rows had landed"
+        );
+    }
+
+    /// The other side of that release: an alias a document proves does not settle a row it withheld.
+    ///
+    /// One pass can do both — a row printing an ISIN beside its symbol resolves and teaches
+    /// `nse:INFY`, while a row whose ISIN cell was blank was read before that alias existed and is
+    /// queued under exactly that identifier. Releasing on resolution after the queue has been
+    /// updated would find the first row's transaction under the instrument the entry now resolves to
+    /// and close an entry whose own rows are not in the ledger. The money is missing; something has
+    /// to go on saying so.
+    #[test]
+    fn an_alias_proven_by_one_row_does_not_close_an_entry_the_same_pass_raised() {
+        let (_dir, mut conn) = open_test_db();
+        conn.execute(
+            "INSERT INTO instrument (id, asset_class, display_name, isin, currency, created_at)
+             VALUES ('i-infy', 'indian_equity', 'Infosys', 'INE009A01021', 'INR', 'now')",
+            [],
+        )
+        .unwrap();
+
+        let mut mixed = monthly(
+            "d-book",
+            "r-book",
+            "u-book",
+            "hash-book",
+            "2026-02-01T10:00:00Z",
+        );
+        mixed.accounts = vec![account("a1")];
+        mixed.document.as_mut().unwrap().kind = "csv".to_string();
+        mixed.unresolved[0].raw_identifier = "nse:INFY".to_string();
+        mixed.aliases = vec![AliasRow {
+            instrument_id: "i-infy".to_string(),
+            scheme: "nse".to_string(),
+            value: "INFY".to_string(),
+            provider_id: None,
+        }];
+        let mut landed = txn("t1", "i-infy", "key-1", "200000");
+        landed.source_document_id = "d-book".to_string();
+        mixed.txns = vec![landed];
+        commit_batch(&mut conn, &mixed).unwrap();
+
+        assert_eq!(
+            count(&conn, "unresolved_instrument WHERE resolved_at IS NULL"),
+            1,
+            "a row that never landed stopped being disclosed"
+        );
+        assert_eq!(withheld_for_document(&conn, "d-book").unwrap(), 1);
+        assert!(outstanding_for_document(&conn, "d-book").unwrap());
     }
 
     /// Defect C. One statement a month must not report twelve instruments and twelve times the
