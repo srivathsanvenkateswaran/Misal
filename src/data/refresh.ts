@@ -37,7 +37,7 @@
  */
 
 import type { CurrencyCode } from '@domain/numeric'
-import { dec } from '@domain/numeric'
+import { currencyCode, dec } from '@domain/numeric'
 import {
   AmfiProvider,
   CoinGeckoProvider,
@@ -65,7 +65,7 @@ import {
 } from '@valuation/index'
 import { DateTime } from 'luxon'
 import type { PortfolioRows } from './client'
-import { buildInstruments } from './portfolio'
+import { buildInstruments, isNonFiatCurrency } from './portfolio'
 import type { Invoker } from './import'
 import { invoke } from '@tauri-apps/api/core'
 
@@ -482,13 +482,21 @@ export async function refreshPrices(options: RefreshOptions): Promise<RefreshOut
   const instruments = buildInstruments(options.rows, options.rows.aliases)
   const store = new RecordingPriceStore()
   for (const price of options.rows.prices) {
+    // The same boundary as `neededFxDates`, and the same cast used to stand here: a stored price
+    // row's currency is text until something checks it. A row denominated in anything this
+    // application cannot convert is not a price the freshness gate may reason with — treated as
+    // INR or USD it would report an instrument as already priced today and suppress the fetch of
+    // a rate that could actually be converted. Skipping it leaves the stored row untouched and
+    // asks the provider again, which is the direction that cannot overstate anything.
+    const currency = fiatCurrency(price.currency)
+    if (currency === null) continue
     // Seeded so staleness is judged against what is already stored, and so an unchanged re-fetch
     // is recognised as unchanged. Seeding never counts as something to write back.
     store.seed({
       instrumentId: price.instrumentId,
       asOf: price.asOf,
       close: price.close as PricePoint['close'],
-      currency: price.currency as PricePoint['currency'],
+      currency,
       source: price.source,
       fetchedAt: price.fetchedAt,
     })
@@ -755,6 +763,23 @@ export const MAX_FX_HISTORY_REQUESTS = 8
 const FX_HISTORY_CLUSTER_GAP_DAYS = 60
 
 /**
+ * A stored currency string as a `CurrencyCode`, or null when it is not one.
+ *
+ * `portfolio.ts` holds this same boundary with `requireCurrency`, which throws — the right answer
+ * on the mapping path, where a row nobody can interpret must not silently become part of a
+ * valuation. A refresh cannot throw over a single row: it would take every unrelated price down
+ * with it. So it narrows and skips instead, and what it skips it does not ask a provider about.
+ * Either way the boundary is *crossed*, which is the thing a cast never does.
+ */
+function fiatCurrency(raw: string): CurrencyCode | null {
+  try {
+    return currencyCode(raw)
+  } catch {
+    return null
+  }
+}
+
+/**
  * The dates transactions actually need a rate for, and cannot get from what is already stored.
  *
  * Mirrors `buildCashflows` exactly, because a date this misses is a date XIRR still fails on: a
@@ -780,8 +805,20 @@ export function neededFxDates(
   )
   const needed = new Map<CurrencyCode, Set<IsoDate>>()
   for (const txn of rows.transactions) {
-    const currency = txn.currency as CurrencyCode
-    if (currency === base) continue
+    // `txn.currency` is stored text, and the cast that used to stand here asserted it was a
+    // `CurrencyCode` for every row in the table. Exchange fills are not: migration 0002 reserves
+    // the `X:` namespace for a non-fiat quote currency, so a Binance `BTCUSDT` fill is stored as
+    // `X:USDT`. Under the cast those rows passed both guards below, `FxTable.on` had no bucket to
+    // answer them from, and every fill date piled up under an `X:USDT` key. There is no
+    // `X:USDT/INR` pair — no provider has one and none could — so each cluster bought nothing and
+    // spent one of the eight backfill slots doing it, and because nothing was ever stored the
+    // same dates came back next refresh. `list_transactions` orders by `occurred_at`, so a user
+    // whose earliest transaction is a crypto fill had the genuine USD backfill starved
+    // indefinitely: exactly the failure this whole path exists to fix, with the note advising an
+    // exchange or ticker alias for a pair that cannot exist.
+    if (isNonFiatCurrency(txn.currency)) continue
+    const currency = fiatCurrency(txn.currency)
+    if (currency === null || currency === base) continue
     if (txn.fxRate !== null) continue
     const date = localDate(txn.occurredAt, txn.occurredTz)
     if (stored.on(currency, 'INR', date).ok) continue
@@ -888,8 +925,13 @@ async function backfillFxHistory(input: FxBackfillInput): Promise<number> {
         unfetched.push(`${currency}/INR ${range.from} to ${range.to}`)
         continue
       }
-      requests += 1
       const outcome = await fetchHistory(pair, range.from, range.to, input.signal)
+      // Counted after the call, and only when the call was one. `NOT_SUPPORTED` is decided
+      // locally — the provider cannot name the pair, so nothing left the machine — and a budget on
+      // requests must be spendable only by requests. Charging for it burned a slot the next range
+      // could have used, which is how a few unaskable pairs starved a backfill that had real work
+      // queued behind them. Every other refusal did cost a round trip and is charged for.
+      if (outcome.ok || outcome.error.code !== 'NOT_SUPPORTED') requests += 1
       if (!outcome.ok) {
         // Rate limited or offline: every further range would be refused too, and asking would
         // only lengthen the block.
