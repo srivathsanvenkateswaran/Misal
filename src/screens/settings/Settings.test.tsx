@@ -182,9 +182,13 @@ describe('Settings — preferences', () => {
    * sentence with it.
    */
   it('does not imply an effect these settings do not yet have', async () => {
+    // Updated when the refresh screen landed and began consulting the cache lifetime: one of the
+    // four is now live and the copy says so. The discipline is unchanged - a screen must not imply
+    // an effect it cannot produce - but it cuts both ways, and understating what a setting does is
+    // the same failure as overstating it.
     await open()
     expect(
-      screen.getByText(/None of the four moves a displayed figure in this build yet/u),
+      screen.getByText(/Only the cache lifetime changes behaviour today/u),
     ).toBeInTheDocument()
   })
 

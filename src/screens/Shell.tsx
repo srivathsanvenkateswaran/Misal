@@ -23,6 +23,8 @@ import { InstrumentDetail, InstrumentIndex } from './Instruments'
 import { FirstRun } from './FirstRun'
 import { ImportScreen } from './import'
 import { Settings } from './settings'
+import { RefreshPanel } from './refresh'
+import { ExchangesScreen } from './exchanges'
 import type { PortfolioData } from './view-model'
 import './screens.css'
 
@@ -77,7 +79,39 @@ function Screen({ data }: { readonly data: PortfolioData }): ReactNode {
       return <ImportRoute />
     case 'settings':
       return <SettingsRoute />
+    case 'refresh':
+      return <RefreshRoute />
+    case 'exchanges':
+      return <ExchangesRoute />
   }
+}
+
+/**
+ * Refreshing prices changes every valued figure, so the cached valuation goes.
+ */
+function RefreshRoute(): ReactNode {
+  const client = useQueryClient()
+  return (
+    <RefreshPanel
+      onRefreshed={() => {
+        void client.invalidateQueries({ queryKey: [PORTFOLIO_QUERY_PREFIX] })
+      }}
+    />
+  )
+}
+
+/**
+ * Connecting or syncing an exchange writes transactions and positions.
+ */
+function ExchangesRoute(): ReactNode {
+  const client = useQueryClient()
+  return (
+    <ExchangesScreen
+      onSynced={() => {
+        void client.invalidateQueries({ queryKey: [PORTFOLIO_QUERY_PREFIX] })
+      }}
+    />
+  )
 }
 
 /**
@@ -146,7 +180,10 @@ export function Shell({ asOf }: { readonly asOf: string }): ReactNode {
             void portfolio.refetch()
           }}
         />
-      ) : route.kind === 'import' || route.kind === 'settings' ? (
+      ) : route.kind === 'import' ||
+        route.kind === 'settings' ||
+        route.kind === 'refresh' ||
+        route.kind === 'exchanges' ? (
         // Both reachable with no accounts at all. Import is the only thing a first-run user can
         // do, and settings is where a provider key is entered - gating either behind having data
         // would make the empty state a dead end.

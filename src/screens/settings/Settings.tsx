@@ -212,10 +212,11 @@ function Preferences({
         <>
           Saved one at a time, and read back exactly as stored — the screen reports what was
           written rather than what was typed.{' '}
-          <b>None of the four moves a displayed figure in this build yet</b>: staleness is judged
-          per asset class inside the valuation engine, concentration is reported without a
-          threshold, and there is no refresh action for a cache lifetime to govern. Your choice is
-          recorded so that nothing is lost when those parts start consulting it.
+          <b>Only the cache lifetime changes behaviour today</b> — the refresh screen uses it to
+          decide whether a price is due. The other three are recorded but not yet consulted:
+          staleness is judged per asset class inside the valuation engine, concentration is
+          reported without a threshold, and the base currency is fixed to INR. They are saved so
+          nothing is lost when those parts start reading them.
         </>
       }
     >

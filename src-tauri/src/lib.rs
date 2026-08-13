@@ -1,4 +1,5 @@
 pub mod db;
+pub mod disconnect;
 pub mod error;
 pub mod exchange_guard;
 pub mod export;
@@ -74,6 +75,7 @@ pub fn run() {
             queries::get_settings,
             http::fetch_market_data,
             export::save_export_file,
+            disconnect::exchange_disconnect_account,
             refresh::save_prices,
             refresh::save_fx_rates,
             refresh::record_price_refresh,

@@ -20,6 +20,8 @@ export type Route =
   | { readonly kind: 'instruments' }
   | { readonly kind: 'import' }
   | { readonly kind: 'settings' }
+  | { readonly kind: 'refresh' }
+  | { readonly kind: 'exchanges' }
   | { readonly kind: 'instrument'; readonly instrumentId: string }
 
 export type HoldingsGroup = 'asset_class' | 'account' | 'instrument' | 'none'
@@ -52,6 +54,8 @@ export const NAV: readonly NavItem[] = [
   { kind: 'accounts', label: 'Accounts', href: '#/accounts' },
   { kind: 'instruments', label: 'Instruments', href: '#/instruments' },
   { kind: 'import', label: 'Import', href: '#/import' },
+  { kind: 'exchanges', label: 'Exchanges', href: '#/exchanges' },
+  { kind: 'refresh', label: 'Refresh', href: '#/refresh' },
   { kind: 'settings', label: 'Settings', href: '#/settings' },
 ]
 
@@ -76,6 +80,8 @@ export function parseRoute(hash: string): Route {
   if (first === 'accounts') return { kind: 'accounts' }
   if (first === 'import') return { kind: 'import' }
   if (first === 'settings') return { kind: 'settings' }
+  if (first === 'refresh') return { kind: 'refresh' }
+  if (first === 'exchanges') return { kind: 'exchanges' }
   if (first === 'instruments') {
     const id = segments[1]
     if (id === undefined) return { kind: 'instruments' }
@@ -100,6 +106,10 @@ export function hrefFor(route: Route): string {
       return '#/import'
     case 'settings':
       return '#/settings'
+    case 'refresh':
+      return '#/refresh'
+    case 'exchanges':
+      return '#/exchanges'
   }
 }
 
@@ -111,6 +121,8 @@ export const TITLE: Record<Route['kind'], string> = {
   instrument: 'Instrument',
   import: 'Import',
   settings: 'Settings',
+  refresh: 'Refresh',
+  exchanges: 'Exchanges',
 }
 
 /** The current route, kept in sync with the address bar's hash. */
