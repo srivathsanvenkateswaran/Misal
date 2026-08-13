@@ -736,7 +736,7 @@ function ReviewQueue({
                 busyId={busyId}
                 onRestore={(id) => {
                   act(id, runtime.restoreReviewEntry, (entry) =>
-                    `Put back. “${entry.rawName ?? identifierValue(entry.rawIdentifier)}” is open again — its value was withheld the whole time it was dismissed, and still is.`,
+                    `Put back. “${entry.rawName ?? identifierValue(entry.rawIdentifier)}” is open again — its value was withheld the whole time it was dismissed, and still is — and the statements that held rows back for it can be imported again, which is the only way those rows reach the ledger.`,
                   )
                 }}
                 onDismiss={(id) => {

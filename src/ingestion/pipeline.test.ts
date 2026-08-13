@@ -209,6 +209,59 @@ describe('account identity across providers', () => {
     expect(new Set(keys).size).toBe(keys.length)
   })
 
+  /**
+   * The same key twice inside one import, which no store can catch on Misal's behalf.
+   *
+   * `planPositions` decided insert/restate/duplicate purely from `store.findPosition`, which reads
+   * the database — and every write in this pipeline is buffered until the batch ships, so the
+   * planner was blind to rows it had planned moments earlier. Two source rows on one
+   * `(accountId, instrumentId, asOf)` were both planned as `insert`, both counted as committed, and
+   * whichever landed last won: `ON CONFLICT … DO UPDATE SET quantity = excluded.quantity` in
+   * `commit_batch`, and `MemoryStore.upsertPosition` replacing in place exactly the same way. One
+   * hundred units disappeared, `issues` was empty, and `rows_committed` said both had landed.
+   *
+   * `reconcile.ts` has kept a `seenInDocument` map for transactions since `txn.occurrence` was
+   * added. Positions had no equivalent, and that asymmetry is the whole defect.
+   */
+  it('never lets two holdings in one file overwrite each other in silence', async () => {
+    store.seedInstrument({
+      id: 'i-hdfc',
+      assetClass: 'mutual_fund',
+      displayName: 'HDFC Flexi Cap Fund',
+      isin: 'INF179K01608',
+      currency: 'INR',
+    })
+
+    const outcome = completed(
+      await runImport(
+        { bytes: fakePdfBytes('twice'), originalName: 'twice.pdf' },
+        deps(nsdlEcasPages(), { plugins: [twiceStatedHoldingPlugin] }),
+      ),
+    )
+
+    const rows = store.snapshot().positions
+    expect(rows).toHaveLength(1)
+
+    // The units that survived are the ones the file stated first, and nothing invented a total.
+    expect(rows[0]?.quantity).toBe('100.000')
+
+    // Said out loud, naming both figures, so the user can go and look at the statement.
+    const warning = outcome.issues.find((i) => i.code === 'W_DUPLICATE_IN_DOCUMENT')
+    expect(warning).toBeDefined()
+    expect(warning?.message).toContain('100.000')
+    expect(warning?.message).toContain('40.000')
+
+    // And the counters no longer claim two holdings landed where the ledger holds one.
+    expect(outcome.counters.committed).toBe(1)
+    expect(outcome.counters.read).toBe(2)
+    expect(
+      outcome.counters.committed +
+        outcome.counters.duplicate +
+        outcome.counters.skipped +
+        outcome.counters.failed,
+    ).toBe(outcome.counters.read)
+  })
+
   it('restates a position rather than duplicating it, and says so', async () => {
     seedCatalogue()
     await runImport({ bytes: fakePdfBytes('nsdl-1'), originalName: 'ecas.pdf' }, deps(nsdlEcasPages()))
@@ -471,6 +524,49 @@ describe('provenance', () => {
     }
   })
 })
+
+/**
+ * A plugin that states one holding twice on one date — the shape of a parser that reads a summary
+ * band and a detail band, or a folio listed under two headings.
+ *
+ * Written by hand rather than mutated out of a fixture because the point is the pipeline's own
+ * arithmetic on two identical keys, not any particular file's layout.
+ */
+const twiceStatedHoldingPlugin: ExtractPlugin = {
+  id: 'twice-stated-holding',
+  providerId: 'nsdl-cas',
+  accepts: 'cas-pdf',
+  detect: () => 0.99,
+  extract: (_input, sink) => {
+    sink.account({
+      type: 'account',
+      ref: 'p.1',
+      raw: {},
+      accountKey: 'demat:IN300394-12345678',
+      label: 'Demat',
+      externalRef: 'IN300394-12345678',
+      capability: 'snapshot',
+      baseCurrency: 'INR',
+    })
+    for (const [ref, quantity] of [
+      ['p.2 r.1', '100.000'],
+      ['p.4 r.7', '40.000'],
+    ] as const) {
+      sink.position({
+        type: 'position',
+        ref,
+        raw: { quantity },
+        accountKey: 'demat:IN300394-12345678',
+        instrument: { isin: 'INF179K01608', name: 'HDFC Flexi Cap Fund' },
+        quantity,
+        asOf: '31-07-2026',
+        dateFormat: 'dd-MM-yyyy',
+        timezone: 'Asia/Kolkata',
+        currency: 'INR',
+      })
+    }
+  },
+}
 
 /** The NSDL fixture with one holding restated: 8 shares became 9. */
 function restatedPages(): RawPdfPage[] {

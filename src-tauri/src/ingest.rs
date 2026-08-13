@@ -978,8 +978,9 @@ pub fn map_unresolved(
 /// erase the disclosure along with the question: the withheld rupee figure fell to zero, the count
 /// fell to zero, and the dashboard began asserting that every identifier in every document is
 /// mapped. The holding was every bit as absent from net worth as before, and now nothing said so.
-pub fn ignore_unresolved(conn: &Connection, unresolved_id: &str) -> Result<()> {
-    let changed = conn.execute(
+pub fn ignore_unresolved(conn: &mut Connection, unresolved_id: &str) -> Result<()> {
+    let tx = conn.transaction()?;
+    let changed = tx.execute(
         "UPDATE unresolved_instrument SET ignored_at = ?1
           WHERE id = ?2 AND resolved_at IS NULL AND ignored_at IS NULL",
         rusqlite::params![now_iso(), unresolved_id],
@@ -994,15 +995,40 @@ pub fn ignore_unresolved(conn: &Connection, unresolved_id: &str) -> Result<()> {
     // be chased about these rows, so a document whose only outstanding rows were the dismissed ones
     // goes back to being idempotent. Only 'withheld' is cleared — a dismissal says nothing about
     // the pages a crashed parser never reached.
-    conn.execute(
+    //
+    // **Scoped to the documents this entry is named on**, exactly as `release_landed_rows` is, and
+    // for the same reason: `outstanding_reason` exists because the shared queue cannot answer for a
+    // single document, so re-deriving it from that queue for *every* run in the database hands the
+    // question straight back to the thing that could not answer it. Unscoped, dismissing one entry
+    // swept the flag off every run whose own withheld rows happened to have been released by some
+    // other statement — a different account, a different fund, nothing to do with this dismissal —
+    // and those documents were answered `already-imported` forever, with their transactions
+    // nowhere but in the PDF.
+    //
+    // The `NOT EXISTS` clause stays: a document may be named on several entries, and dismissing one
+    // of them does not settle the others. Naming the documents decides *which* runs are reconsidered;
+    // the clause decides whether each still owes anything.
+    //
+    // The entry names two documents at most — the sighting that raised it and the latest — so with a
+    // year of monthly statements the months in between are not reconsidered here and keep their
+    // flag. That is the safe end of the same limitation 0007 records, and it is the reason the
+    // sweep cannot be widened: widening it means deriving one document's answer from the shared
+    // queue again. A flag left standing costs one re-import, which recomputes it from the batch and
+    // clears it. A flag cleared wrongly costs the statement.
+    tx.execute(
         "UPDATE import_run SET outstanding_reason = NULL
           WHERE outstanding_reason = 'withheld'
+            AND source_document_id IN (
+                  SELECT u.source_document_id FROM unresolved_instrument u WHERE u.id = ?1
+                  UNION ALL
+                  SELECT u.last_seen_document_id FROM unresolved_instrument u WHERE u.id = ?1)
             AND NOT EXISTS (SELECT 1 FROM unresolved_instrument u
                              WHERE (u.source_document_id = import_run.source_document_id
                                  OR u.last_seen_document_id = import_run.source_document_id)
                                AND u.resolved_at IS NULL AND u.ignored_at IS NULL)",
-        [],
+        [unresolved_id],
     )?;
+    tx.commit()?;
     Ok(())
 }
 
@@ -1126,8 +1152,8 @@ pub fn ingest_ignore_unresolved(
     state: tauri::State<'_, AppState>,
     unresolved_id: String,
 ) -> Result<()> {
-    let conn = state.conn.lock().expect("storage mutex poisoned");
-    ignore_unresolved(&conn, &unresolved_id)
+    let mut conn = state.conn.lock().expect("storage mutex poisoned");
+    ignore_unresolved(&mut conn, &unresolved_id)
 }
 
 // ---------------------------------------------------------------------------
@@ -1964,12 +1990,204 @@ mod tests {
         commit_batch(&mut conn, &batch("hash-dismiss-outstanding", vec![])).unwrap();
         assert!(outstanding_for_document(&conn, "d1").unwrap());
 
-        ignore_unresolved(&conn, "u1").unwrap();
+        ignore_unresolved(&mut conn, "u1").unwrap();
         assert_eq!(withheld_for_document(&conn, "d1").unwrap(), 0);
         assert!(
             !outstanding_for_document(&conn, "d1").unwrap(),
             "a file the user asked not to be chased about kept asking"
         );
+    }
+
+    /// Defect. A dismissal answers for the documents the dismissed entry names, and for no others.
+    ///
+    /// `outstanding_reason` exists precisely because the shared unresolved queue cannot answer for a
+    /// single document. Clearing it with a query derived from that same shared queue — and, worse,
+    /// running that query over *every* run in the database on every dismissal — handed the question
+    /// straight back to the thing that could not answer it.
+    ///
+    /// January and February share one entry. The user maps the ISIN and re-imports February;
+    /// February's rows land and `release_landed_rows` stamps `resolved_at`. January's rows were
+    /// never written, so its re-importability rests entirely on its own `'withheld'` flag — which is
+    /// the state migration 0007 was written for. The user then dismisses an entry in a different
+    /// account, for a different fund, raised by a different document. January's run has no open
+    /// entry naming it, so the unscoped `NOT EXISTS` passed, the flag went NULL, and `runImport`
+    /// answered `already-imported` forever. January's transactions exist nowhere but in the PDF.
+    #[test]
+    fn dismissing_one_entry_does_not_answer_for_documents_it_never_named() {
+        let (_dir, mut conn) = open_test_db();
+        learn_hdfc(&conn);
+
+        let mut january = monthly(
+            "d-jan",
+            "r-jan",
+            "u-jan",
+            "hash-jan",
+            "2026-02-01T10:00:00Z",
+        );
+        january.accounts = vec![account("a1")];
+        commit_batch(&mut conn, &january).unwrap();
+        commit_batch(
+            &mut conn,
+            &monthly(
+                "d-feb",
+                "r-feb",
+                "u-feb",
+                "hash-feb",
+                "2026-03-01T10:00:00Z",
+            ),
+        )
+        .unwrap();
+
+        // A second folio, a different fund, its own statement. Nothing about it touches the eCAS
+        // above, and nothing about the eCAS touches it.
+        let mut stranger = monthly(
+            "d-other",
+            "r-other",
+            "u-other",
+            "hash-other",
+            "2026-03-02T10:00:00Z",
+        );
+        stranger.accounts = vec![account("a2")];
+        stranger.document.as_mut().unwrap().account_id = Some("a2".to_string());
+        stranger.unresolved[0].account_id = "a2".to_string();
+        stranger.unresolved[0].raw_identifier = "isin:INF204K01K15".to_string();
+        stranger.unresolved[0].raw_name = Some("NIPPON INDIA LIQUID FUND".to_string());
+        commit_batch(&mut conn, &stranger).unwrap();
+
+        // The user names the eCAS fund and re-reads February. Its rows land and the shared entry
+        // closes — correctly: that money is in the totals now.
+        map_unresolved(&mut conn, "u-jan", "i-hdfc").unwrap();
+        commit_batch(&mut conn, &re_read("d-feb", "r-feb-2", "t-feb", "key-feb")).unwrap();
+        assert_eq!(
+            withheld_for_document(&conn, "d-jan").unwrap(),
+            0,
+            "the shared queue no longer speaks for January, which is the premise"
+        );
+        assert!(outstanding_for_document(&conn, "d-jan").unwrap());
+
+        // The dismissal, on the other side of the database.
+        ignore_unresolved(&mut conn, "u-other").unwrap();
+
+        assert_eq!(
+            outstanding_reason(&conn, "r-jan").as_deref(),
+            Some("withheld"),
+            "dismissing an unrelated fund in another account locked January out of the ledger"
+        );
+        assert!(outstanding_for_document(&conn, "d-jan").unwrap());
+
+        // And the dismissal still does the one thing it is for.
+        assert!(
+            !outstanding_for_document(&conn, "d-other").unwrap(),
+            "a file the user asked not to be chased about kept asking"
+        );
+        // February owes nothing either — its rows are in the ledger.
+        assert!(!outstanding_for_document(&conn, "d-feb").unwrap());
+
+        // So January's transactions still have a way in.
+        commit_batch(&mut conn, &re_read("d-jan", "r-jan-2", "t-jan", "key-jan")).unwrap();
+        assert_eq!(count(&conn, "txn"), 2, "a month's transactions were lost");
+        assert!(!outstanding_for_document(&conn, "d-jan").unwrap());
+    }
+
+    /// A document named on several entries is not settled by dismissing one of them.
+    #[test]
+    fn dismissing_one_of_a_documents_entries_leaves_the_rest_outstanding() {
+        let (_dir, mut conn) = open_test_db();
+        let mut both = batch("hash-two-entries", vec![]);
+        both.unresolved.push(UnresolvedInstrumentRow {
+            id: "u2".to_string(),
+            source_document_id: "d1".to_string(),
+            account_id: "a1".to_string(),
+            raw_identifier: "isin:INF204K01K15".to_string(),
+            raw_name: Some("NIPPON INDIA LIQUID FUND".to_string()),
+            asset_class_hint: Some("mutual_fund".to_string()),
+            observed_quantity: None,
+            observed_value_minor: Some("500000".to_string()),
+            currency: Some("INR".to_string()),
+            first_seen_at: "2026-08-12T10:44:00Z".to_string(),
+        });
+        commit_batch(&mut conn, &both).unwrap();
+
+        ignore_unresolved(&mut conn, "u1").unwrap();
+        assert!(
+            outstanding_for_document(&conn, "d1").unwrap(),
+            "one dismissal answered for a second identifier the user has not seen yet"
+        );
+
+        ignore_unresolved(&mut conn, "u2").unwrap();
+        assert!(!outstanding_for_document(&conn, "d1").unwrap());
+    }
+
+    /// Migration 0008, run against the wreckage the unscoped sweep left behind.
+    ///
+    /// Neither fix above can reach a database where the sweep has already run: the flag is gone and
+    /// nothing recomputes it. So 0008 derives it once more, by 0007's rule. Applied here directly
+    /// against a state built to look like the aftermath — `db::migrate` has already run it once on
+    /// this connection, and running it twice is part of what is being asserted.
+    #[test]
+    fn the_repair_migration_gives_a_swept_document_its_flag_back() {
+        let (_dir, mut conn) = open_test_db();
+        learn_hdfc(&conn);
+
+        let mut january = monthly(
+            "d-jan",
+            "r-jan",
+            "u-jan",
+            "hash-jan",
+            "2026-02-01T10:00:00Z",
+        );
+        january.accounts = vec![account("a1")];
+        commit_batch(&mut conn, &january).unwrap();
+        commit_batch(
+            &mut conn,
+            &monthly(
+                "d-feb",
+                "r-feb",
+                "u-feb",
+                "hash-feb",
+                "2026-03-01T10:00:00Z",
+            ),
+        )
+        .unwrap();
+        map_unresolved(&mut conn, "u-jan", "i-hdfc").unwrap();
+        commit_batch(&mut conn, &re_read("d-feb", "r-feb-2", "t-feb", "key-feb")).unwrap();
+
+        // A second folio whose entry the user dismissed, and which must stay idempotent.
+        let mut stranger = monthly(
+            "d-other",
+            "r-other",
+            "u-other",
+            "hash-other",
+            "2026-03-02T10:00:00Z",
+        );
+        stranger.accounts = vec![account("a2")];
+        stranger.document.as_mut().unwrap().account_id = Some("a2".to_string());
+        stranger.unresolved[0].account_id = "a2".to_string();
+        stranger.unresolved[0].raw_identifier = "isin:INF204K01K15".to_string();
+        commit_batch(&mut conn, &stranger).unwrap();
+        ignore_unresolved(&mut conn, "u-other").unwrap();
+
+        // The sweep, as it used to run: unscoped, over every run in the database.
+        conn.execute(
+            "UPDATE import_run SET outstanding_reason = NULL WHERE outstanding_reason = 'withheld'",
+            [],
+        )
+        .unwrap();
+        assert!(!outstanding_for_document(&conn, "d-jan").unwrap());
+
+        conn.execute_batch(include_str!("../migrations/0008-outstanding-repair.sql"))
+            .unwrap();
+
+        assert_eq!(
+            outstanding_reason(&conn, "r-jan").as_deref(),
+            Some("withheld"),
+            "January stayed locked out of the ledger after the repair"
+        );
+        // The dismissal is still honoured, and a document whose rows landed is not reopened.
+        assert!(!outstanding_for_document(&conn, "d-other").unwrap());
+        assert!(!outstanding_for_document(&conn, "d-feb").unwrap());
+        // Only the newest run speaks: February's first run stays quiet.
+        assert_eq!(outstanding_reason(&conn, "r-feb"), None);
     }
 
     /// A document that never raised an entry has no standing to say its rows have landed.
@@ -2223,7 +2441,7 @@ mod tests {
         assert_eq!(outcome.matched, 1);
         assert_eq!(mapped_instrument(&conn, "u-etr"), None);
         assert!(
-            ignore_unresolved(&conn, "u-etr").is_ok(),
+            ignore_unresolved(&mut conn, "u-etr").is_ok(),
             "the collaterally claimed entry could not even be dismissed"
         );
     }
@@ -2285,7 +2503,7 @@ mod tests {
     fn dismissing_an_entry_keeps_it_unmapped() {
         let (_dir, mut conn) = open_test_db();
         commit_batch(&mut conn, &batch("hash-j", vec![])).unwrap();
-        ignore_unresolved(&conn, "u1").unwrap();
+        ignore_unresolved(&mut conn, "u1").unwrap();
 
         let mapped: Option<String> = conn
             .query_row(
@@ -2295,7 +2513,10 @@ mod tests {
             )
             .unwrap();
         assert!(mapped.is_none(), "a dismissal invented a mapping");
-        assert!(ignore_unresolved(&conn, "u1").is_err(), "dismissed twice");
+        assert!(
+            ignore_unresolved(&mut conn, "u1").is_err(),
+            "dismissed twice"
+        );
     }
 
     /// Defect A. Dismissing a queue entry must not erase the money it was withholding.
@@ -2310,7 +2531,7 @@ mod tests {
     fn dismissing_an_entry_keeps_disclosing_the_value_it_withholds() {
         let (_dir, mut conn) = open_test_db();
         commit_batch(&mut conn, &batch("hash-dismissed", vec![])).unwrap();
-        ignore_unresolved(&conn, "u1").unwrap();
+        ignore_unresolved(&mut conn, "u1").unwrap();
 
         // What every consumer of `resolved_at IS NULL` sees: still one row, still ₹1,18,640.
         let (open, withheld): (i64, Option<String>) = conn
@@ -2335,7 +2556,7 @@ mod tests {
     fn a_dismissed_entry_can_still_be_mapped_later() {
         let (_dir, mut conn) = open_test_db();
         commit_batch(&mut conn, &batch("hash-dismiss-then-map", vec![])).unwrap();
-        ignore_unresolved(&conn, "u1").unwrap();
+        ignore_unresolved(&mut conn, "u1").unwrap();
 
         let outcome = map_unresolved(&mut conn, "u1", "i-ppfc").unwrap();
         assert_eq!(outcome.matched, 1);
