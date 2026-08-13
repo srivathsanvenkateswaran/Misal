@@ -178,6 +178,9 @@ const READ_TERMINALS: &[&str] = &[
     "hisrec",
     "trade_history",
     "tradehistory",
+    // Binance Convert's history. Its mutating siblings under the same 'convert' segment are
+    // getQuote and acceptQuote, and neither ends in a read terminal, so they stay refused.
+    "tradeflow",
     "list",
     "status",
     "info",
@@ -551,6 +554,24 @@ mod tests {
     fn reading_withdrawals_is_not_performing_one() {
         assert!(!is_mutating_path("/sapi/v1/capital/withdraw/history"));
         assert!(is_mutating_path("/sapi/v1/capital/withdraw/apply"));
+    }
+
+    /// The same shape one segment along, and the reason `tradeflow` is a read terminal.
+    ///
+    /// Binance Convert fills appear in no trade history, so `/sapi/v1/convert/tradeFlow` has to be
+    /// reachable or an account bought through the Convert widget has no cost basis at all. Every
+    /// other path under `convert` performs one, and the exemption is granted by the tail alone -
+    /// so it must not leak sideways onto `getQuote`, `acceptQuote` or a limit order.
+    #[test]
+    fn reading_convert_history_is_not_converting() {
+        assert!(!is_mutating_path("/sapi/v1/convert/tradeFlow"));
+        assert!(is_mutating_path("/sapi/v1/convert/getQuote"));
+        assert!(is_mutating_path("/sapi/v1/convert/acceptQuote"));
+        assert!(is_mutating_path("/sapi/v1/convert/limit/placeOrder"));
+        // And the terminal does not launder a mutating operation from another family.
+        assert!(is_mutating_path(
+            "/sapi/v1/capital/withdraw/apply/tradeFlow.apply"
+        ));
     }
 
     fn session(patterns: &[(Method, &str)]) -> Session {

@@ -1,0 +1,10 @@
+{
+  "method": "GET",
+  "path": "/sapi/v1/capital/deposit/hisrec",
+  "repeatable": true,
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-mbx-used-weight-1m": "13"
+  }
+}

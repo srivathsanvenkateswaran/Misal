@@ -1,0 +1,20 @@
+{
+  "list": [
+    {
+      "quoteId": "f3b91c525b2644c7bc1e1cd31b6e1aa6",
+      "orderId": "940708407462087195",
+      "orderStatus": "SUCCESS",
+      "fromAsset": "USDT",
+      "fromAmount": "1200.00000000",
+      "toAsset": "ETH",
+      "toAmount": "0.40000000",
+      "ratio": "0.00033333",
+      "inverseRatio": "3000.00000000",
+      "createTime": 1784538930000
+    }
+  ],
+  "startTime": 1784015400001,
+  "endTime": 1786528800000,
+  "limit": 100,
+  "moreData": false
+}

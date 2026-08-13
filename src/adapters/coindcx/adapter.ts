@@ -23,6 +23,17 @@
  *
  * 4. Numbers. markets_details returns JSON numbers in scientific notation and fill timestamps as
  *    fractional milliseconds, so nothing here goes through JSON.parse.
+ *
+ * **There is no `fetchTransfers` here, and its absence is the finding rather than an omission.**
+ * CoinDCX's published API covers markets, balances, order placement and trade history, and nothing
+ * else; no deposit or withdrawal history endpoint is documented, and none of the plausible paths
+ * has a shape anyone has written down. Guessing at one would mean shipping a request whose method,
+ * body and response shape were all invented - and on an exchange whose only key class can also
+ * move funds, an invented request is precisely the thing the allowlist exists to make impossible.
+ * The adapter therefore declares the gap in `coverageGaps` and leaves the method absent, which the
+ * runner treats as "never asked" rather than as "asked, and there were none". Establishing the
+ * real endpoints needs recorded traffic from a live account, which no test in this repository may
+ * produce.
  */
 
 import { addDec, isZeroDec, ZERO_DEC } from '@domain/numeric'

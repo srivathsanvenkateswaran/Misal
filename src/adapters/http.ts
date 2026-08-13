@@ -97,10 +97,12 @@ export function createGuardedHttp(options: GuardedHttpOptions): GuardedHttp {
       authorise(options.adapterId, options.allowlist, request)
 
       const weight = request.weight ?? 1
+      const uidWeight = request.uidWeight ?? 0
       let lastError: AdapterError | null = null
 
       for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-        await options.limiter.acquire(weight)
+        // Both budgets, every attempt. A retry costs the exchange exactly what the first try did.
+        await options.limiter.acquire(weight, uidWeight)
 
         const response = await send(options, request)
         options.limiter.observe(response.headers)

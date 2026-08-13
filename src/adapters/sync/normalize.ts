@@ -1,7 +1,14 @@
 /**
- * Turning fills into transactions.
+ * Turning fills, transfers and conversions into transactions.
  *
- * Three rules here are easy to get wrong and expensive to get wrong quietly.
+ * Four rules here are easy to get wrong and expensive to get wrong quietly.
+ *
+ * A transfer is not a trade, and this module will not let one become one. `normalizeTransfer`
+ * cannot take a price, because there is nowhere for a price to come from: units arriving from a
+ * wallet were acquired somewhere Misal cannot see, and the only true statement about their cost is
+ * that it is unknown. `transfer_in` with a null price and a null amount is exactly how the fold
+ * spells that, and it is why a deposit must not be recorded as a `buy` with a missing price - the
+ * two are one field apart in the row and a whole category apart in what they claim.
  *
  * The traded asset is the market catalogue's *base*, never a substring of the symbol. CoinDCX
  * inverts the usual naming - its "target currency" is the traded quantity - and the adapter has
@@ -25,7 +32,7 @@ import {
   decToMinor,
   mulDec,
 } from '@domain/numeric'
-import type { MarketSpec, RawFill } from '../contract'
+import type { MarketSpec, RawConversion, RawFill, RawTransfer } from '../contract'
 import { negateText } from '../decimal-text'
 import { assignOccurrences, naturalKey } from './natural-key'
 import type { TxnRow } from './store'
@@ -119,6 +126,120 @@ export function normalizeFill(input: NormalizeInput): UnkeyedTxnRow[] {
   }
 
   return rows
+}
+
+export interface NormalizeTransferInput {
+  readonly accountId: string
+  readonly transfer: RawTransfer
+  readonly instrumentId: string
+  /** Null when the fee asset could not be resolved; the fee is then dropped and reported. */
+  readonly feeInstrumentId: string | null
+  /** The account's reporting currency, which is what a cost would later be entered in. */
+  readonly reportingCurrency: string
+  readonly sourceDocumentId: string
+}
+
+/**
+ * One transfer becomes one movement of units, plus a fee row where the exchange charged one.
+ *
+ * There is no `price` argument and no `amountMinor`, and their absence is the entire point. A
+ * `transfer_in` opens a lot the fold marks `costKnown: false`, which withholds cost basis,
+ * unrealised P&L and XIRR for that holding and says so - rather than valuing the units at the
+ * market price on the day they arrived, which would look like an answer and be a fabrication.
+ *
+ * `transfer_out` is symmetrical and equally unpriced: units leaving for a wallet are not a sale,
+ * and `tax.ts` already declines to treat a `transfer_out` consumption as a disposal.
+ */
+export function normalizeTransfer(input: NormalizeTransferInput): UnkeyedTxnRow[] {
+  const { transfer } = input
+  const incoming = transfer.direction === 'in'
+
+  const movement: UnkeyedTxnRow = {
+    accountId: input.accountId,
+    instrumentId: input.instrumentId,
+    type: incoming ? 'transfer_in' : 'transfer_out',
+    occurredAt: transfer.occurredAt,
+    occurredTz: null,
+    // The direction carries the sign. RawTransfer.quantity is always positive.
+    quantity: incoming ? transfer.quantity : negateText(transfer.quantity),
+    // Never a price. See above.
+    price: null,
+    amountMinor: null,
+    otherFeesMinor: ZERO_MINOR,
+    currency: input.reportingCurrency,
+    sourceDocumentId: input.sourceDocumentId,
+    externalId: transfer.externalId,
+  }
+
+  const rows: UnkeyedTxnRow[] = [movement]
+
+  // Binance deducts the withdrawal fee on top of the amount withdrawn, so it is units leaving the
+  // account in its own right. Folding it into the transfer's quantity would misstate what reached
+  // the other end; dropping it would leave the fold above the balance by exactly the fee and
+  // manufacture a coverage gap out of a fee we can see.
+  if (transfer.fee !== undefined && input.feeInstrumentId !== null) {
+    rows.push({
+      accountId: input.accountId,
+      instrumentId: input.feeInstrumentId,
+      type: 'fee',
+      occurredAt: transfer.occurredAt,
+      occurredTz: null,
+      quantity: negateText(transfer.fee.amount),
+      price: null,
+      amountMinor: null,
+      otherFeesMinor: ZERO_MINOR,
+      currency: quoteCurrency(transfer.fee.asset.code),
+      sourceDocumentId: input.sourceDocumentId,
+      externalId: `${transfer.externalId}:fee`,
+    })
+  }
+
+  return rows
+}
+
+export interface NormalizeConversionInput {
+  readonly accountId: string
+  readonly conversion: RawConversion
+  /** The instrument for the asset acquired. */
+  readonly toInstrumentId: string
+  readonly sourceDocumentId: string
+}
+
+/**
+ * A conversion becomes a priced acquisition of the asset received.
+ *
+ * This is the opposite call from a transfer, and for a concrete reason: the units given up *are*
+ * the consideration, so the cost is known exactly and recording it as anything but a `buy` would
+ * throw away a cost basis the exchange handed us.
+ *
+ * Only the acquisition side is recorded, which is the same choice `normalizeFill` makes: a spot buy
+ * of BTC for USDT produces a row against BTC and nothing against USDT. Emitting the disposal side
+ * here and not there would make the coverage check tell two different stories about USDT depending
+ * on which screen the trade was made from.
+ */
+export function normalizeConversion(input: NormalizeConversionInput): UnkeyedTxnRow[] {
+  const { conversion } = input
+  const quoteAsset = conversion.from.code
+  const fiat = isFiat(quoteAsset)
+
+  return [
+    {
+      accountId: input.accountId,
+      instrumentId: input.toInstrumentId,
+      type: 'buy',
+      occurredAt: conversion.occurredAt,
+      occurredTz: null,
+      quantity: conversion.toQuantity,
+      price: conversion.price,
+      // The exchange's own `fromAmount`, not quantity times price. Convert quotes a rounded ratio
+      // and the amount actually debited is the authoritative figure.
+      amountMinor: fiat ? decToMinor(conversion.fromQuantity, currencyCode(quoteAsset)) : null,
+      otherFeesMinor: ZERO_MINOR,
+      currency: quoteCurrency(quoteAsset),
+      sourceDocumentId: input.sourceDocumentId,
+      externalId: conversion.externalId,
+    },
+  ]
 }
 
 /** Assign natural keys and occurrence numbers across one page. */

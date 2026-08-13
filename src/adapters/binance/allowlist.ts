@@ -23,6 +23,10 @@ export const BINANCE_ALLOWLIST: readonly AllowedRequest[] = [
   // Reads withdrawal history. The mutating sibling is /capital/withdraw/apply, which the
   // path classifier rejects on the 'apply' terminal even if someone added it here.
   { method: 'GET', pathPattern: '/sapi/v1/capital/withdraw/history', host: 'primary' },
+  // Convert history, the only place Convert fills ever appear. Its siblings /convert/getQuote and
+  // /convert/acceptQuote perform the conversion and are refused by the classifier: the 'convert'
+  // segment is mutating and only the 'tradeFlow' terminal earns the read exemption.
+  { method: 'GET', pathPattern: '/sapi/v1/convert/tradeFlow', host: 'primary' },
   // Read-only despite the verb. The richer balance source: positive balances only, with
   // freeze, withdrawing and ipoable alongside free and locked.
   { method: 'POST', pathPattern: '/sapi/v3/asset/getUserAsset', host: 'primary' },

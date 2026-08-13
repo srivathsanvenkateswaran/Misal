@@ -91,6 +91,68 @@ describe('the token bucket', () => {
   })
 })
 
+describe('the account budget, which is a separate bucket', () => {
+  /** Binance's real figures: 180,000 UID weight a minute, and 18,000 for one withdrawal page. */
+  function binanceish(clock: ManualClock): RateLimiter {
+    return new RateLimiter({
+      budgetPerMinute: 6000,
+      maxPerSecond: 1000,
+      uidBudgetPerMinute: 180_000,
+      usedUidWeightHeader: 'x-sapi-used-uid-weight-1m',
+      clock,
+    })
+  }
+
+  it('paces the expensive endpoints without touching the IP budget', async () => {
+    const clock = new ManualClock()
+    const limiter = binanceish(clock)
+
+    // Five withdrawal pages is 90,000, which is the whole of our half of the account budget.
+    for (let i = 0; i < 5; i += 1) await limiter.acquire(1, 18_000)
+    expect(clock.slept).toHaveLength(0)
+
+    await limiter.acquire(1, 18_000)
+    expect(clock.slept.length).toBeGreaterThan(0)
+  })
+
+  it('does not let account weight exhaust the per-IP budget, or the reverse', async () => {
+    const clock = new ManualClock()
+    const limiter = binanceish(clock)
+    // 18,000 would be six times the IP target on its own; counted apart, it costs 1 there.
+    for (let i = 0; i < 4; i += 1) await limiter.acquire(1, 18_000)
+    // And a cheap IP-metered call still goes straight through afterwards.
+    await limiter.acquire(1, 0)
+    expect(clock.slept).toHaveLength(0)
+  })
+
+  it('believes the server’s account figure over its own', async () => {
+    const clock = new ManualClock()
+    const limiter = binanceish(clock)
+    // Another device sharing this key has already spent our half of the budget.
+    limiter.observe({ 'X-SAPI-USED-UID-WEIGHT-1M': '90000' })
+    await limiter.acquire(1, 1)
+    expect(clock.slept.length).toBeGreaterThan(0)
+  })
+
+  it('refuses a request that could never fit rather than sleeping forever', async () => {
+    const clock = new ManualClock()
+    const limiter = binanceish(clock)
+    // A sync that never finishes and never errors is indistinguishable from a slow one, which is
+    // the failure this guard exists to make loud.
+    await expect(limiter.acquire(1, 200_000)).rejects.toBeInstanceOf(AdapterError)
+    await expect(limiter.acquire(9000, 0)).rejects.toBeInstanceOf(AdapterError)
+    expect(clock.slept).toHaveLength(0)
+  })
+
+  it('ignores account weight entirely for an exchange that has no such budget', async () => {
+    const clock = new ManualClock()
+    // CoinDCX publishes one budget. A limiter with no second bucket must not invent one.
+    const limiter = new RateLimiter({ budgetPerMinute: 5000, maxPerSecond: 1000, clock })
+    for (let i = 0; i < 10; i += 1) await limiter.acquire(1, 18_000)
+    expect(clock.slept).toHaveLength(0)
+  })
+})
+
 describe('the socket guard', () => {
   it('fails any test that tries to reach the network', () => {
     installSocketGuard()

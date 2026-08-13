@@ -26,14 +26,28 @@ import {
 const NOW = new Date('2026-08-12T10:00:00.000Z')
 const CREDENTIAL = { apiKey: 'test-key-not-a-real-key', apiSecret: 'test-secret-not-a-real-secret' }
 
+/**
+ * Everything a full Binance sync fetches through the real registry.
+ *
+ * This list goes through `createAdapter`, so it exercises the *production* backfill window counts
+ * rather than a test-shrunk one - which is the point: those counts are chosen so that a sync's
+ * whole backfill fits inside one minute of Binance's account budget, and a fixture set that
+ * completes without the limiter ever sleeping is what demonstrates it.
+ */
 const BINANCE_HAPPY = [
   'api-restrictions-read-only',
   'time',
   'exchange-info',
   'user-asset',
+  'deposit-hisrec',
+  'withdraw-history',
+  'convert-tradeflow',
   'mytrades-btctusd-empty',
   'mytrades-btcusdt-page-1',
   'mytrades-btcusdt-page-2',
+  // Both discovered by a transfer and a conversion rather than by any balance.
+  'mytrades-ethbtc-empty',
+  'mytrades-wbtcbtc-empty',
 ]
 
 /**

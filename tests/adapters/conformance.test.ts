@@ -57,15 +57,21 @@ interface Case {
 const CASES: readonly Case[] = [
   {
     exchange: 'binance',
-    adapter: createBinanceAdapter({ pageSize: 2 }),
+    adapter: createBinanceAdapter({ pageSize: 2, backfillWindows: 1 }),
     syncFixtures: [
       'api-restrictions-read-only',
       'time',
       'exchange-info',
       'user-asset',
+      'deposit-hisrec',
+      'withdraw-history',
+      'convert-tradeflow',
       'mytrades-btctusd-empty',
       'mytrades-btcusdt-page-1',
       'mytrades-btcusdt-page-2',
+      // A deposit and a Convert each put a pair into the sweep that balances alone would not have.
+      'mytrades-ethbtc-empty',
+      'mytrades-wbtcbtc-empty',
     ],
     numericFixtures: ['user-asset', 'mytrades-btcusdt-page-1'],
     fillFixtures: ['mytrades-btctusd-empty', 'mytrades-btcusdt-page-1', 'mytrades-btcusdt-page-2'],
@@ -142,6 +148,17 @@ describe('every adapter is structurally read-only', () => {
     (_id, adapter) => {
       expect(adapter.capability).toBe('snapshot')
       expect(adapter.coverageGaps.length).toBeGreaterThan(0)
+    },
+  )
+
+  it.each(registered.map((r) => [r.adapter.id, r.adapter] as const))(
+    '%s either fetches transfers or states that it cannot',
+    (_id, adapter) => {
+      if (adapter.fetchTransfers !== undefined) return
+      // An absent stream and an account with no deposits look identical in the data. The only
+      // thing that can tell them apart is the adapter saying which one it is, so an adapter that
+      // leaves the method off owes the user a sentence about why.
+      expect(adapter.coverageGaps.join(' ')).toMatch(/deposit|withdraw|transfer/iu)
     },
   )
 })

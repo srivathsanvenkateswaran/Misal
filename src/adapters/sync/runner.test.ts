@@ -11,15 +11,34 @@ import { runSync, type SyncOptions } from './runner'
 
 const NOW = new Date('2026-08-12T10:00:00.000Z')
 
+/**
+ * A whole Binance sync's worth of recorded responses.
+ *
+ * The transfer and Convert fixtures are `repeatable`, because a sync walks one date window per
+ * stream per run and the window moves every time: pinning a fixture to a window would make the
+ * list a function of the test's clock. The two extra `myTrades` fixtures are the consequence of
+ * fetching transfers at all - a WBTC deposit and an ETH conversion put two pairs into the symbol
+ * sweep that the balance sheet alone would never have discovered.
+ */
 const BINANCE_HAPPY = [
   'api-restrictions-read-only',
   'time',
   'exchange-info',
   'user-asset',
+  'deposit-hisrec',
+  'withdraw-history',
+  'convert-tradeflow',
   'mytrades-btctusd-empty',
   'mytrades-btcusdt-page-1',
   'mytrades-btcusdt-page-2',
+  'mytrades-ethbtc-empty',
+  'mytrades-wbtcbtc-empty',
 ]
+
+/** One backfill window a sync, so a fixture set is a fixture set rather than a decade of them. */
+function binance(): ExchangeAdapter {
+  return createBinanceAdapter({ pageSize: 2, backfillWindows: 1 })
+}
 
 const COINDCX_HAPPY = ['markets-details', 'balances', 'trade-history-page-1', 'trade-history-page-2']
 
@@ -42,7 +61,7 @@ function options(
 
 describe('a first sync', () => {
   it('commits balances before it starts the trade crawl', async () => {
-    const adapter = createBinanceAdapter({ pageSize: 2 })
+    const adapter = binance()
     const opts = options(adapter, 'binance', BINANCE_HAPPY)
     const outcome = await runSync(opts)
 
@@ -58,18 +77,19 @@ describe('a first sync', () => {
   })
 
   it('records the withheld quantity so the UI can state what is missing', async () => {
-    const opts = options(createBinanceAdapter({ pageSize: 2 }), 'binance', BINANCE_HAPPY)
+    const opts = options(binance(), 'binance', BINANCE_HAPPY)
     await runSync(opts)
     expect(opts.store.unresolved[0]?.observedQuantity).toBe('42.000000000000000001')
   })
 
   it('turns a fee paid in kind into its own transaction', async () => {
-    const opts = options(createBinanceAdapter({ pageSize: 2 }), 'binance', BINANCE_HAPPY)
+    const opts = options(binance(), 'binance', BINANCE_HAPPY)
     await runSync(opts)
 
-    const fees = opts.store.transactions.filter((t) => t.type === 'fee')
+    const fees = opts.store.transactions.filter((t) => t.type === 'fee' && t.currency === 'X:BNB')
     // BNB is in the catalogue, so the commission becomes a fee row against BNB rather than
-    // being rounded into a minor-unit column that cannot hold 0.000114 of anything.
+    // being rounded into a minor-unit column that cannot hold 0.000114 of anything. Filtered to
+    // BNB because withdrawals now contribute a fee row of their own, in the withdrawn asset.
     expect(fees).toHaveLength(3)
     expect(fees[0]?.quantity).toBe('-0.00011400')
     expect(fees[0]?.currency).toBe('X:BNB')
@@ -77,10 +97,12 @@ describe('a first sync', () => {
   })
 
   it('records a crypto-quoted trade with no amount_minor', async () => {
-    const opts = options(createBinanceAdapter({ pageSize: 2 }), 'binance', BINANCE_HAPPY)
+    const opts = options(binance(), 'binance', BINANCE_HAPPY)
     await runSync(opts)
 
-    const buy = opts.store.transactions.find((t) => t.type === 'buy')
+    // By trade id, not by "the first buy": Convert acquisitions commit before trade history does
+    // and are buys too, so position in the list stopped meaning anything.
+    const buy = opts.store.transactions.find((t) => t.externalId === '28457')
     // USDT has no ISO code and no minor unit, so the value is derived from quantity and price
     // at valuation time instead of being forced into an integer here.
     expect(buy?.currency).toBe('X:USDT')
@@ -143,11 +165,14 @@ describe('idempotency', () => {
 
 describe('a partial sync', () => {
   it('keeps the committed page, stops at its watermark, and says so', async () => {
-    const opts = options(createBinanceAdapter({ pageSize: 2 }), 'binance', [
+    const opts = options(binance(), 'binance', [
       'api-restrictions-read-only',
       'time',
       'exchange-info',
       'user-asset',
+      'deposit-hisrec',
+      'withdraw-history',
+      'convert-tradeflow',
       'mytrades-btctusd-empty',
       'mytrades-btcusdt-page-1',
       // The second page dies. The first must survive.
@@ -164,8 +189,10 @@ describe('a partial sync', () => {
       errorCode: 'upstream_unavailable',
     })
 
-    // Page one's rows are committed and the watermark sits on page one, not past it.
-    expect(opts.store.transactions.filter((t) => t.type === 'buy')).toHaveLength(2)
+    // Page one's rows are committed and the watermark sits on page one, not past it. Counted by
+    // trade id so the Convert acquisition, which is also a buy, does not join the total.
+    const fills = opts.store.transactions.filter((t) => ['28457', '28458'].includes(t.externalId))
+    expect(fills).toHaveLength(2)
     const cursor = await opts.store.readCursor('account-1', 'fills', '*')
     expect(cursor).toContain('28458')
     expect(cursor).not.toContain('28460')
@@ -173,13 +200,16 @@ describe('a partial sync', () => {
 
   it('resumes from the committed page and produces no duplicates', async () => {
     const store = new MemorySyncStore()
-    const adapter = createBinanceAdapter({ pageSize: 2 })
+    const adapter = binance()
     await runSync(
       options(adapter, 'binance', [
         'api-restrictions-read-only',
         'time',
         'exchange-info',
         'user-asset',
+        'deposit-hisrec',
+        'withdraw-history',
+        'convert-tradeflow',
         'mytrades-btctusd-empty',
         'mytrades-btcusdt-page-1',
         'mytrades-server-error',
@@ -193,8 +223,13 @@ describe('a partial sync', () => {
         'time',
         'exchange-info',
         'user-asset',
+        'deposit-hisrec',
+        'withdraw-history',
+        'convert-tradeflow',
         'mytrades-btcusdt-page-2',
         'mytrades-btcusdt-exhausted',
+        'mytrades-ethbtc-empty',
+        'mytrades-wbtcbtc-empty',
       ], store),
     )
 
@@ -218,7 +253,7 @@ describe('balances are atomic', () => {
     ], 'document-legacy')
 
     store.failPositionsAfter = 1
-    const opts = options(createBinanceAdapter({ pageSize: 2 }), 'binance', BINANCE_HAPPY, store)
+    const opts = options(binance(), 'binance', BINANCE_HAPPY, store)
     const outcome = await runSync(opts)
 
     expect(outcome.balancesCommitted).toBe(0)
@@ -236,7 +271,7 @@ describe('an over-scoped key found mid-life', () => {
       { instrumentId: 'instrument-legacy', quantity: dec('1.00000000') },
     ], 'document-legacy')
 
-    const opts = options(createBinanceAdapter({ pageSize: 2 }), 'binance', [
+    const opts = options(binance(), 'binance', [
       'api-restrictions-withdrawals',
     ], store)
     const outcome = await runSync(opts)
@@ -252,7 +287,7 @@ describe('an over-scoped key found mid-life', () => {
 
 describe('coverage', () => {
   it('reports the gap between the fold and the balance as a warning, not an error', async () => {
-    const opts = options(createBinanceAdapter({ pageSize: 2 }), 'binance', BINANCE_HAPPY)
+    const opts = options(binance(), 'binance', BINANCE_HAPPY)
     const outcome = await runSync(opts)
 
     const gap = outcome.coverage.find((row) => !row.matches)
@@ -264,18 +299,123 @@ describe('coverage', () => {
     expect(outcome.status).toBe('completed')
   })
 
-  it('names the Convert gap explicitly rather than absorbing it', async () => {
-    const opts = options(createBinanceAdapter({ pageSize: 2 }), 'binance', BINANCE_HAPPY)
+  it('no longer leaves the Convert caveat ending on "and that is that"', async () => {
+    const opts = options(binance(), 'binance', BINANCE_HAPPY)
     const outcome = await runSync(opts)
-    expect(outcome.issues.map((i) => i.message).join(' ')).toMatch(/Convert trades never appear/)
+    const notes = outcome.issues.map((i) => i.message).join(' ')
+
+    // The first clause was always true and stays: Convert fills really are absent from trade
+    // history. What is no longer true is the consequence, and a caveat that has stopped being
+    // true is worse than none, because it teaches the reader to discount the ones that still are.
+    expect(notes).toMatch(/Convert trades never appear in trade history, so Misal reads them from/)
     expect((await opts.store.readCursor('account-1', 'fills', '*')) !== null).toBe(true)
+  })
+
+  it('states how far back the history it has actually read goes', async () => {
+    const opts = options(binance(), 'binance', BINANCE_HAPPY)
+    const outcome = await runSync(opts)
+    // A bounded backfill is honest only if it says so. Otherwise a cost basis built from three
+    // months of history is indistinguishable on screen from one built from all of it.
+    const incomplete = outcome.issues.filter((i) => i.code === 'backfill_incomplete')
+    expect(incomplete.length).toBeGreaterThan(0)
+    expect(incomplete.every((i) => i.severity === 'warning')).toBe(true)
+    expect(incomplete.map((i) => i.message).join(' ')).toMatch(/read back to \d{4}-\d{2}-\d{2}/)
+  })
+})
+
+describe('Convert acquisitions reach the ledger', () => {
+  it('records a Convert as a priced buy of the asset received', async () => {
+    const opts = options(binance(), 'binance', BINANCE_HAPPY)
+    const outcome = await runSync(opts)
+
+    const eth = opts.store.instruments.find((i) => i.displayName === 'Ethereum')
+    expect(eth).toBeDefined()
+    const acquisition = opts.store.transactions.find((t) => t.instrumentId === eth?.id)
+
+    // The whole point of gap B: 0.4 ETH acquired through Convert appears in no trade history at
+    // all, and before this it existed only as a balance nothing explained.
+    expect(acquisition).toBeDefined()
+    expect(acquisition?.type).toBe('buy')
+    expect(acquisition?.quantity).toBe('0.40000000')
+    expect(acquisition?.price).toBe('3000.00000000')
+    // USDT has no minor unit, so the cost is carried by quantity and price rather than forced
+    // into an integer column.
+    expect(acquisition?.currency).toBe('X:USDT')
+    expect(acquisition?.amountMinor).toBeNull()
+    expect(outcome.conversionsCommitted).toBe(1)
+  })
+
+  it('fetches it from tradeFlow rather than hoping myTrades carries it', async () => {
+    const opts = options(binance(), 'binance', BINANCE_HAPPY)
+    await runSync(opts)
+    const convert = opts.transport.sent.filter((r) => r.path === '/sapi/v1/convert/tradeFlow')
+    expect(convert.length).toBeGreaterThan(0)
+    // Both bounds are mandatory on this endpoint, and the interval may not exceed 30 days.
+    for (const request of convert) {
+      expect(request.query).toMatch(/startTime=\d+/)
+      expect(request.query).toMatch(/endTime=\d+/)
+      const start = BigInt(/startTime=(\d+)/.exec(request.query)?.[1] ?? '0')
+      const end = BigInt(/endTime=(\d+)/.exec(request.query)?.[1] ?? '0')
+      expect(end - start).toBeLessThanOrEqual(30n * 86_400_000n)
+    }
+  })
+})
+
+describe('a transfer is not an acquisition', () => {
+  it('records a deposit as an unpriced transfer_in, never as a buy', async () => {
+    const opts = options(binance(), 'binance', BINANCE_HAPPY)
+    const outcome = await runSync(opts)
+
+    const wbtc = opts.store.instruments.find((i) => i.displayName === 'Wrapped Bitcoin')
+    const rows = opts.store.transactions.filter((t) => t.instrumentId === wbtc?.id)
+    expect(rows).toHaveLength(1)
+    const deposit = rows[0]
+
+    expect(deposit?.type).toBe('transfer_in')
+    // The three fields that would turn units into a cost. All absent, and deliberately: the coin
+    // was acquired somewhere Misal cannot see, so its cost is unknown rather than nil and rather
+    // than the market price on the day it landed.
+    expect(deposit?.price).toBeNull()
+    expect(deposit?.amountMinor).toBeNull()
+    expect(deposit?.otherFeesMinor).toBe('0')
+    // Eighteen decimals, carried through untouched.
+    expect(deposit?.quantity).toBe('0.250000000000000001')
+    expect(outcome.transfersCommitted).toBeGreaterThan(0)
+    expect(opts.store.transactions.some((t) => t.type === 'buy' && t.instrumentId === wbtc?.id))
+      .toBe(false)
+  })
+
+  it('records a withdrawal as units out, plus the fee charged on top of them', async () => {
+    const opts = options(binance(), 'binance', BINANCE_HAPPY)
+    await runSync(opts)
+
+    const out = opts.store.transactions.find((t) => t.type === 'transfer_out')
+    expect(out?.quantity).toBe('-0.02000000')
+    expect(out?.price).toBeNull()
+
+    // Binance deducts transactionFee in addition to the amount withdrawn. Dropping it would leave
+    // the fold above the reported balance by exactly the fee and invent a coverage gap.
+    const fee = opts.store.transactions.find((t) => t.externalId?.endsWith(':fee') === true)
+    expect(fee?.type).toBe('fee')
+    expect(fee?.quantity).toBe('-0.00050000')
+  })
+
+  it('discovers an asset that was deposited and never traded here', async () => {
+    const opts = options(binance(), 'binance', BINANCE_HAPPY)
+    await runSync(opts)
+
+    // WBTC is in no balance row and no fill. It exists only because a deposit named it - and
+    // because it is now a discovered asset, the symbol sweep went and asked about WBTCBTC.
+    const discovered = await opts.store.readDiscoveredAssets('account-1')
+    expect(discovered).toContain('WBTC')
+    expect(opts.transport.sent.some((r) => r.query.includes('symbol=WBTCBTC'))).toBe(true)
   })
 })
 
 describe('instrument resolution', () => {
   it('resolves BTC on both exchanges to a single instrument', async () => {
     const store = new MemorySyncStore()
-    await runSync(options(createBinanceAdapter({ pageSize: 2 }), 'binance', BINANCE_HAPPY, store))
+    await runSync(options(binance(), 'binance', BINANCE_HAPPY, store))
     await runSync(options(createCoindcxAdapter({ pageSize: 2 }), 'coindcx', COINDCX_HAPPY, store))
 
     const coingecko = store.aliases.filter((a) => a.scheme === 'coingecko' && a.value === 'bitcoin')
@@ -300,7 +440,7 @@ describe('instrument resolution', () => {
 
   it('takes quantity precision from the market catalogue, not the schema default', async () => {
     const store = new MemorySyncStore()
-    await runSync(options(createBinanceAdapter({ pageSize: 2 }), 'binance', BINANCE_HAPPY, store))
+    await runSync(options(binance(), 'binance', BINANCE_HAPPY, store))
     // The core default of 4 would render a Bitcoin balance uselessly.
     expect(store.instruments.find((i) => i.displayName === 'Bitcoin')?.precision).toBe(5)
   })
