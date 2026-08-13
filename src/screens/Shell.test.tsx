@@ -44,6 +44,8 @@ function serve(rows: PortfolioRows, status: unknown = STATUS): void {
         return Promise.resolve(rows.positions)
       case 'list_prices':
         return Promise.resolve(rows.prices)
+      case 'list_fx_rates':
+        return Promise.resolve(rows.fxRates)
       case 'list_unresolved':
         return Promise.resolve(rows.unresolved)
       case 'get_settings':
