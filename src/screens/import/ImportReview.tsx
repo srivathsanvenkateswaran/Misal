@@ -317,11 +317,20 @@ function rolledBackDetail(counters: ImportCounters, openQueue: number): string {
   return `${parts.join(', and ')}.`
 }
 
+/**
+ * What mapping does, and what it does not.
+ *
+ * The earlier wording promised that withheld rows "are released when a document containing them is
+ * imported again", which was never true of the document that had just withheld them: its content
+ * hash made a re-import a no-op. Mapping therefore closed the queue entry and the value simply
+ * stopped being counted anywhere. Re-importing the same file is now the supported path, so the copy
+ * names it.
+ */
 function queueFoot(counters: ImportCounters, openQueue: number): ReactNode {
   if (openQueue === 0) {
     return 'Nothing is being withheld from your totals by this import.'
   }
-  return `${String(counters.withheld)} rows are withheld from every total until these are mapped. Mapping one teaches Misal the identifier, so the next statement carrying it resolves without asking; the rows already withheld are released when a document containing them is imported again.`
+  return `${String(counters.withheld)} rows are withheld from every total. Mapping one teaches Misal the identifier, so the next statement carrying it resolves without asking — but it does not move these rows, which exist only in this file. Import this file again after mapping to release them; until then they stay withheld, and stay counted as withheld.`
 }
 
 function shortHash(hash: string): string {

@@ -31,6 +31,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         "amc-identity",
         include_str!("../migrations/0005-amc-identity.sql"),
     ),
+    (
+        6,
+        "unresolved-lifecycle",
+        include_str!("../migrations/0006-unresolved-lifecycle.sql"),
+    ),
 ];
 
 /// Location of the database file for this platform.

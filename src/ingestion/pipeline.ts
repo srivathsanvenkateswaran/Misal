@@ -83,6 +83,20 @@ export interface ImportDeps {
   readonly pdfSource?: PdfSource
   /** Recorded on the run so a parser fix can find the imports it invalidates. */
   readonly parserVersion?: string
+  /**
+   * How many rows an already-imported document is still withholding from every total.
+   *
+   * The content hash makes an import idempotent, which is right for a file whose rows all landed
+   * and wrong for one whose rows did not. An import whose instruments could not be identified
+   * writes zero `txn` rows and a `source_document` carrying the hash, so once the user maps the
+   * identifier the queue asked about, re-importing the same file — the only way those rows can
+   * reach the ledger — was refused forever. Where this reports rows still withheld, the file is
+   * read again into the document it already has.
+   *
+   * Absent means the short-circuit always wins, which is the behaviour a caller with no way to ask
+   * should get.
+   */
+  readonly withheldFor?: (documentId: string) => Promise<number>
 }
 
 export interface ImportCounters {
@@ -117,6 +131,11 @@ export type ImportOutcome =
       readonly counters: ImportCounters
       readonly issues: readonly Issue[]
       readonly accountIds: readonly string[]
+      /**
+       * True when this run read a file the database had already seen, to release rows it withheld.
+       * No second `source_document` was written; the rows landed against the one already recorded.
+       */
+      readonly reimported: boolean
     }
 
 /**
@@ -129,18 +148,25 @@ export async function runImport(request: ImportRequest, deps: ImportDeps): Promi
   const contentHash = await sha256Hex(request.bytes)
 
   // Document-level idempotency. Not an error, and deliberately no import_run: nothing happened.
+  //
+  // Except where the document is still withholding rows. Then nothing happening is the problem:
+  // those rows are absent from every total, mapping their identifier does not write them, and this
+  // file is the only place they exist. It is read again, into the document it already has.
   const seen = await deps.store.findDocumentByHash(contentHash)
   if (seen !== null) {
-    return {
-      status: 'already-imported',
-      contentHash,
-      documentId: seen.id,
-      importedAt: seen.importedAt,
+    const stillWithheld = deps.withheldFor === undefined ? 0 : await deps.withheldFor(seen.id)
+    if (stillWithheld === 0) {
+      return {
+        status: 'already-imported',
+        contentHash,
+        documentId: seen.id,
+        importedAt: seen.importedAt,
+      }
     }
   }
 
   try {
-    return await importDecoded(request, deps, contentHash)
+    return await importDecoded(request, deps, contentHash, seen)
   } catch (error) {
     if (error instanceof DocumentFailure) {
       return { status: 'failed', contentHash, code: error.code, message: error.message }
@@ -153,6 +179,7 @@ async function importDecoded(
   request: ImportRequest,
   deps: ImportDeps,
   contentHash: string,
+  existing: SourceDocumentRow | null,
 ): Promise<ImportOutcome> {
   const kind = detectKind(request.bytes, request.originalName)
   const inputs = await decode(request, deps, kind)
@@ -312,7 +339,10 @@ async function importDecoded(
   const positionPlans = await planPositions(deps, resolvedPositions, issues)
 
   // -- commit -------------------------------------------------------------------------------
-  const documentId = deps.newId()
+  // A re-import writes its rows into the document already recorded for these bytes. Minting a
+  // second id would burn the content_hash uniqueness on a file the user is importing precisely
+  // because the first attempt held rows back.
+  const documentId = existing?.id ?? deps.newId()
   const runId = deps.newId()
   const accountIds = [...resolvedAccounts.values()].map((a) => a.id)
 
@@ -350,7 +380,7 @@ async function importDecoded(
   }
 
   await deps.store.transaction(async (writer: IngestionWriter) => {
-    await writer.insertSourceDocument(document)
+    if (existing === null) await writer.insertSourceDocument(document)
 
     for (const account of resolvedAccounts.values()) {
       if (account.created) await writer.insertAccount(account.row)
@@ -432,6 +462,7 @@ async function importDecoded(
     counters,
     issues: issues.all(),
     accountIds,
+    reimported: existing !== null,
   }
 }
 

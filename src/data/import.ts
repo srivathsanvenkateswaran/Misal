@@ -50,6 +50,12 @@ export interface CapabilityUpdate {
  * of the schema's foreign keys rather than of the order the pipeline happened to call the writer.
  */
 export interface ImportBatch {
+  /**
+   * Absent for a re-import, which writes its rows into the `source_document` already recorded for
+   * these bytes. See `runImport`: a file whose rows were withheld for want of an identifier is
+   * imported again once it has one, and a second document row for the same bytes would both
+   * violate `content_hash` uniqueness and misstate provenance.
+   */
   document: SourceDocumentRow | null
   accounts: AccountRow[]
   capabilityUpdates: CapabilityUpdate[]
@@ -216,15 +222,19 @@ export class SqliteIngestionStore implements IngestionStore {
    *
    * A throw from `work` — a constraint the pipeline noticed, a normalizer that gave up, a
    * disconnected webview — leaves the database untouched because nothing has crossed the boundary
-   * yet. A run with no document or no import_run is a pipeline bug and is refused rather than
-   * committed half-formed.
+   * yet. A run with no import_run is a pipeline bug and is refused rather than committed
+   * half-formed.
+   *
+   * A batch with no `source_document` is not: that is a re-import, writing into the document the
+   * first pass recorded. What proves the document exists is `import_run.source_document_id`, which
+   * is a foreign key, so a batch naming no document at all still cannot commit.
    */
   async transaction<T>(work: (writer: IngestionWriter) => Promise<T>): Promise<T> {
     const writer = new BufferedWriter()
     const result = await work(writer)
     const batch = writer.batch
-    if (batch.document === null || batch.run === null) {
-      throw new Error('an import must write a source_document and an import_run')
+    if (batch.run === null) {
+      throw new Error('an import must write an import_run')
     }
     await this.call('ingest_commit', { batch })
     return result
@@ -236,7 +246,16 @@ export class SqliteIngestionStore implements IngestionStore {
 // ---------------------------------------------------------------------------
 
 export interface PickedFile {
-  readonly path: string
+  /**
+   * An opaque reference to a file the user chose in the native dialog.
+   *
+   * Not a path, and deliberately so. The core used to expose `read_statement_bytes(path)`, which
+   * was `std::fs::read` on whatever the webview named — one call away from returning `~/.ssh/id_rsa`
+   * to anything that could reach the IPC bridge. A handle can only be exchanged for a file the
+   * picker returned, and the frontend never learns where on disk that is because it has no use for
+   * it.
+   */
+  readonly handle: string
   readonly name: string
   readonly byteLength: number
 }
@@ -246,17 +265,17 @@ export const pickStatementFile = (call: Invoker = tauriInvoke): Promise<PickedFi
   call('pick_statement_file')
 
 /**
- * Read the chosen file.
+ * Read a file the user picked, by the handle the picker returned.
  *
  * Arrives as an ArrayBuffer rather than a JSON array of byte values, which for a multi-megabyte
  * statement would be an order of magnitude larger on the wire. The bytes are hashed and parsed in
  * memory; nothing is copied into Misal's storage.
  */
 export async function readStatementBytes(
-  path: string,
+  handle: string,
   call: Invoker = tauriInvoke,
 ): Promise<Uint8Array> {
-  const buffer = await call<ArrayBuffer | number[]>('read_statement_bytes', { path })
+  const buffer = await call<ArrayBuffer | number[]>('read_statement_bytes', { handle })
   return buffer instanceof ArrayBuffer ? new Uint8Array(buffer) : Uint8Array.from(buffer)
 }
 
@@ -281,23 +300,48 @@ export interface UnresolvedEntryRow {
 export interface MappingOutcome {
   /** The alias learned, when the identifier was one that can be aliased at all. */
   readonly aliasScheme: string | null
-  /** Queue entries closed, across every account that named the same identifier. */
-  readonly released: number
+  /**
+   * Queue entries this mapping answered, across every account that named the same identifier.
+   *
+   * Not "released". A mapping moves no money: the rows the import withheld are still not in the
+   * ledger, so these entries go on withholding — and go on disclosing — exactly what they did
+   * before. They close when a document carrying those rows is imported.
+   */
+  readonly matched: number
 }
 
-/** What this document could not identify. Scoped to the document, unlike the settings queue. */
+/**
+ * What this document could not identify, and is still asking about.
+ *
+ * Scoped to the document, unlike the settings queue. Dismissed and mapped entries are absent: both
+ * have been answered, and neither has put its value into a total, so both remain in
+ * `list_unresolved` and in the withheld figure.
+ */
 export const unresolvedForDocument = (
   documentId: string,
   call: Invoker = tauriInvoke,
 ): Promise<UnresolvedEntryRow[]> => call('ingest_unresolved_for_document', { documentId })
 
 /**
+ * How many rows an already-imported document is still withholding from every total.
+ *
+ * Non-zero means re-importing the file is not a no-op: it is the only way the withheld rows reach
+ * the ledger. Fed to `runImport` so the content-hash short-circuit can stand aside.
+ */
+export const withheldForDocument = (
+  documentId: string,
+  call: Invoker = tauriInvoke,
+): Promise<number> => call('ingest_withheld_for_document', { documentId })
+
+/**
  * Map an unresolved identifier onto an instrument the user picked.
  *
- * Writes the alias, so the next statement resolves without asking again, and closes every queue
- * entry naming the same identifier. It does not re-run the rows this import withheld: their value
- * is released when a document carrying them is imported next, and until then the queue entry's
- * `observedValueMinor` is what the interface reports as withheld.
+ * Writes the alias, so the next statement resolves without asking again, and records the answer
+ * against every queue entry naming the same identifier. It does not re-run the rows this import
+ * withheld — the statement's own text is the only record of them and Misal never copies the file —
+ * so the entry stays open and its `observedValueMinor` goes on being reported as withheld until a
+ * document carrying those rows is imported. Importing the same file again does that, which is what
+ * `withheldForDocument` exists to permit.
  */
 export const mapUnresolvedInstrument = (
   unresolvedId: string,
@@ -305,7 +349,13 @@ export const mapUnresolvedInstrument = (
   call: Invoker = tauriInvoke,
 ): Promise<MappingOutcome> => call('ingest_map_unresolved', { unresolvedId, instrumentId })
 
-/** Dismiss without mapping. The value stays withheld and the entry stays readable in settings. */
+/**
+ * Dismiss without mapping.
+ *
+ * The import report stops asking. Nothing else changes: the value stays withheld from every total,
+ * the entry stays open in Settings → Review queue, and the withheld figure goes on stating it —
+ * because the holding is every bit as absent from net worth as it was before the click.
+ */
 export const ignoreUnresolvedInstrument = (
   unresolvedId: string,
   call: Invoker = tauriInvoke,
