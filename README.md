@@ -19,23 +19,35 @@ own character.
 
 Misal is **early**. It is built and tested, but it has not been used in anger by anyone.
 
+> **Do not import statements you cannot re-download.** A review completed on 2026-08-13 found two
+> ways an imported statement's transactions can be permanently and silently discarded, with the
+> screen reporting that nothing happened — and re-importing the file, the obvious recovery, is the
+> path that is closed. Fixes are in progress. Until they land, treat any import as potentially
+> one-way.
+
 | | |
 |---|---|
-| **Trustworthy** | Net worth, holdings, quantities, allocation, what you own and where |
-| **Recently fixed, not yet field-tested** | Realised gains, XIRR, the 12-month history chart |
-| **Do not use for** | Filing a tax return, without checking the figures against your own statements |
+| **Reasonable to look at** | What you own and where, allocation, quantities from a single import |
+| **Known wrong in specific cases** | Net worth doubles if you reconnect an exchange after rotating a key |
+| **Recently fixed, not field-tested** | Realised gains, XIRR, the 12-month history chart |
+| **Do not use for** | Filing a tax return; importing anything you cannot obtain again |
 
-Two independent adversarial reviews have run over this codebase. Between them they found **20
-confirmed defects**, including three that produced confidently wrong money figures — a mutual fund
-redemption that inverted realised profit into a loss, foreign disposals understated roughly 87-fold,
-and a history chart converting past months at today's exchange rate. All are fixed, each with a test
-that fails without the fix. A third review is running.
+Three independent adversarial reviews have run over this codebase. They found **27 confirmed
+defects** between them, including a mutual fund redemption that inverted realised profit into a
+loss, foreign disposals understated roughly 87-fold, and a history chart converting past months at
+today's exchange rate. Those are fixed, each with a test that fails without the fix.
 
-Every one of those bugs existed in a codebase with a passing suite of over a thousand tests. That is
-the honest reason for the table above: the tests were dense over the shapes they happened to
-contain, and every defect lived in a shape no fixture covered.
+The third review found seven more, **two of them inside the fix the second review's findings
+produced** — the mechanism added to prevent permanent statement loss has holes that cause it. That
+is the honest state of this project: each pass finds real defects, including in the previous pass's
+repairs.
 
-So: use it to see what you own. Check anything you would act on.
+Every one of these existed under a passing suite of well over a thousand tests. In nearly every
+case the cause was the same — a missing fixture, not a missing assertion. The suite was dense over
+the shapes it happened to contain.
+
+So: use it to see what you own, from statements you can download again. Check anything you would
+act on.
 
 ---
 
