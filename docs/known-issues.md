@@ -1886,6 +1886,61 @@ Not a missing state: a missing button. Wiring it needs a panel on the Settings s
 `accountsWithValue` already does, and — per this repo's own workflow — a reviewable mockup first,
 since it is new UI. That is a small feature rather than a fix, so it is recorded here rather than
 smuggled into a defect branch.
+### ~~A preference field discarded the first thing typed into it~~ — FIXED
+
+`SettingField` held the typed value in `draft`, initialised from the stored one, and re-applied the
+stored one from `useEffect(() => { setDraft(stored) }, [stored])`. The comment on that effect
+described the case it was written for — a value the core normalises on save, `" usd "` to `"USD"`,
+must be shown as stored rather than as typed — and it did do that. What it also did was run on
+mount, where it re-applies the value `useState` was just initialised with.
+
+That mount run is a no-op only if it happens before the field is touched. React posts passive
+effects through `setImmediate` and flushes any that are pending at the start of its *next* unit of
+work — and a keystroke is such a unit. A mount effect still pending when the user types therefore
+queues `setDraft(stored)` *behind* the keystroke's `setDraft(typed)`, and the later write wins: the
+character is gone, `draft === stored` disables Save again, and the click that follows submits
+nothing.
+
+**Consequence:** the field silently ate the first edit made to it in the window between the panel
+appearing and React getting to its own pending work — and then presented a disabled Save button,
+which is the interface saying there is nothing to save. Nothing was written and nothing was
+reported. In a browser that window is short; it is not zero, and it is widest exactly when the
+machine is busiest.
+
+It surfaced as a flaky test, which is why it survived three encounters.
+`Settings.test.tsx > shows every stored value and writes one back through the core` failed in the
+full suite and passed alone, and was twice put down to slowness: the async utility timeout was
+raised to 10s and `testTimeout` to 30s on those occasions. Neither had anything to do with it. The
+assertion is `toHaveBeenCalledWith`, and the runtime's `writeSetting` is called *synchronously*
+inside the submit handler, so `waitFor`'s first immediate check either passes or the call never
+happened at all — waiting could not have changed the outcome, and a ten-second wait ending in
+"number of calls: 0" was the evidence. What load changes is not how long the save takes but who
+wins a race in the event loop: Testing Library's async drain is a `setTimeout(0)`, React's pending
+callback is a `setImmediate`, and on an idle machine the check phase runs first, so the effect has
+flushed by the time the test types. Under contention the loop overshoots the timer's 1ms clamp, the
+timers phase goes first, and the test types into a field whose reset is still queued.
+
+Fixed by adjusting the state while rendering instead — `applied` holds the stored value last taken,
+and a render that sees a different `stored` takes the new one — which is React's own answer for a
+value derived from a prop. There is no effect to be pending, so there is no ordering to lose.
+
+Guarded by `keeps what was typed when React flushes its pending work after the keystroke`, which
+pins that ordering rather than trusting it: it waits through a MutationObserver, which resolves
+without letting the loop reach the check phase, and then arms and expires a timer so the timers
+phase goes first. It fails on the old code every time, on an idle machine.
+
+The same window was found under two more assertions in that file, `states the label, the
+transactions, the holdings and the value before offering to delete` and `says why a value is
+unknown instead of printing a figure it does not have`. Both waited for the confirmation group,
+which is rendered immediately and carries "Counting what this would remove…" until
+`previewDeletion` resolves, and then asserted on counts that had not arrived. They now wait for a
+counted figure — the thing they are about to assert on — rather than for the box that will hold it.
+No component defect there; the assertions were simply ahead of their data.
+
+**Standing lesson:** a test that fails in the suite and passes alone is not evidence of slowness.
+Read what the assertion actually claims first. This one claimed a synchronous call had not
+happened, which no amount of waiting could have caused or cured, and the two timeout increases that
+preceded this fix were both applied without that check.
 
 ## Exchange adapters
 

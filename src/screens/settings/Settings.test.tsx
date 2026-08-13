@@ -249,6 +249,41 @@ function runtime(over: Partial<SettingsRuntime> = {}): SettingsRuntime {
   }
 }
 
+/**
+ * Wait for rendered text without letting React's pending passive effects run first.
+ *
+ * Testing Library's `findBy*` drains through a `setTimeout(0)`, which on an idle machine gives
+ * React's `setImmediate` callback its turn on the way past. This does not: a MutationObserver
+ * fires as a microtask, and the armed timer below is already expired by the time control returns
+ * to the loop, so the timers phase runs before the check phase. Used by the ordering test below;
+ * everything else goes through `open()`.
+ */
+async function untilRendered(text: string): Promise<void> {
+  await new Promise<void>((resolve) => {
+    const seen = (): boolean => document.body.textContent?.includes(text) === true
+    if (seen()) {
+      resolve()
+      return
+    }
+    const observer = new MutationObserver(() => {
+      if (seen()) {
+        observer.disconnect()
+        resolve()
+      }
+    })
+    observer.observe(document.body, { subtree: true, childList: true, characterData: true })
+  })
+
+  const armed = new Promise<void>((resolve) => {
+    setTimeout(resolve, 0)
+  })
+  const until = Date.now() + 5
+  while (Date.now() < until) {
+    // Burn past the timer's clamp on purpose, so it is expired rather than pending.
+  }
+  await armed
+}
+
 async function open(over: Partial<SettingsRuntime> = {}): Promise<{
   container: HTMLElement
   deps: SettingsRuntime
@@ -278,6 +313,37 @@ describe('Settings — preferences', () => {
     })
     expect(await screen.findByText(/Saved\. Price cache lifetime is 720 minutes\./u)).toBeInTheDocument()
     assertHonest(container)
+  })
+
+  /**
+   * The keystroke must survive React's pending work, whenever that work happens to run.
+   *
+   * `open()` returns the moment the panel's text is in the DOM, which is a microtask after the
+   * commit. React's passive effects are a separate unit of work, posted through `setImmediate`,
+   * and it flushes them at the start of its *next* unit of work — which the keystroke itself
+   * provides. A field that re-applies its stored value from a mount effect therefore queues that
+   * reset behind the keystroke's update and wins, wiping what was typed and disabling Save again;
+   * the visible symptom is a save that never reaches the core at all.
+   *
+   * Ordinarily the effects run first and the bug is invisible, which is exactly why this test
+   * pins the ordering rather than trusting it: the wait below is a MutationObserver, so it
+   * resolves without letting the event loop reach the check phase, and the armed timer then puts
+   * the timers phase ahead of React's pending callback. That is the ordering a loaded machine
+   * produces on its own, and it is what made this file fail in the full suite and pass alone.
+   */
+  it('keeps what was typed when React flushes its pending work after the keystroke', async () => {
+    const deps = runtime()
+    render(<Settings runtime={deps} />)
+    await untilRendered('Preferences')
+
+    const ttl = screen.getByLabelText(/Price cache lifetime/u)
+    fireEvent.change(ttl, { target: { value: '720' } })
+    expect(ttl).toHaveValue('720')
+
+    fireEvent.click(ttl.closest('.set-field')?.querySelector('button') as HTMLElement)
+    await waitFor(() => {
+      expect(deps.writeSetting).toHaveBeenCalledWith('price_cache_ttl_minutes', '720')
+    })
   })
 
   it('refuses a fractional count before it reaches the core, and says why', async () => {
@@ -621,7 +687,11 @@ describe('Settings — deleting an account', () => {
     await waitFor(() => {
       expect(deps.previewDeletion).toHaveBeenCalledWith('a-dcx')
     })
+    // The group is rendered as soon as the panel opens, carrying "Counting what this would
+    // remove…" until the preview lands; finding it proves nothing about the counts. Wait for a
+    // counted figure, which is the thing every assertion below is actually about.
     const danger = await screen.findByRole('group', { name: 'Delete CoinDCX main' })
+    expect(await screen.findByText('412')).toBeInTheDocument()
     expect(danger.textContent).toContain('412')
     expect(danger.textContent).toContain('transactions')
     expect(danger.textContent).toContain('9')
@@ -670,7 +740,12 @@ describe('Settings — deleting an account', () => {
     const { container } = await open()
     fireEvent.click((await screen.findAllByRole('button', { name: 'Delete…' }))[1] as HTMLElement)
 
+    // As above: the group precedes its counts, so wait for the sentence under test rather than
+    // for the box it will appear in.
     const danger = await screen.findByRole('group', { name: 'Delete HDFC folio' })
+    expect(
+      await screen.findByText('a value Misal could not compute — no price available'),
+    ).toBeInTheDocument()
     expect(danger.textContent).toContain('a value Misal could not compute — no price available')
     expect(danger.textContent).not.toContain('₹0.00')
     assertHonest(container)
