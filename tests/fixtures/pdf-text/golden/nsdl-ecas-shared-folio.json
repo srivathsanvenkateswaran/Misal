@@ -61,6 +61,7 @@
       "origin": {
         "raw": {
           "amc": "HDFC Asset Management Company Limited",
+          "amcFrom": "roster",
           "folio": "12345678/0",
           "identity": "mf-folio:hdfc:12345678/0"
         },
@@ -105,6 +106,7 @@
       "origin": {
         "raw": {
           "amc": "SBI Mutual Fund",
+          "amcFrom": "roster",
           "folio": "12345678/0",
           "identity": "mf-folio:sbi:12345678/0"
         },

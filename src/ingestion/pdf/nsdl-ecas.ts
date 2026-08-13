@@ -43,8 +43,11 @@
  *
  * **The roster's folio lines carry the same hazard one level down.** A folio number is issued by a
  * registrar, not by the market, so the same number appears under two fund houses in one file; the
- * house is therefore part of the folio's identity rather than a label on it. See `FolioRoster` and
- * `emitFolioRecords`.
+ * house is therefore part of the folio's identity rather than a label on it. And the roster is not
+ * the last word on which house that is: a scheme row's ISIN names its issuer, every scheme in a
+ * folio belongs to one house, so the rows can prove the roster listed too few folios — or stand up
+ * a folio's identity alone when the roster was not read at all. See `FolioRoster`, `planFolio`,
+ * which is where that is decided, and `emitFolioRecords`.
  */
 
 import type { RawIssue } from '../issues'
@@ -115,18 +118,47 @@ interface HeldPosition {
 }
 
 /**
- * One roster line's claim on a folio number, by one fund house.
+ * One claim on a folio number, by one fund house.
  *
  * A folio number is *not* the claim: folio numbers are RTA-scoped rather than globally unique, so
  * two houses issuing `12345678` are two accounts and the pair (house, number) is the smallest thing
  * that identifies one of them. See `FolioAmcIndex.scope`, which is the same scoping this uses.
+ *
+ * Most claims come from a roster line. Some are **derived** from a scheme row's own ISIN, because
+ * the roster is not the only place this document states a folio's house and it is the less reliable
+ * one — see `planFolio`.
  */
 interface FolioClaim {
   /** `FolioAmcIndex.scope(amc, folio)` — house and number together. */
   readonly scope: string
   readonly folio: string
-  /** The fund house as the roster printed it. Evidence, never an identity. */
+  /**
+   * The fund house as the roster printed it, or the canonical name of the house a scheme row's ISIN
+   * named when the claim was derived. Evidence and a label, never an identity.
+   */
   readonly amc: string
+  readonly ref: string
+  /**
+   * The house this claim names, as a token comparable with a scheme row's issuer: a registry id, or
+   * `isin:<prefix>` for a derived claim whose issuer prefix the registry does not know.
+   *
+   * Null when nothing on the claim names a house the registry recognises, and null never matches —
+   * not even another null. Two houses Misal cannot name are still two houses, and treating "both
+   * unknown" as "the same" is how one account ends up holding two folios.
+   */
+  readonly house: string | null
+  /** True when no roster line stated this claim and a scheme row's ISIN did. */
+  readonly derived: boolean
+}
+
+/** A house named by a scheme row's ISIN rather than by the roster. */
+interface IssuerHouse {
+  /** Comparable with `FolioClaim.house`. */
+  readonly token: string
+  /** The registry's canonical name, or `ISIN <prefix>` for an issuer the registry does not know. */
+  readonly name: string
+  /** True when the registry knows this issuer prefix, and therefore knows this is a *fund house*. */
+  readonly known: boolean
   readonly ref: string
 }
 
@@ -696,7 +728,7 @@ class FolioRoster {
   claim(amc: string, folio: string, ref: string): void {
     const scope = FolioAmcIndex.scope(amc, folio)
     if (this.claims.has(scope)) return
-    const claim: FolioClaim = { scope, folio, amc, ref }
+    const claim: FolioClaim = { scope, folio, amc, ref, house: printedHouse(amc), derived: false }
     this.claims.set(scope, claim)
     const siblings = this.byNumber.get(folio)
     if (siblings === undefined) this.byNumber.set(folio, [claim])
@@ -711,10 +743,157 @@ class FolioRoster {
   all(): readonly FolioClaim[] {
     return [...this.claims.values()]
   }
+}
 
-  /** The folio numbers more than one house claimed, in document order. */
-  contested(): readonly (readonly FolioClaim[])[] {
-    return [...this.byNumber.values()].filter((claims) => claims.length > 1)
+/**
+ * Which houses hold a given folio number, once the roster and the scheme rows have both spoken.
+ *
+ * `reason` is what the plan is for, and each value is a decision written out in `planFolio`.
+ */
+interface FolioPlan {
+  readonly folio: string
+  readonly claims: readonly FolioClaim[]
+  readonly reason: 'roster' | 'contested' | 'split' | 'derived' | 'unclaimed'
+  /** The houses this number's scheme rows named by ISIN, for the issues that have to say so. */
+  readonly houses: readonly IssuerHouse[]
+  /** The roster's own claims on this number, which `claims` may extend. */
+  readonly claimed: readonly FolioClaim[]
+}
+
+/**
+ * Who holds this folio number, and on what evidence.
+ *
+ * ## The rule, and the design decision inside it
+ *
+ * Two facts drive everything here. A folio number is issued by a registrar and is unique only
+ * within that registrar's books, so the same number under two houses is two accounts. And **every
+ * scheme in one folio belongs to one house** — a folio *is* an investor's account at one AMC — so
+ * schemes filed under one number whose ISINs were issued by two different houses are two folios,
+ * whatever the roster managed to print. `(issuer prefix, folio number)` is a complete identity with
+ * no guess in it, which is why it can overrule the roster rather than merely corroborate it.
+ *
+ * The hard case is a number the roster names **once**, because the single-claimant path carries two
+ * opposite situations that have to be told apart:
+ *
+ * - *Misnamed* — one real folio, printed under a house name that disagrees with its ISINs. Merging
+ *   into one account is **correct**, and is what `W_AMC_NAME_CONFLICT` reports: the ISIN decides the
+ *   identity, the name is noted as wrong, and the folio stays one account across every statement.
+ * - *Missed* — two real folios sharing a number, of which the roster captured only one (a blank DP
+ *   Name cell, a column that did not parse). Merging **destroys units**: both houses' schemes land
+ *   in one account, `resolveAmc` hands it to whichever issuer prefix printed first, and the losing
+ *   house's units are reported against the winner. When that house's own registrar statement
+ *   arrives it scopes correctly, and `derivePositions` — per `(accountId, instrumentId)` — counts
+ *   the same holding twice.
+ *
+ * They are **distinguishable**, and this is the decision: *count the registry houses the number's
+ * scheme rows name.* A misnaming is a disagreement between a name and an ISIN, so its rows still
+ * name exactly one house. A missed claimant is a disagreement between one ISIN and another, which
+ * one folio cannot produce. So:
+ *
+ *   - one house among the rows (or none Misal can name) → *misnamed*: keep the merge, let the ISIN
+ *     correct the identity, and warn about the name;
+ *   - two or more → *missed*: the roster under-reported, and the number is split into one account
+ *     per issuing house with `W_FOLIO_NUMBER_SHARED` saying so.
+ *
+ * Only houses the **registry** knows are counted. An unrecognised issuer prefix is not evidence of
+ * a *different* house — it is evidence of a gap in the registry — and splitting on it would fork
+ * folios whose prefix is merely unlisted, which is the failure the registry exists to prevent.
+ *
+ * ## A number the roster does not claim at all
+ *
+ * Previously every such row failed. That is honest for one stray row, and catastrophic for a real
+ * eCAS whose roster geometry this parser reads differently than the corpus: the roster contributes
+ * *no* claims, and every mutual fund row in the file fails at once, even though each row carries a
+ * folio number and an ISIN and could stand up its own account.
+ *
+ * So the fallback is gated the way `emitDematPositions` gates its own — on whether this template
+ * has been observed working at all:
+ *
+ *   - **The roster claimed nothing anywhere in the document.** The roster is unread, not silent
+ *     about one number, and the rows are the only statement of identity the file makes. Each folio
+ *     number is identified by its schemes' ISIN issuers — the same `(house, number)` key a parsed
+ *     roster would have produced, since `resolveAmc` prefers the ISIN to the printed name anyway —
+ *     and `W_FOLIO_NOT_IN_ROSTER` says the roster was not read.
+ *   - **The roster claimed other numbers but not this one.** Then the roster demonstrably parsed,
+ *     and a number it never mentions is an anomaly rather than a gap — most likely a misread folio
+ *     cell. Minting an account from a misread number is worse than dropping the row, because the
+ *     units reappear correctly numbered in the next statement and are then counted twice. The row
+ *     still fails.
+ */
+function planFolio(
+  folio: string,
+  claimed: readonly FolioClaim[],
+  houses: readonly IssuerHouse[],
+  rosterSilent: boolean,
+): FolioPlan {
+  const plan = { folio, houses, claimed }
+  if (claimed.length === 0) {
+    if (!rosterSilent || houses.length === 0) return { ...plan, claims: [], reason: 'unclaimed' }
+    return { ...plan, claims: houses.map((house) => derivedClaim(house, folio)), reason: 'derived' }
+  }
+  if (claimed.length > 1) return { ...plan, claims: claimed, reason: 'contested' }
+
+  const known = houses.filter((house) => house.known)
+  if (known.length < 2) return { ...plan, claims: claimed, reason: 'roster' }
+  const derived = known
+    .filter((house) => house.token !== claimed[0]?.house)
+    .map((house) => derivedClaim(house, folio))
+  return { ...plan, claims: [...claimed, ...derived], reason: 'split' }
+}
+
+/** One plan per folio number the document mentions, in the order it first mentioned it. */
+function planFolios(roster: FolioRoster, rows: readonly HeldFolioRow[]): FolioPlan[] {
+  const houses = issuerHouses(rows)
+  const rosterSilent = roster.all().length === 0
+  const plans: FolioPlan[] = []
+  const seen = new Set<string>()
+  for (const folio of [...roster.all().map((claim) => claim.folio), ...rows.map((row) => row.folio)]) {
+    if (seen.has(folio)) continue
+    seen.add(folio)
+    plans.push(planFolio(folio, roster.claimants(folio), houses.get(folio) ?? [], rosterSilent))
+  }
+  return plans
+}
+
+/** The distinct houses each folio number's scheme rows name, by ISIN, in document order. */
+function issuerHouses(rows: readonly HeldFolioRow[]): Map<string, IssuerHouse[]> {
+  const out = new Map<string, IssuerHouse[]>()
+  for (const row of rows) {
+    const issuer = issuerOf(row.isin)
+    if (issuer === null) continue
+    const house: IssuerHouse = { ...issuer, ref: row.ref }
+    const seen = out.get(row.folio)
+    if (seen === undefined) out.set(row.folio, [house])
+    else if (!seen.some((other) => other.token === house.token)) seen.push(house)
+  }
+  return out
+}
+
+/**
+ * The house an ISIN's issuer prefix names, or null when the ISIN carries no prefix to read.
+ *
+ * An unrecognised prefix still yields a token, because it is still document-invariant: two
+ * statements printing the same scheme print the same prefix, so a folio identified this way keeps
+ * one identity even while the house has no registry entry. What it does *not* yield is `known`,
+ * and every decision that could fork a folio checks that first.
+ */
+function issuerOf(isin: string): Omit<IssuerHouse, 'ref'> | null {
+  const resolution = resolveAmc({ printedNames: [], isins: [isin] })
+  if (resolution.kind === 'canonical') {
+    return { token: resolution.amcId, name: resolution.canonicalName, known: true }
+  }
+  if (resolution.isinPrefix === null) return null
+  return { token: `isin:${resolution.isinPrefix}`, name: `ISIN ${resolution.isinPrefix}`, known: false }
+}
+
+function derivedClaim(house: IssuerHouse, folio: string): FolioClaim {
+  return {
+    scope: FolioAmcIndex.scope(house.name, folio),
+    folio,
+    amc: house.name,
+    ref: house.ref,
+    house: house.token,
+    derived: true,
   }
 }
 
@@ -722,14 +901,19 @@ class FolioRoster {
  * Emit one account per (house, folio), and each scheme row against the house that issued its ISIN.
  *
  * The attribution rule is the same shape as `emitDematPositions`', and for the same reason: a row
- * is filed only where the document *said* it goes.
+ * is filed only where the document *said* it goes. `planFolio` decides who the claimants of a
+ * number are — including the ones the roster failed to print — and this decides which of them owns
+ * each row:
  *
- *   1. **One house claimed the number.** The roster's own statement of ownership, and the ordinary
- *      case. The ISIN still decides the account's identity — `resolveAmc` prefers it to the printed
- *      name — so a roster that misnames the house is corrected rather than believed.
- *   2. **Several houses claimed it.** Then the folio number identifies nothing on its own, and the
- *      row is attributed by *its own* ISIN issuer prefix: the one identifier on the row that names
- *      a fund house without depending on which roster line printed last.
+ *   1. **One roster claim on the number.** The roster's own statement of ownership, and the
+ *      ordinary case. The ISIN still decides the account's *identity* — `resolveAmc` prefers it to
+ *      the printed name — so a roster that misnames the house is corrected rather than believed,
+ *      and the row is attributed whatever its ISIN says. That is the *misnamed* case, kept merged
+ *      on purpose.
+ *   2. **Several claims.** Whether the roster printed them all or `planFolio` derived one from the
+ *      rows, the folio number now identifies nothing on its own, and the row is attributed by *its
+ *      own* ISIN issuer prefix: the one identifier on the row that names a fund house without
+ *      depending on which roster line printed last.
  *   3. **Otherwise the row fails**, naming the houses it might have belonged to. An ISIN whose
  *      issuer is not in the registry cannot break a tie between two houses, and neither can an ISIN
  *      that matches none of the claimants — a plausible wrong answer here is a doubled holding.
@@ -740,11 +924,19 @@ function emitFolioRecords(
   index: FolioAmcIndex,
   sink: RecordSink,
 ): void {
-  for (const claims of roster.contested()) sink.issue(sharedFolioIssue(claims))
+  const plans = planFolios(roster, rows)
+  const byFolio = new Map(plans.map((plan) => [plan.folio, plan]))
+
+  for (const plan of plans) {
+    if (plan.reason === 'contested') sink.issue(sharedFolioIssue(plan.claimed))
+    if (plan.reason === 'split') sink.issue(rosterMissedHouseIssue(plan))
+  }
+  const derived = plans.filter((plan) => plan.reason === 'derived')
+  if (derived.length > 0) sink.issue(rosterUnreadIssue(derived))
 
   const attributed: { claim: FolioClaim; record: Omit<RawPosition, 'accountKey'> }[] = []
   for (const row of rows) {
-    const claimants = roster.claimants(row.folio)
+    const claimants = byFolio.get(row.folio)?.claims ?? []
     const claim = attribute(claimants, row.isin)
     if (claim === null) {
       sink.issue(unattributedRowIssue(row, claimants))
@@ -752,7 +944,7 @@ function emitFolioRecords(
     }
     // The strongest AMC identifier this document prints for a folio, and the only one shared with
     // the registrar's own statement. It is filed under the claim this row was attributed to, so a
-    // contested number does not pool two houses' ISINs into one bucket.
+    // number two houses hold does not pool two houses' ISINs into one bucket.
     index.observeIsin(claim.amc, claim.folio, row.isin)
     attributed.push({ claim, record: row.record })
   }
@@ -760,22 +952,32 @@ function emitFolioRecords(
   // Two spellings of one house reduce to one claim, but two claims can still resolve to one
   // identity — a former name and a current one, say — and one account must not be emitted twice.
   const emitted = new Set<string>()
-  for (const claim of roster.all()) {
-    const resolution = index.resolve(claim.amc, claim.folio)
-    const key = mfFolioIdentityKey(resolution, claim.folio)
-    if (emitted.has(key)) continue
-    emitted.add(key)
-    for (const issue of amcIssues(resolution, claim.folio, key)) sink.issue(issue)
-    sink.account({
-      type: 'account',
-      ref: key,
-      raw: { identity: key, folio: claim.folio, amc: claim.amc },
-      accountKey: key,
-      label: `${resolution.kind === 'canonical' ? resolution.canonicalName : claim.amc} · ${claim.folio}`,
-      externalRef: claim.folio,
-      capability: 'snapshot',
-      baseCurrency: CURRENCY,
-    })
+  for (const plan of plans) {
+    for (const claim of plan.claims) {
+      const resolution = index.resolve(claim.amc, claim.folio)
+      const key = mfFolioIdentityKey(resolution, claim.folio)
+      if (emitted.has(key)) continue
+      emitted.add(key)
+      for (const issue of amcIssues(resolution, claim.folio, key)) sink.issue(issue)
+      sink.account({
+        type: 'account',
+        ref: key,
+        // `amcFrom` is provenance, and it is worth a field: on a derived claim the house was
+        // deduced from a scheme's ISIN rather than read off a roster line, and the review queue
+        // must not show a deduction as something the document printed.
+        raw: {
+          identity: key,
+          folio: claim.folio,
+          amc: claim.amc,
+          amcFrom: claim.derived ? 'isin' : 'roster',
+        },
+        accountKey: key,
+        label: `${resolution.kind === 'canonical' ? resolution.canonicalName : claim.amc} · ${claim.folio}`,
+        externalRef: claim.folio,
+        capability: 'snapshot',
+        baseCurrency: CURRENCY,
+      })
+    }
   }
 
   for (const held of attributed) {
@@ -789,15 +991,22 @@ function emitFolioRecords(
 /** Which claimant owns this scheme row, or null when the document does not say. */
 function attribute(claimants: readonly FolioClaim[], isin: string): FolioClaim | null {
   if (claimants.length === 0) return null
-  if (claimants.length === 1) return claimants[0] ?? null
-  const issuer = houseOf(resolveAmc({ printedNames: [], isins: [isin] }))
+  // A lone *roster* claim takes the row whatever its ISIN says. That is the misnamed folio: one
+  // account, identified by the ISIN and warned about by `W_AMC_NAME_CONFLICT`. A lone *derived*
+  // claim came from a row's ISIN in the first place, so it is matched like any other.
+  const sole = claimants.length === 1 ? claimants[0] : undefined
+  if (sole !== undefined && !sole.derived) return sole
+  const issuer = issuerOf(isin)
   if (issuer === null) return null
   // Several claimants can name one house — a rename, printed both ways — and they resolve to one
   // identity key, so the first is as good as any. Zero matches is a gap, never a guess.
-  const owner = claimants.find(
-    (claim) => houseOf(resolveAmc({ printedNames: [claim.amc], isins: [] })) === issuer,
-  )
+  const owner = claimants.find((claim) => claim.house !== null && claim.house === issuer.token)
   return owner ?? null
+}
+
+/** The registry id a printed fund house name names, or null when the registry does not know it. */
+function printedHouse(amc: string): string | null {
+  return houseOf(resolveAmc({ printedNames: [amc], isins: [] }))
 }
 
 /** The registry id a resolution names, or null when it named no house the registry knows. */
@@ -819,11 +1028,62 @@ function sharedFolioIssue(claims: readonly FolioClaim[]): RawIssue {
   }
 }
 
+/**
+ * One number, one roster line, two issuing houses — the roster printed fewer folios than it has.
+ *
+ * The same fact as `sharedFolioIssue` reports, found in the other place the document states it, so
+ * it carries the same code: a user seeing one number on two accounts needs the same explanation
+ * whether the roster admitted to both or not. The wording differs because the remedy differs — here
+ * one of the two accounts is Misal's own deduction, and the user is the only person who can confirm
+ * it against the fund house.
+ */
+function rosterMissedHouseIssue(plan: FolioPlan): RawIssue {
+  const houses = plan.houses
+    .filter((house) => house.known)
+    .map((house) => house.name)
+    .join(', ')
+  const claimed = plan.claimed[0]
+  return {
+    severity: 'warning',
+    code: 'W_FOLIO_NUMBER_SHARED',
+    message:
+      `folio number ${plan.folio} is listed once in this statement's roster, under ` +
+      `"${claimed?.amc ?? ''}", but the schemes filed under it carry ISINs issued by ` +
+      `${String(plan.houses.filter((house) => house.known).length)} different fund houses ` +
+      `(${houses}). Every scheme in one folio belongs to one house, so this number identifies more ` +
+      `than one folio and the roster named only one of them. Each scheme was attributed to the ` +
+      `house that issued its ISIN, and the folios the roster did not name were created from that.`,
+    ref: [claimed?.ref, ...plan.houses.map((house) => house.ref)].filter((r) => r !== undefined).join(', '),
+  }
+}
+
+/**
+ * The roster contributed no folio at all, so every folio here was identified by its schemes' ISINs.
+ *
+ * Reported once for the document rather than once per folio, because it is one fact about the file
+ * — the roster was not read — and repeating it per folio would bury the rows that did fail.
+ */
+function rosterUnreadIssue(plans: readonly FolioPlan[]): RawIssue {
+  const numbers = plans.map((plan) => plan.folio).join(', ')
+  return {
+    severity: 'warning',
+    code: 'W_FOLIO_NOT_IN_ROSTER',
+    message:
+      `this statement's roster listed no mutual fund folio Misal could read, so the ` +
+      `${String(plans.length)} folio number(s) in the holdings table (${numbers}) were identified ` +
+      `by the ISIN issuer of the schemes filed under them. That is the same (fund house, folio ` +
+      `number) identity a folio's own registrar statement produces, so these holdings will not be ` +
+      `counted twice; but a folio with no scheme row of its own is not in this import at all.`,
+    ref: plans[0]?.claims[0]?.ref ?? '',
+  }
+}
+
 function unattributedRowIssue(row: HeldFolioRow, claimants: readonly FolioClaim[]): RawIssue {
   const houses = claimants.map((claim) => `"${claim.amc}"`).join(', ')
   const because =
     claimants.length === 0
-      ? `no fund house in this statement's roster claims folio ${row.folio}`
+      ? `no fund house in this statement's roster claims folio ${row.folio}, though the roster ` +
+        `named others`
       : `folio ${row.folio} is claimed by ${houses}, and this scheme's ISIN (${row.isin}) does ` +
         `not identify which of them issued it`
   return {
