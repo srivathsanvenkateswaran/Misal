@@ -76,7 +76,19 @@ describe('scope', () => {
     expect(scope.verification).toBe('unscopable')
     expect(scope.canTrade).toBe(true)
     // Not a permission finding: CoinDCX exposes no crypto-withdrawal endpoint at all.
-    expect(scope.canWithdraw).toBe(false)
+    // Not false. A stored false reads as "this key cannot withdraw", which inverts the actual
+    // risk: CoinDCX keys are full-access and there is no endpoint that would tell us otherwise.
+    // Not false. ScopeReport is persisted into credential_ref.scope_flags and read later by code
+    // that never sees the comment justifying it, so a stored false reads as "this key cannot
+    // withdraw" - which inverts the actual risk. CoinDCX keys are full-access and no endpoint
+    // will ever say otherwise, so unknown is the only defensible value.
+    expect(scope.canWithdraw).toBe('unknown')
+    // Unknown is for the unverifiable, not a blanket: hiding what we do know would understate
+    // the exposure just as badly.
+    expect(scope.canRead).toBe(true)
+    expect(scope.canTrade).toBe(true)
+    expect(scope.canTransferInternally).toBe('unknown')
+    expect(scope.ipRestricted).toBe('unknown')
     expect(scope.ipRestricted).toBe('unknown')
     // And it cost no request, because there is no endpoint to ask.
     expect(h.transport.sent).toHaveLength(0)

@@ -119,16 +119,24 @@ export function createCoindcxAdapter(options: CoindcxAdapterOptions = {}): Excha
 
     /**
      * There is no scope to report and there cannot be: a key that authenticates is a full-access
-     * key. `canWithdraw: false` is not a permission finding - it records that CoinDCX exposes no
-     * crypto-withdrawal endpoint at all, which is a structural limit of the API rather than
-     * something the key controls. The connect dialog must say so in those words.
+     * key.
+     *
+     * `canWithdraw` is `'unknown'`, not `false`. The earlier `false` was defensible in prose - it
+     * meant "CoinDCX exposes no crypto-withdrawal endpoint we can call" - but prose does not
+     * travel with the value. This report is persisted into `credential_ref.scope_flags`, and a
+     * consumer reading a stored `false` reads it as "this key cannot withdraw", which is the
+     * single most dangerous thing Misal could assert about a CoinDCX key: it is exactly backwards
+     * from the risk the connect dialog is warning about.
+     *
+     * `Tristate` already carries `'unknown'`, and unknown is the truth. A stored value must be
+     * defensible on its own, without the comment that produced it.
      */
     describeScope(): Promise<ScopeReport> {
       return Promise.resolve({
         verification: 'unscopable',
         canRead: true,
         canTrade: true,
-        canWithdraw: false,
+        canWithdraw: 'unknown',
         canTransferInternally: 'unknown',
         ipRestricted: 'unknown',
         raw: {
