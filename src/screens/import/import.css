@@ -1,0 +1,262 @@
+/* ============================================================
+   Screen 04 — import review.
+   Built on the tokens and chrome primitives in @ui/base.css; this
+   file adds only what the mockup's import screen needs and nothing
+   else has: the result banner, the definition list, the queue item
+   and the password dialog.
+   ============================================================ */
+
+.imp-screen {
+  padding: 16px;
+}
+
+.imp-title {
+  font-size: var(--fs-lead);
+  line-height: 20px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  margin: 0 0 12px;
+}
+
+.imp-panel {
+  margin-bottom: 14px;
+}
+
+/* ---------------------------------------------- result banner */
+
+.imp-banner {
+  border-left: 3px solid var(--st-good);
+  background: var(--surface-2);
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 14px;
+}
+
+.imp-banner-line {
+  font-size: var(--fs-lead);
+  font-weight: 700;
+  line-height: 20px;
+  margin: 2px 0 0;
+}
+
+.imp-banner-sub {
+  font-size: var(--fs-body);
+  color: var(--ink-3);
+  margin: 2px 0 0;
+}
+
+.imp-failure {
+  border-left: 3px solid var(--st-crit);
+}
+
+.imp-note {
+  border-left: 3px solid var(--rule-2);
+}
+
+.imp-status {
+  font-size: var(--fs-body);
+  color: var(--ink-2);
+  background: var(--surface-2);
+  border: 1px solid var(--rule);
+  padding: 8px 10px;
+  margin: 0 0 14px;
+}
+
+/* ---------------------------------------------- two-column body */
+
+.imp-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .imp-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------------------------------------------- definition list */
+
+.imp-kv {
+  display: grid;
+  grid-template-columns: 128px 1fr;
+  gap: 2px 12px;
+  margin: 0;
+  font-size: var(--fs-body);
+}
+
+.imp-kv dt {
+  color: var(--ink-3);
+}
+
+.imp-kv dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* ---------------------------------------------- source chooser */
+
+.imp-families {
+  border: 0;
+  margin: 0 0 12px;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.imp-family {
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  gap: 8px;
+  align-items: start;
+  padding: 6px 8px;
+  border: 1px solid var(--rule);
+  background: var(--surface-2);
+}
+
+.imp-family-label {
+  display: block;
+  font-weight: 700;
+  font-size: var(--fs-body);
+}
+
+.imp-instructions {
+  border-top: 1px solid var(--rule);
+  padding-top: 10px;
+  margin-bottom: 12px;
+}
+
+.imp-instructions ul {
+  margin: 4px 0 6px;
+  padding-left: 18px;
+  font-size: var(--fs-body);
+}
+
+/* ---------------------------------------------- review queue */
+
+.imp-queue-item {
+  display: grid;
+  grid-template-columns: var(--gutter) 1fr;
+  border-left: 3px solid var(--st-warn);
+  background: var(--surface-2);
+  padding: 8px 10px 10px;
+  margin-bottom: 10px;
+}
+
+.imp-queue-body {
+  min-width: 0;
+}
+
+.imp-queue-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.imp-raw {
+  font-size: var(--fs-strong);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.imp-map {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.imp-queue-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.imp-queue-standing {
+  border-top: 1px solid var(--rule);
+  padding-top: 10px;
+  margin: 2px 0 0;
+}
+
+.imp-warnings {
+  margin: 0;
+  padding: 10px 12px 12px 28px;
+  font-size: var(--fs-body);
+}
+
+.imp-warnings li {
+  margin-bottom: 4px;
+}
+
+.imp-next {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+/* ---------------------------------------------- fields */
+
+.imp-field {
+  display: grid;
+  gap: 2px;
+}
+
+.imp-field input,
+.imp-field select {
+  font: inherit;
+  font-size: var(--fs-body);
+  color: var(--ink-1);
+  background: var(--surface);
+  border: 1px solid var(--rule-2);
+  padding: 5px 7px;
+  min-width: 0;
+}
+
+.conf {
+  font-size: var(--fs-meta);
+  color: var(--ink-3);
+}
+
+/* ---------------------------------------------- password dialog */
+
+.imp-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 45%);
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  z-index: 20;
+}
+
+.imp-dialog {
+  background: var(--surface);
+  border: 1px solid var(--rule-2);
+  padding: 16px;
+  width: min(440px, 100%);
+  display: grid;
+  gap: 10px;
+}
+
+.imp-dialog-title {
+  font-size: var(--fs-strong);
+  line-height: 18px;
+  margin: 0;
+}
+
+.imp-dialog-hint {
+  font-size: var(--fs-body);
+  color: var(--ink-2);
+  margin: 0;
+}
+
+.imp-dialog-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 2px;
+}

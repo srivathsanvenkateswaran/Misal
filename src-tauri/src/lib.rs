@@ -1,6 +1,7 @@
 pub mod db;
 pub mod error;
 pub mod exchange_guard;
+pub mod ingest;
 pub mod queries;
 pub mod secrets;
 
@@ -61,7 +62,20 @@ pub fn run() {
             queries::list_positions,
             queries::list_prices,
             queries::list_unresolved,
-            queries::get_settings
+            queries::get_settings,
+            ingest::ingest_find_document_by_hash,
+            ingest::ingest_find_account_by_identity_key,
+            ingest::ingest_find_instrument_by_isin,
+            ingest::ingest_find_alias_target,
+            ingest::ingest_count_txn_by_natural_key,
+            ingest::ingest_has_txn,
+            ingest::ingest_find_position,
+            ingest::ingest_commit,
+            ingest::ingest_unresolved_for_document,
+            ingest::ingest_map_unresolved,
+            ingest::ingest_ignore_unresolved,
+            ingest::pick_statement_file,
+            ingest::read_statement_bytes
         ])
         .run(tauri::generate_context!())
         .expect("error while running Misal");
