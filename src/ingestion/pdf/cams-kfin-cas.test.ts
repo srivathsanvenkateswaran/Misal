@@ -107,8 +107,8 @@ describe('cams detailed', () => {
     expect(accounts.every((a) => a.capability === 'ledger')).toBe(true)
     expect(issues.filter((i) => i.code === 'W_BALANCE_MISMATCH')).toHaveLength(0)
     expect(accounts.map((a) => a.accountKey).sort()).toEqual([
-      'mf-folio:hdfc-mutual-fund:12345678/0',
-      'mf-folio:icici-prudential-mutual-fund:91012424/0',
+      'mf-folio:hdfc:12345678/0',
+      'mf-folio:icici-prudential:91012424/0',
     ])
   })
 
@@ -143,7 +143,7 @@ describe('cams summary', () => {
     const { records } = await run(camsSummaryPages())
     const accounts = records.filter((r): r is NormalizedAccount => r.kind === 'account')
     expect(accounts).toHaveLength(1)
-    expect(accounts[0]?.accountKey).toBe('mf-folio:hdfc-mutual-fund:12345678/0')
+    expect(accounts[0]?.accountKey).toBe('mf-folio:hdfc:12345678/0')
     expect(accounts[0]?.capability).toBe('snapshot')
     expect(transactions(records)).toHaveLength(0)
     const position = records.find((r) => r.kind === 'position')

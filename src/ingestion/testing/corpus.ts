@@ -52,13 +52,56 @@ function txnRow(
 const FOOTER: FixtureRow = [{ text: 'CAMSCASWS Consolidated Account Statement', x: 40 }]
 
 /**
+ * The same fund houses, printed the way real documents print them.
+ *
+ * This exists because the corpus previously printed "HDFC Mutual Fund" in *both* the CAMS fixture
+ * and the NSDL one, so the folio-doubling bug the identity key exists to prevent could not be
+ * observed: the two slugs happened to agree. A real NSDL eCAS roster prints the legal entity, a
+ * CAMS section header prints the fund, and templates differ in punctuation and spacing.
+ *
+ * Three forms per house, in the order [fund, legal entity, punctuation/whitespace variant]. A
+ * parser change that resolves any one of them to a different identity than the others reintroduces
+ * the bug, and `amc-identity.test.ts` runs every pairing.
+ */
+export const AMC_SPELLINGS = {
+  hdfc: [
+    'HDFC Mutual Fund',
+    'HDFC Asset Management Company Limited',
+    'HDFC  Asset Management Co. Ltd.',
+  ],
+  iciciPrudential: [
+    'ICICI Prudential Mutual Fund',
+    'ICICI Prudential Asset Management Company Limited',
+    "ICICI  Prudential Asset Management Co. Ltd.",
+  ],
+} as const
+
+export interface CorpusSpellings {
+  /** How this document prints the house that owns folio 12345678/0. */
+  readonly hdfc?: string
+  /** How this document prints the house that owns folio 91012424/0. */
+  readonly iciciPrudential?: string
+  /** An AMC no registry entry covers, used to exercise the provisional path. */
+  readonly hdfcIsin?: string
+}
+
+function spellings(overrides: CorpusSpellings = {}): { hdfc: string; icici: string; hdfcIsin: string } {
+  return {
+    hdfc: overrides.hdfc ?? AMC_SPELLINGS.hdfc[0],
+    icici: overrides.iciciPrudential ?? AMC_SPELLINGS.iciciPrudential[0],
+    hdfcIsin: overrides.hdfcIsin ?? 'INF179K01608',
+  }
+}
+
+/**
  * A CAMS Detailed statement from inception: zero opening balances, reconciling checksums, and
  * therefore the only shape that yields `capability = 'ledger'`.
  *
  * Deliberately includes two identical SIP instalments on the same date, at the same NAV, for the
  * same amount. Both are real, and both must survive.
  */
-export function camsDetailedPages(): RawPdfPage[] {
+export function camsDetailedPages(overrides: CorpusSpellings = {}): RawPdfPage[] {
+  const amc = spellings(overrides)
   const page1: FixturePage = {
     rows: [
       [{ text: 'CAMS', x: 40 }, { text: 'Consolidated Account Statement', x: 200 }],
@@ -67,12 +110,12 @@ export function camsDetailedPages(): RawPdfPage[] {
       'Email Id: investor@example.com',
       'PORTFOLIO SUMMARY',
       [{ text: 'Mutual Fund', x: 40 }, right('Cost Value', 400), right('Market Value', 545)],
-      [{ text: 'HDFC Mutual Fund', x: 40 }, right('5,000.00', 400), right('8,838.00', 545)],
-      [{ text: 'ICICI Prudential Mutual Fund', x: 40 }, right('25,000.00', 400), right('27,500.00', 545)],
+      [{ text: amc.hdfc, x: 40 }, right('5,000.00', 400), right('8,838.00', 545)],
+      [{ text: amc.icici, x: 40 }, right('25,000.00', 400), right('27,500.00', 545)],
       [{ text: 'Total', x: 40 }, right('30,000.00', 400), right('36,338.00', 545)],
-      'HDFC Mutual Fund',
+      amc.hdfc,
       'Folio No: 12345678 / 0 PAN: AAAAA0000A KYC: OK PAN: OK',
-      'H123-HDFC Flexi Cap Fund - Growth Plan - ISIN: INF179K01608 (Advisor: DIRECT) Registrar : CAMS',
+      `H123-HDFC Flexi Cap Fund - Growth Plan - ISIN: ${amc.hdfcIsin} (Advisor: DIRECT) Registrar : CAMS`,
       'Opening Unit Balance: 0.000',
       TABLE_HEADER,
       txnRow('15-Apr-2021', 'Purchase-SIP (ECS) - Instalment 1/60', '4,999.75', '100.500', '49.7488', '100.500'),
@@ -92,7 +135,7 @@ export function camsDetailedPages(): RawPdfPage[] {
       txnRow('10-Jul-2023', '*** IDCW Payout @ Rs.2.00 per unit ***', '294.60', '', '', '147.300'),
       'Closing Unit Balance: 147.300 NAV on 31-Mar-2025: INR 60.0000',
       'Total Cost Value: 5,000.00 Market Value on 31-Mar-2025: INR 8,838.00',
-      'ICICI Prudential Mutual Fund',
+      amc.icici,
       'Folio No: 91012424 / 0 PAN: AAAAA0000A KYC: OK',
       // The ISIN carries a soft hyphen at a wrap point, exactly as a real one does.
       `P0Z1-ICICI Prudential Bluechip Fund (Demat) - ISIN: INF109K01${SOFT_HYPHEN}BL4 (Advisor: DIRECT) Registrar : CAMS`,
@@ -137,12 +180,13 @@ export function camsDetailedDroppedRowPages(): RawPdfPage[] {
 }
 
 /** A CAMS Summary: holdings only, no transactions, and the folio glued to the ISIN. */
-export function camsSummaryPages(): RawPdfPage[] {
+export function camsSummaryPages(overrides: CorpusSpellings = {}): RawPdfPage[] {
+  const amc = spellings(overrides)
   const page: FixturePage = {
     rows: [
       [{ text: 'CAMS', x: 40 }, { text: 'Consolidated Account Summary', x: 200 }],
       'As on 31-Mar-2025',
-      'HDFC Mutual Fund',
+      amc.hdfc,
       [
         { text: 'Folio No. ISIN', x: 40 },
         { text: 'Scheme Name', x: 170 },
@@ -153,7 +197,7 @@ export function camsSummaryPages(): RawPdfPage[] {
       ],
       [
         // Folio and ISIN print with no separator between them.
-        { text: '12345678/0INF179K01608', x: 40 },
+        { text: `12345678/0${amc.hdfcIsin}`, x: 40 },
         { text: 'HDFC Flexi Cap Fund - Growth Plan', x: 170 },
         right('5,000.00', 320),
         right('147.300', 430),
@@ -172,33 +216,41 @@ export function camsSummaryPages(): RawPdfPage[] {
  * This is the fixture that catches the worst bug available to this product: if the folio becomes
  * two accounts, every overlapping transaction gets a different natural key and the user's net
  * worth doubles.
+ *
+ * Its roster prints the **legal entity** by default, not the fund name, because that is what a
+ * real eCAS prints and because the two fixtures agreeing on "HDFC Mutual Fund" is precisely why
+ * the doubling bug survived a full test suite.
  */
-export function nsdlEcasPages(): RawPdfPage[] {
+export function nsdlEcasPages(overrides: CorpusSpellings = {}): RawPdfPage[] {
+  const amc = spellings({ hdfc: AMC_SPELLINGS.hdfc[1], ...overrides })
   const page: FixturePage = {
     rows: [
       'NSDL Consolidated Account Statement',
       'National Securities Depository Limited',
       'Statement for the period from 01-Mar-2025 to 31-Mar-2025',
       'Your Demat Account and Mutual Fund Folios',
+      // The DP Name column is given real width because the legal-entity form of an AMC name is
+      // long — "HDFC Asset Management Company Limited" is 36 characters — and a roster laid out
+      // for the fund form alone is a fixture that only the fund form fits.
       [
         { text: 'Account Type', x: 40 },
-        { text: 'DP Name', x: 160 },
-        { text: 'DP ID', x: 300 },
-        { text: 'Client ID', x: 380 },
-        { text: 'Folio No', x: 460 },
+        { text: 'DP Name', x: 150 },
+        { text: 'DP ID', x: 380 },
+        { text: 'Client ID', x: 440 },
+        { text: 'Folio No', x: 505 },
       ],
       [
         { text: 'Demat Account', x: 40 },
-        { text: 'EXAMPLE SECURITIES', x: 160 },
-        { text: 'IN300394', x: 300 },
-        { text: '12345678', x: 380 },
+        { text: 'EXAMPLE SECURITIES', x: 150 },
+        { text: 'IN300394', x: 380 },
+        { text: '12345678', x: 440 },
       ],
       [
         { text: 'Mutual Fund Folio', x: 40 },
-        { text: 'HDFC Mutual Fund', x: 160 },
-        { text: '', x: 300 },
+        { text: amc.hdfc, x: 150 },
         { text: '', x: 380 },
-        { text: '12345678 / 0', x: 460 },
+        { text: '', x: 440 },
+        { text: '12345678 / 0', x: 505 },
       ],
       [
         { text: 'ISIN / Stock Symbol', x: 40 },
@@ -228,7 +280,7 @@ export function nsdlEcasPages(): RawPdfPage[] {
       [
         { text: '12345678 / 0', x: 40 },
         { text: 'HDFC Flexi Cap Fund - Growth', x: 130 },
-        { text: 'INF179K01608', x: 300 },
+        { text: amc.hdfcIsin, x: 300 },
         right('147.300', 420),
         right('60.0000', 470),
         right('8,838.00', 545),

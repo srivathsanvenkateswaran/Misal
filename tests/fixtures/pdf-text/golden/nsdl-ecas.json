@@ -45,7 +45,7 @@
       }
     },
     {
-      "accountKey": "mf-folio:hdfc-mutual-fund:12345678/0",
+      "accountKey": "mf-folio:hdfc:12345678/0",
       "baseCurrency": "INR",
       "capability": "snapshot",
       "externalRef": "12345678/0",
@@ -53,13 +53,15 @@
       "label": "HDFC Mutual Fund · 12345678/0",
       "origin": {
         "raw": {
-          "identity": "mf-folio:hdfc-mutual-fund:12345678/0"
+          "amc": "HDFC Asset Management Company Limited",
+          "folio": "12345678/0",
+          "identity": "mf-folio:hdfc:12345678/0"
         },
-        "ref": "mf-folio:hdfc-mutual-fund:12345678/0"
+        "ref": "mf-folio:hdfc:12345678/0"
       }
     },
     {
-      "accountKey": "mf-folio:hdfc-mutual-fund:12345678/0",
+      "accountKey": "mf-folio:hdfc:12345678/0",
       "asOf": "2025-03-31T00:00:00+05:30",
       "asOfDate": "2025-03-31",
       "asOfTz": "Asia/Kolkata",

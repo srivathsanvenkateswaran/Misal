@@ -23,6 +23,7 @@ import { classifyDescription, type UnitsSign } from '../classify'
 import { canonicalDecimal, subtractDec, sumDec, withinTolerance } from '../numbers'
 import type { ExtractPlugin, RecordSink } from '../plugin'
 import { collapseWhitespace, findIsin, normaliseGlyphs } from '../text'
+import { FolioAmcIndex, amcIssues, amcKeySegment, type AmcResolution } from '../amc/identity'
 import type { Capability, DecodedInput, PdfPage, RawTransaction, TextLine } from '../types'
 import { findHeaders, readRow, bandIndex, type ColumnBand } from './table'
 import { type Dec, dec } from '@domain/numeric'
@@ -82,9 +83,18 @@ function textOf(pages: readonly PdfPage[], limit: number): string {
 // ---------------------------------------------------------------------------
 
 interface FolioContext {
+  /** The AMC name exactly as this document printed it. Kept for the issue text, never for identity. */
   readonly amc: string
   readonly folio: string
+  readonly resolution: AmcResolution
   readonly accountKey: string
+}
+
+/** The label the account carries: the registry's name where there is one, the printed one otherwise. */
+function folioLabel(folio: FolioContext): string {
+  const house =
+    folio.resolution.kind === 'canonical' ? folio.resolution.canonicalName : folio.amc
+  return `${house} · ${folio.folio}`
 }
 
 interface SchemeContext {
@@ -108,8 +118,13 @@ function extract(input: DecodedInput, sink: RecordSink): void {
   if (input.kind !== 'pdf-text') return
   const pages = input.pages
   const type = statementTypeOf(pages)
+  // Scan the whole document for AMC evidence before a single identity key is built. The folio
+  // line is printed before the scheme line that carries the ISIN, and the ISIN is the identifier
+  // that survives a template change; keying on what was known at the folio line is precisely the
+  // mistake that made one folio into two accounts.
+  const index = indexFolios(pages)
   if (type === 'summary') {
-    extractSummary(pages, sink)
+    extractSummary(pages, index, sink)
     return
   }
 
@@ -150,7 +165,7 @@ function extract(input: DecodedInput, sink: RecordSink): void {
         continue
       }
 
-      const folio = matchFolio(text, state.amc)
+      const folio = matchFolio(text, state.amc, index)
       if (folio !== null) {
         closeScheme(state, sink)
         state.folio = folio
@@ -228,12 +243,13 @@ function extract(input: DecodedInput, sink: RecordSink): void {
   }
 
   for (const folio of state.folios.values()) {
+    for (const issue of amcIssues(folio.resolution, folio.folio, folio.accountKey)) sink.issue(issue)
     sink.account({
       type: 'account',
       ref: folio.accountKey,
       raw: { folio: folio.folio, amc: folio.amc },
       accountKey: folio.accountKey,
-      label: `${folio.amc} · ${folio.folio}`,
+      label: folioLabel(folio),
       externalRef: folio.folio,
       capability,
       baseCurrency: CURRENCY,
@@ -242,6 +258,69 @@ function extract(input: DecodedInput, sink: RecordSink): void {
       ...(capability === 'snapshot' ? { downgradedFrom: 'ledger' as const } : {}),
     })
   }
+}
+
+// ---------------------------------------------------------------------------
+// The AMC pre-pass
+// ---------------------------------------------------------------------------
+
+/**
+ * A folio number glued straight onto an ISIN, which is how the Summary template prints them:
+ * `910124242826/0INF846K01859`. Anchored on digits followed immediately by an ISIN so it cannot
+ * fire on a Detailed scheme line, whose leading token is the RTA's scheme code (`H123-...`).
+ */
+const GLUED_FOLIO_ISIN = /^([0-9]{4,}(?:\s*\/\s*[0-9A-Z]+)?)(?=[A-Z]{2}[A-Z0-9]{9}[0-9])/
+
+/**
+ * Collect every AMC name and every ISIN printed under each folio, across the whole document.
+ *
+ * Cheap — the lines are already reconstructed — and it is what lets the identity key be built from
+ * the strongest identifier the document contains rather than from the first one that happened to
+ * be in scope.
+ */
+function indexFolios(pages: readonly PdfPage[]): FolioAmcIndex {
+  const index = new FolioAmcIndex()
+  let amc: string | null = null
+  let folio: string | null = null
+
+  for (const page of pages) {
+    for (const line of page.lines) {
+      const text = collapseWhitespace(normaliseGlyphs(line.text))
+      if (text === '') continue
+
+      const nextAmc = matchAmc(text)
+      if (nextAmc !== null) {
+        amc = nextAmc
+        folio = null
+        continue
+      }
+      if (amc === null) continue
+
+      const nextFolio = folioNumberOf(text)
+      if (nextFolio !== null) {
+        folio = nextFolio
+        index.observeName(amc, folio)
+      }
+      if (folio === null) continue
+
+      const isin = findIsin(text)
+      if (isin !== null) index.observeIsin(amc, folio, isin)
+    }
+  }
+  return index
+}
+
+/** The folio number on a line, in either template's shape, or null. */
+function folioNumberOf(text: string): string | null {
+  if (startsWithDate(text)) return null
+  const labelled = FOLIO_LINE.exec(text)
+  if (labelled !== null) return normaliseFolio(labelled[1] ?? '')
+  const glued = GLUED_FOLIO_ISIN.exec(text)
+  return glued === null ? null : normaliseFolio(glued[1] ?? '')
+}
+
+function normaliseFolio(raw: string): string {
+  return collapseWhitespace(raw).replace(/\s*\/\s*/, '/')
 }
 
 // ---------------------------------------------------------------------------
@@ -260,7 +339,7 @@ const AS_ON = /as\s+on\s+([0-9]{2}-[A-Za-z]{3}-[0-9]{4})/i
  * than any whitespace rule. And long scheme names wrap into continuation lines that contain only
  * the name column, which are skipped rather than read as holdings with no units.
  */
-function extractSummary(pages: readonly PdfPage[], sink: RecordSink): void {
+function extractSummary(pages: readonly PdfPage[], index: FolioAmcIndex, sink: RecordSink): void {
   const asOn = AS_ON.exec(textOf(pages, 2))?.[1] ?? null
   if (asOn !== null) sink.period({ end: asOn, format: DATE_FORMAT, timezone: TIMEZONE })
 
@@ -298,7 +377,7 @@ function extractSummary(pages: readonly PdfPage[], sink: RecordSink): void {
       const folio = collapseWhitespace(folioCell.replace(isin, '')).replace(/\s*\/\s*/, '/')
       if (folio === '') continue
 
-      const context: FolioContext = { amc, folio, accountKey: accountKeyFor(amc, folio) }
+      const context = folioContext(amc, folio, index)
       folios.set(context.accountKey, context)
 
       const quantity = cells[bandIndex(bands, ['closing'])] ?? cells[bandIndex(bands, ['balance'])] ?? ''
@@ -327,12 +406,13 @@ function extractSummary(pages: readonly PdfPage[], sink: RecordSink): void {
   }
 
   for (const folio of folios.values()) {
+    for (const issue of amcIssues(folio.resolution, folio.folio, folio.accountKey)) sink.issue(issue)
     sink.account({
       type: 'account',
       ref: folio.accountKey,
       raw: { folio: folio.folio, amc: folio.amc },
       accountKey: folio.accountKey,
-      label: `${folio.amc} · ${folio.folio}`,
+      label: folioLabel(folio),
       externalRef: folio.folio,
       capability: 'snapshot',
       baseCurrency: CURRENCY,
@@ -344,42 +424,69 @@ function extractSummary(pages: readonly PdfPage[], sink: RecordSink): void {
 // Section matching
 // ---------------------------------------------------------------------------
 
-const AMC_LINE = /^([A-Z][A-Za-z&.'\- ]+(?:Mutual Fund|MF|Asset Management(?: Company)?(?: Limited)?))$/
+/**
+ * An AMC section header, in any of the forms the templates print.
+ *
+ * The old pattern required the line to *end* with `Mutual Fund`, `MF` or `Asset Management …`,
+ * which recognised the fund form and missed every legal-entity form — "HDFC Asset Management Co.
+ * Ltd.", "Nippon Life India Asset Management Limited", "SBI Funds Management Limited". Those lines
+ * were then not seen as AMC headers at all, so the folios beneath them inherited whichever house
+ * was last in scope. Matching is therefore split into three parts:
+ *
+ *   1. the line is a *name* — letters, spaces and name punctuation, no digits and no amounts;
+ *   2. it contains a fund-house marker, with at least one word of brand before it;
+ *   3. everything after the marker is corporate designators and nothing else.
+ *
+ * Recognising the header is not the same as trusting its spelling. What the header contributes is
+ * evidence; identity comes from the registry. See `../amc/registry.ts`.
+ */
+const AMC_LINE = /^[A-Z][A-Za-z&.'()\- ]*$/
+
+const AMC_MARKER =
+  /\b(?:mutual\s+funds?|asset\s+management|funds?\s+management|investment\s+managers?|amc)\b/i
+
+const AMC_TAIL_ONLY =
+  /^(?:\b(?:co|company|companies|corp|corporation|ltd|limited|pvt|private|india|trustee|trustees|amc|mf|fund|funds|management|managers|manager|asset|assets|investment|investments)\b[.,]?\s*)*$/i
+
+const NOT_AN_AMC = /\b(total|portfolio|folio|isin|registrar|balance|statement|summary|page|nav)\b/i
 
 function matchAmc(text: string): string | null {
-  const match = AMC_LINE.exec(text)
-  if (match === null) return null
-  if (/total|portfolio/i.test(text)) return null
-  return match[1] ?? null
+  if (!AMC_LINE.test(text)) return null
+  if (NOT_AN_AMC.test(text)) return null
+  const marker = AMC_MARKER.exec(text)
+  // `marker.index > 0` rejects a bare `Mutual Fund` column header: a fund house always has a
+  // brand in front of the designator.
+  if (marker === null || marker.index === 0) return null
+  // Brackets around a jurisdiction are common in the legal-entity form — "Franklin Templeton Asset
+  // Management (India) Pvt. Ltd." — and carry no information, so they are spaced out before the
+  // tail is checked.
+  const tail = text.slice(marker.index + marker[0].length).replace(/[()]/g, ' ').trim()
+  return AMC_TAIL_ONLY.test(tail) ? text : null
 }
 
 const FOLIO_LINE = /folio\s*no[.:]?\s*:?\s*([0-9A-Z]+(?:\s*\/\s*[0-9A-Z]+)?)/i
 
-function matchFolio(text: string, amc: string | null): FolioContext | null {
+function matchFolio(text: string, amc: string | null, index: FolioAmcIndex): FolioContext | null {
   // A row carrying a date is a gift transaction with a folio number embedded in its description,
   // not a folio header. Observed, and the source of a whole class of phantom accounts.
   if (startsWithDate(text)) return null
   const match = FOLIO_LINE.exec(text)
   if (match === null || amc === null) return null
-  const folio = collapseWhitespace(match[1] ?? '').replace(/\s*\/\s*/, '/')
-  return { amc, folio, accountKey: accountKeyFor(amc, folio) }
+  return folioContext(amc, normaliseFolio(match[1] ?? ''), index)
 }
 
 /**
- * The realm-qualified identity key.
+ * The realm-qualified identity key for a folio, resolved through the canonical AMC registry.
  *
- * Folio numbers are RTA-scoped rather than globally unique, so the AMC slug is mandatory. The
- * sub-account suffix (`/0`) is preserved: folios differing only in suffix are different accounts.
+ * Folio numbers are RTA-scoped rather than globally unique, so the fund house is mandatory in the
+ * key. It is the *registry id* rather than a slug of whatever the document printed, because the
+ * two families print the same house differently and a slug of the printed name is a different
+ * identity per document. The sub-account suffix (`/0`) is preserved: folios differing only in
+ * suffix are different accounts.
  */
-export function accountKeyFor(amc: string, folio: string): string {
-  return `mf-folio:${slug(amc)}:${folio}`
-}
-
-export function slug(value: string): string {
-  return collapseWhitespace(value)
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
+function folioContext(amc: string, folio: string, index: FolioAmcIndex): FolioContext {
+  const resolution = index.resolve(amc, folio)
+  return { amc, folio, resolution, accountKey: `mf-folio:${amcKeySegment(resolution)}:${folio}` }
 }
 
 const SCHEME_LINE = /^([A-Z0-9]+(?:\s[A-Z0-9]+)?)\s*-\s*(.+)$/

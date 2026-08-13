@@ -39,6 +39,24 @@ export { loadDescriptor, type DescriptorError, type DescriptorResult } from './c
 export { csvDescriptorSchema, type CsvDescriptor } from './csv/descriptor'
 export { csvDescriptorPlugin } from './csv/csv-plugin'
 
+/**
+ * The canonical AMC registry. Exported because a folio's fund house is now a resolved fact rather
+ * than a string the document happened to print, and the UI should name it from here.
+ */
+export {
+  AMC_REGISTRY,
+  findByIsin,
+  findByPrintedName,
+  isinIssuerPrefix,
+  type AmcEntry,
+} from './amc/registry'
+export {
+  PROVISIONAL_MARKER,
+  mfFolioIdentityKey,
+  resolveAmc,
+  type AmcResolution,
+} from './amc/identity'
+
 export { camsKfinCasPlugin } from './pdf/cams-kfin-cas'
 export { nsdlEcasPlugin } from './pdf/nsdl-ecas'
 export { pdfjsSource, type PdfjsAssets } from './pdf/pdfjs-source'

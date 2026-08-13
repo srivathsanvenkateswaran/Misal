@@ -20,9 +20,9 @@
 
 import type { ExtractPlugin, RecordSink } from '../plugin'
 import { collapseWhitespace, containsTokens, findIsin, normaliseGlyphs, undouble } from '../text'
-import type { DecodedInput, PdfPage, TextLine } from '../types'
+import type { DecodedInput, PdfPage, RawPosition, TextLine } from '../types'
 import { bandIndex, bandIndexLast, findHeader, readRow, type ColumnBand } from './table'
-import { accountKeyFor } from './cams-kfin-cas'
+import { FolioAmcIndex, amcIssues, mfFolioIdentityKey } from '../amc/identity'
 
 const PROVIDER_ID = 'nsdl-cas'
 const TIMEZONE = 'Asia/Kolkata'
@@ -82,6 +82,12 @@ function extract(input: DecodedInput, sink: RecordSink): void {
   let bands: readonly ColumnBand[] | null = null
   const accounts = new Map<string, { key: string; label: string; externalRef: string }>()
   const folioAmc = new Map<string, string>()
+  // Folio identity is deferred to the end of the document for the same reason it is in the CAMS
+  // parser: the roster prints the fund house's name and the holdings table prints the ISIN, and
+  // the ISIN is the identifier that does not change between statements. Keying at the roster line
+  // would key on the name alone, which is where one folio became two accounts.
+  const index = new FolioAmcIndex()
+  const folioPositions: { folio: string; record: Omit<RawPosition, 'accountKey'> }[] = []
 
   for (const page of pages) {
     for (let i = 0; i < page.lines.length; i += 1) {
@@ -128,7 +134,7 @@ function extract(input: DecodedInput, sink: RecordSink): void {
       }
 
       if (section === 'roster') {
-        readRoster(line, bands, accounts, folioAmc)
+        readRoster(line, bands, accounts, folioAmc, index)
         continue
       }
 
@@ -137,7 +143,7 @@ function extract(input: DecodedInput, sink: RecordSink): void {
         continue
       }
 
-      readMfFolio(line, bands, folioAmc, asOf, ref, sink)
+      readMfFolio(line, bands, folioAmc, index, asOf, ref, folioPositions)
     }
   }
 
@@ -153,6 +159,28 @@ function extract(input: DecodedInput, sink: RecordSink): void {
       baseCurrency: CURRENCY,
     })
   }
+
+  for (const [folio, amc] of folioAmc) {
+    const resolution = index.resolve(amc, folio)
+    const key = mfFolioIdentityKey(resolution, folio)
+    for (const issue of amcIssues(resolution, folio, key)) sink.issue(issue)
+    sink.account({
+      type: 'account',
+      ref: key,
+      raw: { identity: key, folio, amc },
+      accountKey: key,
+      label: `${resolution.kind === 'canonical' ? resolution.canonicalName : amc} · ${folio}`,
+      externalRef: folio,
+      capability: 'snapshot',
+      baseCurrency: CURRENCY,
+    })
+  }
+
+  for (const held of folioPositions) {
+    const amc = folioAmc.get(held.folio)
+    if (amc === undefined) continue
+    sink.position({ ...held.record, accountKey: index.identityKey(amc, held.folio) })
+  }
 }
 
 function readRoster(
@@ -160,6 +188,7 @@ function readRoster(
   bands: readonly ColumnBand[],
   accounts: Map<string, { key: string; label: string; externalRef: string }>,
   folioAmc: Map<string, string>,
+  index: FolioAmcIndex,
 ): void {
   const cells = readRow(line, bands)
   const dpName = cells[bandIndex(bands, ['dp', 'name'])] ?? ''
@@ -175,9 +204,10 @@ function readRoster(
     return
   }
   if (folio !== '' && dpName !== '') {
-    const key = accountKeyFor(dpName, folio)
+    // The roster's DP Name column carries the fund house for a folio line. It is evidence, not an
+    // identity: the account row is emitted once the holdings table has contributed its ISINs.
     folioAmc.set(folio, dpName)
-    accounts.set(key, { key, label: `${dpName} · ${folio}`, externalRef: folio })
+    index.observeName(dpName, folio)
   }
 }
 
@@ -236,9 +266,10 @@ function readMfFolio(
   line: TextLine,
   bands: readonly ColumnBand[],
   folioAmc: Map<string, string>,
+  index: FolioAmcIndex,
   asOf: string | null,
   ref: string,
-  sink: RecordSink,
+  out: { folio: string; record: Omit<RawPosition, 'accountKey'> }[],
 ): void {
   const isin = findIsin(line.text)
   if (isin === null || asOf === null) return
@@ -250,18 +281,24 @@ function readMfFolio(
   const amc = folioAmc.get(folio)
   if (folio === '' || quantity === '' || amc === undefined) return
 
-  sink.position({
-    type: 'position',
-    ref,
-    raw: { folio, isin, name, quantity, value },
-    accountKey: accountKeyFor(amc, folio),
-    instrument: { isin, name, assetClassHint: 'mutual_fund' },
-    quantity,
-    asOf,
-    dateFormat: DATE_FORMAT,
-    timezone: TIMEZONE,
-    ...(value !== '' ? { marketValue: value } : {}),
-    currency: CURRENCY,
+  // The strongest AMC identifier this document prints for a folio, and the only one shared with
+  // the registrar's own statement.
+  index.observeIsin(amc, folio, isin)
+
+  out.push({
+    folio,
+    record: {
+      type: 'position',
+      ref,
+      raw: { folio, isin, name, quantity, value },
+      instrument: { isin, name, assetClassHint: 'mutual_fund' },
+      quantity,
+      asOf,
+      dateFormat: DATE_FORMAT,
+      timezone: TIMEZONE,
+      ...(value !== '' ? { marketValue: value } : {}),
+      currency: CURRENCY,
+    },
   })
 }
 

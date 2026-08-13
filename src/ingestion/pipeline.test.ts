@@ -142,7 +142,7 @@ describe('account identity across providers', () => {
 
     await runImport({ bytes: fakePdfBytes('nsdl'), originalName: 'ecas.pdf' }, deps(nsdlEcasPages()))
     const accounts = store.snapshot().accounts
-    const hdfc = accounts.filter((a) => a.identityKey === 'mf-folio:hdfc-mutual-fund:12345678/0')
+    const hdfc = accounts.filter((a) => a.identityKey === 'mf-folio:hdfc:12345678/0')
 
     // The failure this guards against doubles the user's net worth, and it is the worst failure
     // available to this product.
@@ -390,7 +390,7 @@ describe('document-level failures', () => {
           type: 'account',
           ref: 'p.1',
           raw: {},
-          accountKey: 'mf-folio:hdfc-mutual-fund:12345678/0',
+          accountKey: 'mf-folio:hdfc:12345678/0',
           label: 'HDFC',
           externalRef: '12345678/0',
           capability: 'snapshot',
