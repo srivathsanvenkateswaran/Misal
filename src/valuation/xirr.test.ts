@@ -279,6 +279,11 @@ describe('xirr properties', () => {
    * been discounted away, the intermediate contributions — negative, at short horizons — pull NPV
    * back up, so it rises again at large r. What actually holds, and what uniqueness rests on, is
    * that NPV crosses zero exactly once. That is what is asserted.
+   *
+   * Given an explicit timeout because 1,600 exact-decimal NPV evaluations legitimately take about
+   * five seconds — right on Vitest's default — so it passed alone and failed in a loaded parallel
+   * run. Sampling fewer rates would have hidden the counterexamples this test exists to find, so
+   * the budget moves rather than the coverage.
    */
   it('crosses zero exactly once across 200 sampled rates in (−0.99, 10)', () => {
     for (const flows of series.slice(0, 8)) {
@@ -295,7 +300,7 @@ describe('xirr properties', () => {
       }
       expect(crossings).toBe(1)
     }
-  })
+  }, 30_000)
 
   it('has a strictly decreasing NPV in the neighbourhood of the root', () => {
     for (const flows of series.slice(0, 8)) {

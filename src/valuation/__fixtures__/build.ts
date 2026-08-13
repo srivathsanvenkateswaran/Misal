@@ -84,6 +84,11 @@ export function instrumentMap(...instruments: InstrumentRef[]): ReadonlyMap<stri
   return new Map(instruments.map((i) => [i.id, i]))
 }
 
+/**
+ * `asOf` is a plain date, taken as 18:00 IST — the shape almost every test wants. A test that
+ * cares about the offset itself passes a whole instant instead, which is used verbatim, because
+ * the fixture must not be able to launder a mixed-offset corpus into a single-offset one.
+ */
 export function snapshot(
   instrumentId: string,
   quantity: string,
@@ -96,7 +101,7 @@ export function snapshot(
     accountId,
     instrumentId,
     quantity: dec(quantity),
-    asOf: `${asOf}T18:00:00+05:30`,
+    asOf: asOf.includes('T') ? asOf : `${asOf}T18:00:00+05:30`,
     sourceDocumentId: 'doc-1',
   }
 }

@@ -91,7 +91,16 @@ export function xirrForScope(input: XirrScopeInput): XirrResult<XirrOutcome> {
     },
     priceOn: (instrumentId, date) => {
       const price = input.prices.priceAt(instrumentId, date)
-      return price.ok ? price.value.close : null
+      if (price.ok) return price.value.close
+      // The one caller that genuinely wants last-known-price semantics, said out loud. A cashflow
+      // is dated by the day it happened, and most of those days have no published close —
+      // weekends, exchange holidays, and any day the instrument simply did not trade. Carrying the
+      // previous close forward is the standard convention for discounting a flow; refusing would
+      // make XIRR unmeasurable for nearly every portfolio, which is a worse answer than a close
+      // from the last session. Unlike a valuation figure this never reaches the screen as "today's
+      // price" — it only scales one historical flow.
+      if (price.error.code === 'PRICE_NOT_ON_DATE') return price.error.lastKnown.close
+      return null
     },
   })
   if (!flows.ok) return flows

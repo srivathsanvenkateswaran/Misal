@@ -8,7 +8,7 @@
  */
 
 import { compareDec } from '@domain/numeric'
-import { instantToDate } from '../calendar'
+import { daysBetween, instantToDate } from '../calendar'
 import type { AssetClass, InstrumentRef, IsoDate, IsoInstant } from '../types'
 import { priceAge } from './staleness'
 import type {
@@ -155,6 +155,17 @@ export class PriceService {
   /**
    * Pure read from the local `price` table. Never fetches.
    *
+   * A date selector is answered exactly or not at all. The store still finds the nearest preceding
+   * row, but when that row is not *on* the requested date it comes back as `PRICE_NOT_ON_DATE`
+   * with the row attached as `lastKnown`, never as `{ ok: true }`. This follows `Measured`: the
+   * branch that cannot be trusted has no `value` field to reach for, so substituting a stale price
+   * for the requested day's is a compile error rather than a code-review catch. It previously was
+   * neither — the caller got `ok: true` and a `close` from days earlier, and the staleness
+   * indicator the product promises never fired.
+   *
+   * `'latest'` is unaffected, because "the most recent row" is exactly what it asks for; its
+   * freshness is reported separately by `priceAge`.
+   *
    * `NO_PRICE` (supported, just never fetched) and `NO_PRICE_SOURCE` (no provider covers it) are
    * distinct because only the latter is permanent and needs a manual override to fix.
    */
@@ -169,6 +180,18 @@ export class PriceService {
             code: 'PRICE_CURRENCY_MISMATCH',
             expected: instrument.currency,
             got: point.currency,
+          },
+        }
+      }
+      if (on !== 'latest' && point.asOf !== on) {
+        return {
+          ok: false,
+          error: {
+            code: 'PRICE_NOT_ON_DATE',
+            instrumentId,
+            requested: on,
+            lastKnown: point,
+            staleByDays: daysBetween(point.asOf, on),
           },
         }
       }

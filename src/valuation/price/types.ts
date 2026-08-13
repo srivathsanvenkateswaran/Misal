@@ -136,6 +136,23 @@ export type PriceError =
       readonly expected: CurrencyCode
       readonly got: CurrencyCode
     }
+  /**
+   * The table holds prices for this instrument, but none on the date asked for.
+   *
+   * `lastKnown` is the most recent row before `requested`. It rides on the error branch rather
+   * than the `ok` branch on purpose: carrying a price forward is a judgement about acceptable
+   * staleness, and only the caller can make it. A caller that wants last-known-price semantics
+   * names this field and is visibly opting in; one that reads `value.close` cannot be handed a
+   * days-old figure by accident.
+   */
+  | {
+      readonly code: 'PRICE_NOT_ON_DATE'
+      readonly instrumentId: string
+      readonly requested: IsoDate
+      readonly lastKnown: PricePoint
+      /** Calendar days from `lastKnown.asOf` to `requested`. Always positive. */
+      readonly staleByDays: number
+    }
 
 export interface RefreshScope {
   readonly instrumentIds?: readonly string[]
