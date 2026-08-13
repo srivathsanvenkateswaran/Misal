@@ -36,6 +36,7 @@ import {
 import {
   type Coverage,
   type Measured,
+  type NotMeasuredReason,
   fullCoverage,
   measured,
   notMeasured,
@@ -51,6 +52,7 @@ import {
   type PairValue,
   type PriceService,
   type ValuationSnapshot,
+  type XirrError,
   FxTable,
   xirrForScope,
 } from '@valuation/index'
@@ -704,6 +706,60 @@ function buildReadout(
 }
 
 /**
+ * The stored daily FX table, seeded from the same rows the valuation itself uses.
+ *
+ * An empty table is not a neutral default here any more than it is in `valueFromRows`, which
+ * carries the same warning. `buildCashflows` refuses to impute a rate rather than fall back to
+ * today's, so a single foreign transaction with no per-row `fx_rate` returns `MISSING_FX` — and
+ * because XIRR is computed over the whole scope at once, that one row withholds the figure for
+ * every rupee-denominated holding beside it. Worse, the engine's own coverage rule (`pairFxUsable`)
+ * counts a pair as XIRR-eligible whenever this table can price its transactions, so an empty table
+ * here puts a coverage percentage on screen beside a figure that was never attempted.
+ *
+ * This recovers the flows the stored table can date. It is not everything: `refresh.ts` fetches
+ * only `latest` and `FxTable.on` backfills three days, so a vest older than the stored rates still
+ * returns `MISSING_FX` — now named as such rather than blamed on absent history.
+ */
+function fxTableFrom(rows: PortfolioRows): FxTable {
+  return new FxTable(
+    rows.fxRates.map((row) => ({
+      base: row.base,
+      quote: row.quote,
+      asOf: row.asOf,
+      rate: dec(row.rate),
+      source: row.source,
+    })),
+  )
+}
+
+/**
+ * Why an XIRR could not be produced, in the fixed vocabulary the user actually reads.
+ *
+ * Exhaustive over `XirrError` on purpose: the previous mapping sent everything that was not
+ * `MISSING_PRICE` to `no_transaction_history`, which printed "no transaction history" above the
+ * very lot table listing that history. A rate we do not hold and a series that will not converge
+ * are different failures with different remedies, and the type already has a member for each.
+ */
+function xirrReason(code: XirrError['code']): NotMeasuredReason {
+  switch (code) {
+    case 'MISSING_PRICE':
+      return 'no_price'
+    case 'MISSING_FX':
+      return 'no_fx_rate'
+    case 'NO_SIGN_CHANGE':
+    case 'NO_BRACKET':
+    case 'NOT_CONVERGED':
+      // The cash flows are all present; no rate solves them. Saying "no transaction history" of a
+      // series built *from* that history is the denial this mapping exists to stop.
+      return 'no_convergence'
+    case 'INSUFFICIENT_CASHFLOWS':
+    case 'MISSING_ACQUISITION_COST':
+    case 'SCOPE_NOT_MEASURED':
+      return 'no_transaction_history'
+  }
+}
+
+/**
  * XIRR over the ledger-backed subset only.
  *
  * The engine refuses a portfolio-scope XIRR when any constituent is unmeasured, which is right —
@@ -738,17 +794,14 @@ function buildXirr(
     accounts: buildAccounts(rows, instruments, asOf).filter((input) =>
       ledgerAccountIds.has(input.accountId),
     ),
-    fx: new FxTable([]),
+    fx: fxTableFrom(rows),
     prices,
     asOf,
   })
 
   if (!outcome.ok) {
     return {
-      xirr: notMeasured(
-        outcome.error.code === 'MISSING_PRICE' ? 'no_price' : 'no_transaction_history',
-        netWorth,
-      ),
+      xirr: notMeasured(xirrReason(outcome.error.code), netWorth),
       xirrNote: `XIRR withheld: ${outcome.error.code.toLowerCase().replaceAll('_', ' ')}.`,
     }
   }
@@ -821,6 +874,8 @@ function buildInstrumentViews(
 ): readonly InstrumentView[] {
   const ids = [...new Set(positions.map((position) => position.instrumentId))]
   const netWorth = snapshot.netWorthMinor
+  // Built once, not once per instrument: the table is a read-through index over the same rows.
+  const fx = fxTableFrom(rows)
 
   return ids
     .map((id): InstrumentView | null => {
@@ -856,17 +911,19 @@ function buildInstrumentViews(
           accounts: buildAccounts(rows, instruments, asOf)
             .filter((input) => accountIds.has(input.accountId))
             .map((input) => ({ ...input, txns: input.txns.filter((txn) => txn.instrumentId === id) })),
-          fx: new FxTable([]),
+          fx,
           prices,
           asOf,
         })
-        if (outcome.ok && !outcome.value.unstable) {
+        if (!outcome.ok) {
+          xirr = notMeasured(xirrReason(outcome.error.code), valueMinor)
+        } else if (outcome.value.unstable) {
+          xirr = notMeasured('no_convergence', valueMinor)
+        } else {
           xirr = measured(
             pctFigure(mulDec(outcome.value.rate, dec('100'))),
             partialCoverage(measuredValue, valueMinor, []),
           )
-        } else if (outcome.ok) {
-          xirr = notMeasured('no_convergence', valueMinor)
         }
       }
 
@@ -1060,7 +1117,14 @@ function build(rows: PortfolioRows, asOf: IsoInstant): PortfolioData {
             label: `Other (${rest.length.toString()} positions)`,
             assetClass: null,
             share: shareOf(addMinor(...rest.map((position) => position.valueMinor)), netWorth),
-            basis: 'ledger' as const,
+            // Derived from the members, exactly as `aggregateByClass` downgrades a class: one
+            // snapshot holding in the tail makes the whole bucket snapshot-backed. Asserting
+            // 'ledger' here drew a solid bar over holdings with no transaction history, and it did
+            // so invisibly — H5 counts hatches against `[data-basis="snapshot"]`, so a mislabelled
+            // row makes both counts zero and the check passes on a picture that is wrong.
+            basis: rest.some((position) => position.capability === 'snapshot')
+              ? ('snapshot' as const)
+              : ('ledger' as const),
           },
         ]),
   ]

@@ -14,7 +14,7 @@
 import type { ReactNode } from 'react'
 import { type Minor, ZERO_DEC, addMinor, compareMinor } from '@domain/numeric'
 import { Metric } from '@ui/measured/Metric'
-import { WeightBar } from '@ui/readout/CoverageMeter'
+import { WeightBar, coverageText } from '@ui/readout/CoverageMeter'
 import { DataTable } from '@ui/table/DataTable'
 import type { DataTableColumn, DataTableRow } from '@ui/table/DataTable'
 import { formatMoney, formatPct, formatQty, money } from '@ui/format'
@@ -347,7 +347,7 @@ export function Holdings({
             zero, and it is not a loss.{' '}
             {costCoverage === undefined
               ? null
-              : `Cost, unrealised P&L and the total above cover ${formatMoney(money(data.ledgerBackedMinor))} of ${formatMoney(money(data.netWorthMinor))} (${formatPct(costCoverage.pct, { decimals: 1 })}).`}
+              : `Cost, unrealised P&L and the total above cover ${formatMoney(money(data.ledgerBackedMinor))} of ${formatMoney(money(data.netWorthMinor))} (${coverageText(costCoverage.pct)}%).`}
           </>
         }
       />

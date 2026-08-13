@@ -8,8 +8,19 @@
 
 import { describe, expect, it } from 'vitest'
 import { addMinor, minor } from '@domain/numeric'
+import type {
+  AccountRow,
+  FxRateRow,
+  InstrumentRow,
+  PortfolioRows,
+  PositionRow,
+  PriceRow,
+  TxnRow,
+} from '../data/client'
+import { formatFigure } from '@ui/figure'
 import { buildPortfolioView } from './view-model'
 import {
+  ACCOUNTS,
   AS_OF,
   allLedgerRows,
   allSnapshotRows,
@@ -21,6 +32,207 @@ function ready(rows = portfolioRows()) {
   const view = buildPortfolioView(rows, AS_OF)
   if (!view.ok) throw new Error(`Expected a valued portfolio, got: ${view.message}`)
   return view.data
+}
+
+const NO_FEES = {
+  brokerageMinor: '0',
+  sttMinor: '0',
+  gstMinor: '0',
+  stampDutyMinor: '0',
+  otherFeesMinor: '0',
+  tdsMinor: '0',
+} as const
+
+// ---------------------------------------------------------------------------
+// A foreign holding with a transaction history, which the shipped fixture has not got.
+//
+// The RSU accounts this product exists to consolidate report in dollars, and their transactions
+// carry no per-row `fx_rate` — the rate has to come from the stored daily table. That combination
+// is what an empty `FxTable` breaks, and it breaks it for the rupee holdings beside it too, since
+// XIRR is solved over the whole scope at once.
+// ---------------------------------------------------------------------------
+
+interface UsdTrade {
+  readonly id: string
+  readonly date: string
+  readonly units: bigint
+  readonly price: string
+}
+
+const CAT_TRADES: readonly UsdTrade[] = [
+  { id: 'v1', date: '2024-11-14', units: 12n, price: '310.0000' },
+  { id: 'v2', date: '2025-06-03', units: 10n, price: '340.0000' },
+  { id: 'v3', date: '2026-02-19', units: 12n, price: '360.0000' },
+]
+
+/** Cents: units × price, in exact integer maths on the stored digits. */
+function cents(price: string, units: bigint): string {
+  return ((BigInt(price.replace('.', '')) * units) / 100n).toString()
+}
+
+function catTxns(): readonly TxnRow[] {
+  return CAT_TRADES.map((trade, index) => ({
+    id: `t-cat-${trade.id}`,
+    accountId: 'a-etrade',
+    instrumentId: 'i-cat',
+    type: 'buy',
+    occurredAt: `${trade.date}T09:30:00-05:00`,
+    occurredTz: 'America/New_York',
+    quantity: `${trade.units.toString()}.0000`,
+    price: trade.price,
+    amountMinor: cents(trade.price, trade.units),
+    ...NO_FEES,
+    currency: 'USD',
+    // The point of the fixture: no per-row rate, so the daily table is the only source.
+    fxRate: null,
+    sourceDocumentId: 'd-etr-1',
+    naturalKey: `etrade:cat:${trade.id}`,
+    occurrence: index,
+    authority: 'primary',
+    createdAt: '2026-08-12T10:44:00+05:30',
+  }))
+}
+
+const USD_INR: readonly FxRateRow[] = [
+  { base: 'USD', quote: 'INR', asOf: '2024-11-14', rate: '84.2500', source: 'manual' },
+  { base: 'USD', quote: 'INR', asOf: '2025-06-03', rate: '85.1000', source: 'manual' },
+  { base: 'USD', quote: 'INR', asOf: '2026-02-19', rate: '86.4000', source: 'manual' },
+  { base: 'USD', quote: 'INR', asOf: '2026-08-11', rate: '87.5000', source: 'manual' },
+]
+
+/**
+ * The E*TRADE account promoted to a ledger, with the dollar rates its transactions need.
+ *
+ * `omitRatesBefore` drops the stored rates on and before a date, leaving the latest one in place:
+ * the holding still values (present value uses the latest rate) but one old vest can no longer be
+ * dated, which is the state `refresh.ts` actually leaves behind since it fetches only `latest`.
+ */
+function foreignLedgerRows(omitRatesBefore?: string): PortfolioRows {
+  const base = portfolioRows()
+  return portfolioRows({
+    accounts: ACCOUNTS.map((account) =>
+      account.id === 'a-etrade' ? { ...account, capability: 'ledger' as const } : account,
+    ),
+    transactions: [...base.transactions, ...catTxns()],
+    positions: base.positions.filter((row) => row.accountId !== 'a-etrade'),
+    fxRates:
+      omitRatesBefore === undefined
+        ? USD_INR
+        : USD_INR.filter((row) => row.asOf > omitRatesBefore),
+  })
+}
+
+// ---------------------------------------------------------------------------
+// More than ten priced positions, which no shipped fixture has — and so the concentration
+// chart's "Other" bucket had never once been built.
+// ---------------------------------------------------------------------------
+
+const TAIL_ACCOUNTS: readonly AccountRow[] = [
+  {
+    id: 'a-many',
+    providerId: 'zerodha-kite',
+    label: 'Kite — many holdings',
+    externalRef: 'ZR0001',
+    identityKey: 'ucc:ZR0001',
+    capability: 'ledger',
+    baseCurrency: 'INR',
+    createdAt: '2024-08-01T00:00:00+05:30',
+    providerShortCode: 'KIT',
+  },
+  {
+    id: 'a-tail',
+    providerId: 'augmont',
+    label: 'Tail holdings, statement only',
+    externalRef: null,
+    identityKey: null,
+    capability: 'snapshot',
+    baseCurrency: 'INR',
+    createdAt: '2024-08-01T00:00:00+05:30',
+    providerShortCode: 'GRW',
+  },
+]
+
+const TAIL_SIZE = 12
+
+/** `close` in rupees for holding `index`, strictly descending so the ranking is unambiguous. */
+function tailClose(index: number): string {
+  return `${((TAIL_SIZE - index) * 100).toString()}.00`
+}
+
+/**
+ * Twelve priced positions of descending value, the smallest held either as a ledger holding or as
+ * a statement-only one. Ten fill the chart; the last two roll into "Other", so the bucket's basis
+ * is decided by the twelfth.
+ */
+function concentrationRows(tail: 'ledger' | 'snapshot'): PortfolioRows {
+  const instruments: InstrumentRow[] = []
+  const prices: PriceRow[] = []
+  const transactions: TxnRow[] = []
+  const positions: PositionRow[] = []
+
+  for (let index = 0; index < TAIL_SIZE; index += 1) {
+    const id = `i-c${index.toString().padStart(2, '0')}`
+    const close = tailClose(index)
+    const last = index === TAIL_SIZE - 1
+    instruments.push({
+      id,
+      assetClass: 'indian_equity',
+      taxRegime: 's112a_listed_equity',
+      displayName: `Holding ${index.toString().padStart(2, '0')}`,
+      isin: null,
+      currency: 'INR',
+      precision: 0,
+      fmv31Jan2018: null,
+    })
+    prices.push({
+      instrumentId: id,
+      asOf: '2026-08-11',
+      close,
+      currency: 'INR',
+      source: 'twelvedata',
+      fetchedAt: '2026-08-12T10:52:00+05:30',
+    })
+    if (last && tail === 'snapshot') {
+      positions.push({
+        id: `p-${id}`,
+        accountId: 'a-tail',
+        instrumentId: id,
+        quantity: '10',
+        asOf: '2026-08-10T00:00:00+05:30',
+        sourceDocumentId: 'd-tail-1',
+      })
+      continue
+    }
+    transactions.push({
+      id: `t-${id}`,
+      accountId: 'a-many',
+      instrumentId: id,
+      type: 'buy',
+      occurredAt: '2025-01-15T09:30:00+05:30',
+      occurredTz: 'Asia/Kolkata',
+      quantity: '10',
+      price: close,
+      amountMinor: (BigInt(close.replace('.', '')) * 10n).toString(),
+      ...NO_FEES,
+      currency: 'INR',
+      fxRate: null,
+      sourceDocumentId: 'd-many-1',
+      naturalKey: `kite:${id}`,
+      occurrence: index,
+      authority: 'primary',
+      createdAt: '2026-08-12T09:12:00+05:30',
+    })
+  }
+
+  return portfolioRows({
+    accounts: TAIL_ACCOUNTS,
+    instruments,
+    aliases: [],
+    transactions,
+    positions,
+    prices,
+    unresolved: [],
+  })
 }
 
 describe('the calibration split', () => {
@@ -161,6 +373,76 @@ describe('the twelve-month series (H10)', () => {
     expect(data.historyBegins).toBeDefined()
     // Nothing was carried backwards into the gaps.
     expect(data.months.slice(0, gaps.length).every((month) => month.segments === null)).toBe(true)
+  })
+})
+
+describe('XIRR and the stored FX table', () => {
+  it('computes a portfolio XIRR from the stored daily rates rather than withholding it', () => {
+    const data = ready(foreignLedgerRows())
+    // Handed an empty table, the one dollar vest returns MISSING_FX and takes the rupee holdings
+    // down with it, because the rate is solved over the whole scope at once.
+    expect(data.readout.xirr.measured).toBe(true)
+    if (data.readout.xirr.measured) {
+      expect(formatFigure(data.readout.xirr.value)).toBe('13.01%')
+    }
+    expect(data.readout.xirrNote).toMatch(/cash flows over \d+ days/u)
+  })
+
+  it('computes the same XIRR for the foreign instrument itself', () => {
+    const data = ready(foreignLedgerRows())
+    const cat = data.instruments.find((instrument) => instrument.name === 'Caterpillar Inc')
+    expect(cat?.xirr.measured).toBe(true)
+    if (cat?.xirr.measured === true) {
+      expect(formatFigure(cat.xirr.value)).toBe('13.09%')
+    }
+  })
+
+  it('agrees with the coverage panel it sits beside', () => {
+    const data = ready(foreignLedgerRows())
+    // `pairFxUsable` counts a pair as XIRR-eligible when the daily table can date its
+    // transactions. A blank figure beside a non-zero coverage percentage was the visible symptom.
+    const xirrCoverage = data.coverageByMetric.find((entry) => entry.key === 'xirr')
+    expect(xirrCoverage?.pct).toBe('88.85')
+    expect(data.readout.xirr.measured).toBe(true)
+  })
+
+  it('names a missing rate as a missing rate, not as absent transaction history', () => {
+    // Every rate before 2026 is gone, so the 2024 vest cannot be dated. The holding still values
+    // — the latest rate is stored — so this is squarely a rate gap, not a history gap.
+    const data = ready(foreignLedgerRows('2026-01-01'))
+    expect(data.readout.xirr.measured).toBe(false)
+    if (!data.readout.xirr.measured) {
+      expect(data.readout.xirr.reason).toBe('no_fx_rate')
+    }
+    const cat = data.instruments.find((instrument) => instrument.name === 'Caterpillar Inc')
+    expect(cat?.xirr.measured).toBe(false)
+    if (cat?.xirr.measured === false) {
+      // The instrument screen prints this reason directly above the lot table listing the very
+      // transactions it would otherwise deny.
+      expect(cat.xirr.reason).toBe('no_fx_rate')
+      expect(cat.lots.length).toBeGreaterThan(0)
+    }
+  })
+})
+
+describe('the concentration chart’s "Other" bucket', () => {
+  it('rolls the tail into one row once there are more than ten priced positions', () => {
+    const data = ready(concentrationRows('ledger'))
+    expect(data.positions.filter((position) => position.priced)).toHaveLength(TAIL_SIZE)
+    const other = data.concentration.find((row) => row.key === 'other')
+    expect(other?.label).toBe(`Other (${(TAIL_SIZE - 10).toString()} positions)`)
+  })
+
+  it('draws the bucket as snapshot-only when any holding inside it has no history', () => {
+    const data = ready(concentrationRows('snapshot'))
+    const other = data.concentration.find((row) => row.key === 'other')
+    expect(other?.basis).toBe('snapshot')
+  })
+
+  it('keeps it ledger-backed when every holding inside it is', () => {
+    const data = ready(concentrationRows('ledger'))
+    const other = data.concentration.find((row) => row.key === 'other')
+    expect(other?.basis).toBe('ledger')
   })
 })
 

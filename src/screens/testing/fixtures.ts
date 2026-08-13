@@ -425,6 +425,26 @@ export function allSnapshotRows(): PortfolioRows {
   })
 }
 
+/**
+ * Ledger accounts, plus one statement-only holding worth a rounding error.
+ *
+ * Coverage lands inside [99.95%, 100%) — the band where `historyCoveragePct`'s clamp to `99.99`
+ * is doing exactly the job its comment describes, and where a half-up round at one decimal undoes
+ * it and prints "100.0%" over a portfolio that is not fully covered. Nothing else in this corpus
+ * lands in that band, which is how three display sites came to round there unchallenged.
+ */
+export function nearlyFullCoverageRows(): PortfolioRows {
+  return portfolioRows({
+    accounts: ACCOUNTS.filter((account) => account.id !== 'a-etrade'),
+    // 0.0035 g of gold: about ₹39 against ₹7.9 lakh of ledger-backed value.
+    positions: POSITIONS.filter((row) => row.accountId === 'a-gold').map((row) => ({
+      ...row,
+      quantity: '0.0035',
+    })),
+    unresolved: [],
+  })
+}
+
 /** Every account supplies full history. 100% coverage — which is still displayed. */
 export function allLedgerRows(): PortfolioRows {
   return portfolioRows({
