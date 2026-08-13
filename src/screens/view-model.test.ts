@@ -31,11 +31,14 @@ import {
   historicFxOnlyRows,
   latestFxOnlyRows,
   nearlyFullCoverageRows,
+  noPricesRows,
+  partlyPricedAccountRows,
   portfolioRows,
   subPaisaRows,
   unpricedLedgerRows,
   unpricedSnapshotRows,
   usdLedgerRows,
+  zeroQuantityRows,
 } from './testing/fixtures'
 
 function ready(rows = portfolioRows()) {
@@ -987,6 +990,187 @@ describe('what the cost basis excludes, and whose fault it is', () => {
     expect(data.ledgerBackedMinor).toBe('191306550')
     expect(cost?.coveredMinor).toBe('79387050')
     expect(cost?.pct).toBe('36.87')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Totals that sum an unpriced holding as a zero, and publish the result as measured.
+//
+// The count above was the previous round's fix, and it reached the calibration bar and the
+// accounts foot. What it did not reach is the arithmetic: `buildPosition` writes `ZERO_MINOR` into
+// `valueMinor` for a holding it could not price — correct in itself, since the sibling `value`
+// takes the false branch — and both aggregates then summed those zeros and wrapped the result in
+// `fullCoverage`. The honesty suite cannot see it: H3 inspects `[data-not-measured]` nodes, and
+// marking the sum measured is precisely what removes the node.
+// ---------------------------------------------------------------------------
+
+describe('totals over a holding that could not be priced', () => {
+  it('withholds an instrument total rather than publishing a sum of zeros as measured', () => {
+    const data = ready()
+    const cat = data.instruments.find((instrument) => instrument.id === 'i-cat')
+    expect(cat?.totalValue.measured).toBe(false)
+    if (cat?.totalValue.measured === false) {
+      // The row beneath the tile says "Not converted — no exchange rate for this date"; the tile
+      // now says the same thing rather than "₹0" under a stamp reading "quantity multiplied by
+      // the latest stored price".
+      expect(cat.totalValue.reason).toBe('no_fx_rate')
+      expect(cat.totalValue.excluded).toBe('0')
+    }
+    // The quantity is not in doubt and is not withheld: 34 units are held, worth an unknown
+    // amount. That pairing — a real quantity beside a withheld value — is the whole statement.
+    expect(cat?.totalQuantity.measured).toBe(true)
+    expect(cat?.positions.every((position) => !position.priced)).toBe(true)
+  })
+
+  it('does not deny a price it is printing on the same tile', () => {
+    const data = ready()
+    const cat = data.instruments.find((instrument) => instrument.id === 'i-cat')
+    // A stored close exists — the tile prints 376.20 from it — but the engine dates only a price
+    // it could use, so the note read "No price has been fetched for this instrument."
+    expect(cat?.lastPrice.measured).toBe(true)
+    expect(cat?.lastPriceNote).not.toMatch(/No price has been fetched/u)
+    expect(cat?.lastPriceNote).toMatch(/USD · as of 11 Aug 2026/u)
+    expect(cat?.lastPriceNote).toMatch(/not converted to rupees/u)
+  })
+
+  it('withholds the account total on the reproduction the count was added for', () => {
+    const data = ready(unpricedSnapshotRows())
+    const etrade = data.accounts.find((account) => account.id === 'a-etrade')
+    expect(etrade?.unpriced).toBe(1)
+    // The badge said "1 not priced" one column away from a measured ₹0, which is the same row
+    // asserting two different things about the same holding.
+    expect(etrade?.value.measured).toBe(false)
+    if (etrade?.value.measured === false) expect(etrade.value.reason).toBe('no_fx_rate')
+  })
+
+  it('withholds a partly priced account total — the sum that looks entirely plausible', () => {
+    /*
+     * The dangerous shape, and the one no fixture could reach: an account holding ₹1,11,737 of
+     * priced gold beside a dollar holding with no rate. Summing the second as zero gives a
+     * confident rupee figure that silently omits a holding, and `fullCoverage` stamps it 100.0%.
+     */
+    const data = ready(partlyPricedAccountRows())
+    const etrade = data.accounts.find((account) => account.id === 'a-etrade')
+    expect(etrade?.holdings).toBe(2)
+    expect(etrade?.unpriced).toBe(1)
+    // The priced part is real and is kept — the weights, the sort and the export all read it, and
+    // the export asks `priced` per row before writing a rupee figure.
+    expect(etrade?.valueMinor).toBe('11173650')
+    // It is not the account's value, and no coverage can say by how much it falls short: an
+    // unpriced holding contributes a rupee amount to neither side of that fraction.
+    expect(etrade?.value.measured).toBe(false)
+    if (etrade?.value.measured === false) expect(etrade.value.excluded).toBe('11173650')
+
+    // Pricing is decided per instrument, so the gold held in two accounts is priced in both and
+    // its own total stays measured. Withholding is per aggregate, not contagious.
+    const gold = data.instruments.find((instrument) => instrument.id === 'i-gold')
+    expect(gold?.positions).toHaveLength(2)
+    expect(gold?.totalValue.measured).toBe(true)
+  })
+
+  it('withholds every account and every instrument total on a fresh install', () => {
+    // An import, and no refresh yet: not one price row exists. Every tile on the instruments
+    // screen and every row on the accounts screen printed a measured ₹0.
+    const data = ready(noPricesRows())
+    expect(data.netWorthMinor).toBe('0')
+    expect(data.unpricedCount).toBe(4)
+    expect(data.instruments).toHaveLength(4)
+    expect(data.instruments.every((instrument) => !instrument.totalValue.measured)).toBe(true)
+    expect(data.accounts.every((account) => !account.value.measured)).toBe(true)
+    // The units are known throughout, which is what makes the withheld values readable.
+    expect(data.instruments.every((instrument) => instrument.totalQuantity.measured)).toBe(true)
+  })
+
+  it('keeps a genuine zero measured: sold out is not the same as unpriced', () => {
+    // The bound on the fix. This holding has a price and no units, so ₹0 is a measurement rather
+    // than a stand-in, and withholding it would make "not measured" the new way of saying nothing.
+    const data = ready(zeroQuantityRows())
+    const gold = data.instruments.find((instrument) => instrument.id === 'i-gold')
+    expect(gold?.totalValue.measured).toBe(true)
+    if (gold?.totalValue.measured === true) expect(formatFigure(gold.totalValue.value)).toBe('0')
+    const account = data.accounts.find((entry) => entry.id === 'a-gold')
+    expect(account?.holdings).toBe(1)
+    expect(account?.unpriced).toBe(0)
+    expect(account?.value.measured).toBe(true)
+  })
+
+  /*
+   * The invariant rather than the instances, and it lives here rather than in `assertHonest`
+   * because the DOM cannot tell the two zeros apart: a measured ₹0 over an unpriced holding and a
+   * measured ₹0 over a sold-out one render identically, down to `data-coverage-pct="0.0"`. What
+   * separates them is which positions went into the sum, and that is only knowable where the sum
+   * is taken.
+   *
+   * Split across two cases rather than looped over nine fixtures in one: every `ready()` values
+   * the portfolio at twelve month ends as well as today, and one test doing that nine times is a
+   * test that fails on a busy machine for a reason that has nothing to do with the invariant.
+   */
+  function expectTotalsMatchPricing(name: string, rows: PortfolioRows): void {
+    const data = ready(rows)
+    for (const account of data.accounts) {
+      const own = data.positions.filter((position) => position.accountId === account.id)
+      expect([name, account.id, account.value.measured]).toEqual([
+        name,
+        account.id,
+        own.every((position) => position.priced),
+      ])
+    }
+    for (const instrument of data.instruments) {
+      expect([name, instrument.id, instrument.totalValue.measured]).toEqual([
+        name,
+        instrument.id,
+        instrument.positions.every((position) => position.priced),
+      ])
+    }
+  }
+
+  it('holds for every fixture that carries an unpriced holding', () => {
+    expectTotalsMatchPricing('default', portfolioRows())
+    expectTotalsMatchPricing('partly priced', partlyPricedAccountRows())
+    expectTotalsMatchPricing('no prices', noPricesRows())
+    expectTotalsMatchPricing('unpriced snapshot', unpricedSnapshotRows())
+  })
+
+  it('holds for every fixture that carries none, so nothing is withheld for sport', () => {
+    expectTotalsMatchPricing('zero quantity', zeroQuantityRows())
+    expectTotalsMatchPricing('usd ledger', usdLedgerRows())
+    expectTotalsMatchPricing('all ledger', allLedgerRows())
+    expectTotalsMatchPricing('all snapshot', allSnapshotRows())
+  })
+})
+
+// ---------------------------------------------------------------------------
+// An average cost in rupees, in a row that says it is in dollars.
+// ---------------------------------------------------------------------------
+
+describe('the unit an average cost is in', () => {
+  it('states rupees on a converted average cost, beside a native last price', () => {
+    const data = ready(usdLedgerRows())
+    const cat = data.positions.find((position) => position.instrumentId === 'i-cat')
+    expect(cat?.currency).toBe('USD')
+
+    // `pair.costMinor` is already through `costInInr`, so this quotient is rupees per unit — and
+    // read as dollars, beside a $376.20 last price, it states a 98.7% loss on a holding whose
+    // unrealised percentage on the same row is +14.67. The true dollar figure is $336.47.
+    expect(cat?.avgCost.measured).toBe(true)
+    if (cat?.avgCost.measured === true) {
+      expect(formatFigure(cat.avgCost.value)).toBe('28,705.82 INR')
+    }
+    expect(cat?.lastPrice.measured).toBe(true)
+    if (cat?.lastPrice.measured === true) {
+      expect(formatFigure(cat.lastPrice.value)).toBe('376.20')
+    }
+  })
+
+  it('names the unit on a rupee holding too, rather than only where it would be wrong', () => {
+    // A unit stated only on the rows that need it is a unit a reader has to notice the absence
+    // of. Reliance is quoted in rupees and its average cost says so.
+    const data = ready()
+    const rel = data.positions.find((position) => position.instrumentId === 'i-rel')
+    expect(rel?.avgCost.measured).toBe(true)
+    if (rel?.avgCost.measured === true) {
+      expect(formatFigure(rel.avgCost.value)).toBe('2,559.87 INR')
+    }
   })
 })
 
