@@ -69,7 +69,9 @@ function Skeleton(): ReactNode {
  * Each is a way to change the data or the configuration, which makes them the only exits from an
  * unvaluable portfolio - and the only screens a user with no accounts can usefully open.
  */
-function isActionRoute(route: Route): boolean {
+type ActionRoute = Extract<Route, { kind: 'import' | 'settings' | 'refresh' | 'exchanges' }>
+
+function isActionRoute(route: Route): route is ActionRoute {
   return (
     route.kind === 'import' ||
     route.kind === 'settings' ||
@@ -79,7 +81,9 @@ function isActionRoute(route: Route): boolean {
 }
 
 /** The action routes, which take no portfolio data and so cannot be blocked by a valuation error. */
-function ActionScreen({ route }: { readonly route: Route }): ReactNode {
+function ActionScreen({ route }: { readonly route: ActionRoute }): ReactNode {
+  // Exhaustive with no default: the type guard above is what proves only these four arrive, so
+  // adding a fifth action route fails to compile until it is handled here.
   switch (route.kind) {
     case 'import':
       return <ImportRoute />
@@ -89,8 +93,6 @@ function ActionScreen({ route }: { readonly route: Route }): ReactNode {
       return <RefreshRoute />
     case 'exchanges':
       return <ExchangesRoute />
-    default:
-      return null
   }
 }
 
