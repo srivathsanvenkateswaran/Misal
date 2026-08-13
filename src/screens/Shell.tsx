@@ -14,7 +14,7 @@ import type { ReactNode } from 'react'
 import { useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { AppBar, ErrorState } from './chrome'
-import { usePortfolio, useStorageStatus } from './queries'
+import { PORTFOLIO_QUERY_PREFIX, usePortfolio, useStorageStatus } from './queries'
 import { NAV, hrefFor, useRoute } from './route'
 import { Dashboard } from './Dashboard'
 import { Holdings } from './Holdings'
@@ -22,6 +22,7 @@ import { Accounts } from './Accounts'
 import { InstrumentDetail, InstrumentIndex } from './Instruments'
 import { FirstRun } from './FirstRun'
 import { ImportScreen } from './import'
+import { Settings } from './settings'
 import type { PortfolioData } from './view-model'
 import './screens.css'
 
@@ -30,8 +31,12 @@ function useScreenShortcuts(): void {
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
       if (!event.metaKey && !event.ctrlKey) return
-      const index = ['1', '2', '3', '4'].indexOf(event.key)
-      if (index === -1) return
+      // Derived from NAV rather than a fixed list, so adding a screen does not silently leave it
+      // without a shortcut. Position in the digit string rather than a parse: nothing here is
+      // numeric, and reaching for a parser is how a number gets into code that has no business
+      // holding one.
+      const index = '123456789'.indexOf(event.key)
+      if (index === -1 || index >= NAV.length) return
       const item = NAV[index]
       if (item === undefined) return
       event.preventDefault()
@@ -70,7 +75,26 @@ function Screen({ data }: { readonly data: PortfolioData }): ReactNode {
       return <InstrumentDetail data={data} instrumentId={route.instrumentId} />
     case 'import':
       return <ImportRoute />
+    case 'settings':
+      return <SettingsRoute />
   }
+}
+
+/**
+ * Settings, with the portfolio refreshed after a change.
+ *
+ * A manual price or a changed base currency alters what every figure on the dashboard means, so
+ * the cached valuation has to go.
+ */
+function SettingsRoute(): ReactNode {
+  const client = useQueryClient()
+  return (
+    <Settings
+      onChanged={() => {
+        void client.invalidateQueries({ queryKey: [PORTFOLIO_QUERY_PREFIX] })
+      }}
+    />
+  )
 }
 
 /**
@@ -85,7 +109,8 @@ function ImportRoute(): ReactNode {
   return (
     <ImportScreen
       onImported={() => {
-        void client.invalidateQueries({ queryKey: ['portfolio'] })
+        // Prefix match, so every cached asOf is invalidated, not just today's.
+        void client.invalidateQueries({ queryKey: [PORTFOLIO_QUERY_PREFIX] })
       }}
     />
   )
@@ -121,9 +146,10 @@ export function Shell({ asOf }: { readonly asOf: string }): ReactNode {
             void portfolio.refetch()
           }}
         />
-      ) : route.kind === 'import' ? (
-        // Reachable with no accounts at all - it is the only thing a first-run user can do, and
-        // gating it behind having data would make the empty state a dead end.
+      ) : route.kind === 'import' || route.kind === 'settings' ? (
+        // Both reachable with no accounts at all. Import is the only thing a first-run user can
+        // do, and settings is where a provider key is entered - gating either behind having data
+        // would make the empty state a dead end.
         <Screen data={view.data} />
       ) : view.data.accounts.length === 0 ? (
         <FirstRun status={storage.data} />

@@ -157,6 +157,11 @@ class Reader {
         case 'u': {
           const hex = this.text.slice(this.index, this.index + 4)
           if (!/^[0-9a-fA-F]{4}$/.test(hex)) this.fail(`bad \\u escape at ${this.index}`)
+          // The one sanctioned parse in this file: a four-digit code point from a \u escape,
+          // which is text, not a quantity. Exempted per line rather than per file on purpose —
+          // this module exists to keep exchange numbers out of float, so its number handling is
+          // the last place the ban should be relaxed.
+          // eslint-disable-next-line no-restricted-syntax -- code point, not a numeric value
           out += String.fromCharCode(Number.parseInt(hex, 16))
           this.index += 4
           break

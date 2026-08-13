@@ -25,6 +25,12 @@ const FLOAT_BAN = [
       'parseInt truncates silently. Use minor() from @domain/numeric, or BigInt for integer parsing.',
   },
   {
+    selector:
+      "CallExpression[callee.object.name='Number'][callee.property.name=/^(parseInt|parseFloat)$/]",
+    message:
+      'Number.parseInt/parseFloat are aliases of the globals and destroy precision identically. Use @domain/numeric.',
+  },
+  {
     selector: "CallExpression[callee.name='Number']",
     message:
       'Number() produces a float. Money and quantities stay as Minor/Dec strings; see @domain/numeric.',

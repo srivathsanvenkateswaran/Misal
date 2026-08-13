@@ -35,7 +35,20 @@ export function createQueryClient(): QueryClient {
   })
 }
 
-export const portfolioKey = (asOf: string): readonly unknown[] => ['valuation', { asOf }]
+/**
+ * Prefix shared by every portfolio query, and the only thing anything should invalidate.
+ *
+ * Exported as a constant because it was got wrong: the post-import invalidation named
+ * `['portfolio']` while the query itself was keyed `['valuation', ...]`, so it matched nothing and
+ * an import left stale figures on the dashboard - the precise failure the invalidation was added
+ * to prevent. Two string literals in two files cannot be kept in step by intention.
+ */
+export const PORTFOLIO_QUERY_PREFIX = 'valuation' as const
+
+export const portfolioKey = (asOf: string): readonly unknown[] => [
+  PORTFOLIO_QUERY_PREFIX,
+  { asOf },
+]
 export const storageKey: readonly unknown[] = ['storage']
 
 /**

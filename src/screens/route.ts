@@ -19,6 +19,7 @@ export type Route =
   | { readonly kind: 'accounts' }
   | { readonly kind: 'instruments' }
   | { readonly kind: 'import' }
+  | { readonly kind: 'settings' }
   | { readonly kind: 'instrument'; readonly instrumentId: string }
 
 export type HoldingsGroup = 'asset_class' | 'account' | 'instrument' | 'none'
@@ -51,6 +52,7 @@ export const NAV: readonly NavItem[] = [
   { kind: 'accounts', label: 'Accounts', href: '#/accounts' },
   { kind: 'instruments', label: 'Instruments', href: '#/instruments' },
   { kind: 'import', label: 'Import', href: '#/import' },
+  { kind: 'settings', label: 'Settings', href: '#/settings' },
 ]
 
 function isGroup(raw: string | null): raw is HoldingsGroup {
@@ -73,6 +75,7 @@ export function parseRoute(hash: string): Route {
   }
   if (first === 'accounts') return { kind: 'accounts' }
   if (first === 'import') return { kind: 'import' }
+  if (first === 'settings') return { kind: 'settings' }
   if (first === 'instruments') {
     const id = segments[1]
     if (id === undefined) return { kind: 'instruments' }
@@ -95,6 +98,8 @@ export function hrefFor(route: Route): string {
       return `#/instruments/${encodeURIComponent(route.instrumentId)}`
     case 'import':
       return '#/import'
+    case 'settings':
+      return '#/settings'
   }
 }
 
@@ -105,6 +110,7 @@ export const TITLE: Record<Route['kind'], string> = {
   instruments: 'Instruments',
   instrument: 'Instrument',
   import: 'Import',
+  settings: 'Settings',
 }
 
 /** The current route, kept in sync with the address bar's hash. */
