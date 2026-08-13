@@ -151,6 +151,14 @@ type Phase =
 
 export interface ImportScreenProps {
   readonly runtime?: ImportRuntime
+  /**
+   * Called after an import commits anything.
+   *
+   * The shell uses this to invalidate the portfolio query. Without it a user imports a statement,
+   * watches the review report rows committed, returns to the dashboard and sees the figures they
+   * had before - which reads as the import having failed.
+   */
+  readonly onImported?: () => void
 }
 
 export function ImportScreen(props: ImportScreenProps): ReactNode {
@@ -208,6 +216,9 @@ export function ImportScreen(props: ImportScreenProps): ReactNode {
         kind: 'completed',
         result: { file, outcome, unlockedWith: unlocked.current },
       })
+      // Committed rows are now in the database, so anything showing portfolio figures is stale.
+      // Fired even when rows_failed is non-zero: a partial import still changed the totals.
+      props.onImported?.()
       const [queue, catalogue] = await Promise.all([
         runtime.unresolvedForDocument(outcome.documentId),
         runtime.listInstruments(),

@@ -18,6 +18,7 @@ export type Route =
   | { readonly kind: 'holdings'; readonly group: HoldingsGroup }
   | { readonly kind: 'accounts' }
   | { readonly kind: 'instruments' }
+  | { readonly kind: 'import' }
   | { readonly kind: 'instrument'; readonly instrumentId: string }
 
 export type HoldingsGroup = 'asset_class' | 'account' | 'instrument' | 'none'
@@ -38,17 +39,18 @@ export interface NavItem {
 }
 
 /**
- * Four screens, not the mockup's five.
+ * The five screens of v1.
  *
- * `04 Import review` is being built concurrently in `src/screens/import/` and is deliberately
- * absent here rather than stubbed: a nav item leading to a placeholder would be a claim the
- * product cannot honour, and a stub file would collide with the screen that is actually coming.
+ * Import is last because it is a task rather than a view: everything to its left answers "what do
+ * I have", and it answers "add more". It is also the only route a first-run user needs, which is
+ * why the empty state links straight to it rather than relying on the nav.
  */
 export const NAV: readonly NavItem[] = [
   { kind: 'dashboard', label: 'Dashboard', href: '#/' },
   { kind: 'holdings', label: 'Holdings', href: '#/holdings' },
   { kind: 'accounts', label: 'Accounts', href: '#/accounts' },
   { kind: 'instruments', label: 'Instruments', href: '#/instruments' },
+  { kind: 'import', label: 'Import', href: '#/import' },
 ]
 
 function isGroup(raw: string | null): raw is HoldingsGroup {
@@ -70,6 +72,7 @@ export function parseRoute(hash: string): Route {
     return { kind: 'holdings', group: isGroup(raw) ? raw : 'asset_class' }
   }
   if (first === 'accounts') return { kind: 'accounts' }
+  if (first === 'import') return { kind: 'import' }
   if (first === 'instruments') {
     const id = segments[1]
     if (id === undefined) return { kind: 'instruments' }
@@ -90,6 +93,8 @@ export function hrefFor(route: Route): string {
       return '#/instruments'
     case 'instrument':
       return `#/instruments/${encodeURIComponent(route.instrumentId)}`
+    case 'import':
+      return '#/import'
   }
 }
 
@@ -99,6 +104,7 @@ export const TITLE: Record<Route['kind'], string> = {
   accounts: 'Accounts',
   instruments: 'Instruments',
   instrument: 'Instrument',
+  import: 'Import',
 }
 
 /** The current route, kept in sync with the address bar's hash. */

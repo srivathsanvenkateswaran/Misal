@@ -12,6 +12,7 @@
 
 import type { ReactNode } from 'react'
 import { useEffect } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { AppBar, ErrorState } from './chrome'
 import { usePortfolio, useStorageStatus } from './queries'
 import { NAV, hrefFor, useRoute } from './route'
@@ -20,6 +21,7 @@ import { Holdings } from './Holdings'
 import { Accounts } from './Accounts'
 import { InstrumentDetail, InstrumentIndex } from './Instruments'
 import { FirstRun } from './FirstRun'
+import { ImportScreen } from './import'
 import type { PortfolioData } from './view-model'
 import './screens.css'
 
@@ -66,7 +68,27 @@ function Screen({ data }: { readonly data: PortfolioData }): ReactNode {
       return <InstrumentIndex data={data} />
     case 'instrument':
       return <InstrumentDetail data={data} instrumentId={route.instrumentId} />
+    case 'import':
+      return <ImportRoute />
   }
+}
+
+/**
+ * Import, with the portfolio refreshed once it finishes.
+ *
+ * Without the invalidation a user imports a statement, watches the review report rows committed,
+ * navigates to the dashboard and sees the numbers they had before - which reads as the import
+ * having failed. The query is configured `staleTime: Infinity`, so nothing refetches on its own.
+ */
+function ImportRoute(): ReactNode {
+  const client = useQueryClient()
+  return (
+    <ImportScreen
+      onImported={() => {
+        void client.invalidateQueries({ queryKey: ['portfolio'] })
+      }}
+    />
+  )
 }
 
 export function Shell({ asOf }: { readonly asOf: string }): ReactNode {
@@ -99,6 +121,10 @@ export function Shell({ asOf }: { readonly asOf: string }): ReactNode {
             void portfolio.refetch()
           }}
         />
+      ) : route.kind === 'import' ? (
+        // Reachable with no accounts at all - it is the only thing a first-run user can do, and
+        // gating it behind having data would make the empty state a dead end.
+        <Screen data={view.data} />
       ) : view.data.accounts.length === 0 ? (
         <FirstRun status={storage.data} />
       ) : (
