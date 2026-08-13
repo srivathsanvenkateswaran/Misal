@@ -39,6 +39,7 @@ import {
   SqliteIngestionStore,
   ignoreUnresolvedInstrument,
   mapUnresolvedInstrument,
+  outstandingForDocument,
   pickStatementFile,
   readStatementBytes,
   unresolvedForDocument,
@@ -100,9 +101,12 @@ function defaultRuntime(): ImportRuntime {
     newId: () => crypto.randomUUID(),
     pdfSource: pdfjsSource(),
     parserVersion: PARSER_VERSION,
-    // Without this the content hash refuses the re-import that releases withheld rows, and the
-    // mapping the queue asked for would never reach a total.
+    // Without these two the content hash refuses the re-import that releases withheld rows, and the
+    // mapping the queue asked for would never reach a total. The second is the one that answers for
+    // *this* document: the queue entry the first reads is shared with every other statement naming
+    // the same identifier, and a file whose parser threw part way through withheld nothing at all.
     withheldFor: (documentId) => withheldForDocument(documentId),
+    outstandingFor: (documentId) => outstandingForDocument(documentId),
   }
   return {
     pickFile: () => pickStatementFile(),

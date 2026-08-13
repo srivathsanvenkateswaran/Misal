@@ -484,6 +484,96 @@ entry raised by January's statement is the one February's import touches. `last_
 carries the latest sighting so February's import report still lists what February could not
 identify, rather than showing an empty queue while withholding rows.
 
+That consequence turned out to be the next defect. See below.
+
+### ~~Two ways a statement's transactions were lost permanently, both from inferring re-importability~~ — FIXED
+
+Found by adversarial review of the ingestion write path and reproduced against the real schema.
+`ingest.rs::withheld_for_document` was the **only** thing that let a file back past the
+content-hash short-circuit, and it inferred "this document still has rows that never landed" from
+`unresolved_instrument` state that does not record that. Two triggers, one root cause, and both end
+with `runImport` returning `already-imported` for a file whose rows are not in the ledger while the
+screen says "No changes were made and no import was recorded, because nothing happened."
+
+- **A shared entry, released by one document on behalf of all.** Migration 0006 permits one open
+  entry per `(account_id, raw_identifier)` and it carries a single `last_seen_document_id`;
+  `release_landed_rows` stamps `resolved_at` as soon as *any* document lands rows for it. January's
+  and February's eCAS naming the same unmapped ISIN are therefore one entry: map it, re-import
+  February, February's rows land, the entry closes, and `withheld_for_document('d-jan')` is zero.
+  January's transactions for that fund can never be written again. Worse than it first looks — with
+  N statements the single `last_seen` pointer means only the first and the last are named on the
+  entry at all, so the months in between were never re-importable even once. Downstream, a ledger
+  account then emits `FOLD_SNAPSHOT_MISMATCH` forever, blaming a disagreement whose real cause is
+  the lockout.
+
+- **A plugin that throws mid-document burns the hash.** The runner catches the throw and commits
+  what was read, and the `source_document` carrying the content hash is written with it. The folios
+  the parser never reached raised no unresolved rows, so the inference reports zero forever. The
+  counters concealed it: `E_PLUGIN_CRASH` was explicitly excluded from `rows_failed`, so the run
+  recorded `rows_failed: 0`, `status: 'completed'` and `read == committed` — an audit record
+  indistinguishable from a clean import of the whole file, for half a statement. This also
+  contradicted the pipeline's own header rule, which says a document that failed to be read writes
+  no `source_document` precisely so the hash is not burned. Both CAS parsers are hand-written layout
+  parsers over formats this repo's own drift canary says change year to year.
+
+**Consequence while it stood:** the only recovery from either was deleting every account the import
+created — and for a shared CAS, deleting one folio does not even free the hash (see below). The
+transactions exist nowhere but in the file, `import_issue.raw_payload` cannot reconstruct them, and
+Misal never copies the file.
+
+Fixed by not inferring. Migration 0007 adds `import_run.outstanding_reason`, which each run writes
+about its own pass over its own bytes: `'withheld'` when rows were held back and are still open,
+`'crashed'` when the plugin threw, NULL when the document owes nothing. `commit_batch` derives it
+from the batch after the queue has been updated — so an entry this import closed does not count, and
+an entry the user dismissed never did — and clears it on that document's earlier runs, because the
+pass that just finished is the current statement of what the document owes. `runImport` ORs it into
+the stand-aside beside `withheldFor`. Dismissing the last open entry clears the `'withheld'` flag,
+so a file the user asked not to be chased about goes back to being idempotent; a dismissal says
+nothing about a crash, so it does not clear that one.
+
+Two supporting changes. `release_landed_rows` is now scoped to entries the landing document is
+actually named on — a document that never withheld those rows has no standing to say they have
+landed. And the crash is counted in `rows_failed`, which in this schema's vocabulary is what makes
+the run a partial import (`completed` with a non-zero `rows_failed`, as `ingest.rs`'s header states)
+rather than a clean one.
+
+Migration 0007 backfills, because a defaulted NULL would leave every already-locked-out document
+exactly as stuck as before: the newest run of each file-backed document is marked from the entries
+it is still named on, or — the January case — from its own `W_UNRESOLVED_INSTRUMENT` issues when the
+entry it was withholding has been closed without the user having dismissed it.
+
+**Two things deliberately not done, both outside this change's files.** A crashed run is not stamped
+with a literal `partial` status: `ImportRunRow.status` in `src/ingestion/store.ts` is
+`'running' | 'completed' | 'failed'` and migration 0001's CHECK matches it, so a fourth state is a
+port change and a table rebuild, not a one-line one. It is spelled the way this codebase already
+spells a partial import instead. And `import_run.parser_version` — recorded per migration 0001 "so a
+statement can be reprocessed when a parser bug is fixed" — is still read by nothing: a parser bug
+that produces *wrong* rows rather than throwing still does not reopen the file.
+
+### ~~Mapping one queue entry claimed every entry printing the same string~~ — FIXED
+
+`ingest.rs::map_unresolved` scoped its alias write correctly and then ran
+`UPDATE unresolved_instrument … WHERE raw_identifier = ?3 AND resolved_at IS NULL` — no account and
+no provider — twenty lines after computing the discriminator it needed.
+
+`rawIdentifierOf` falls through to `provider-local:<code>` and `name:<name>`, and neither is global.
+Migration 0001 says why in as many words: the alias table's composite key exists to keep E*TRADE's
+`INFY` away from Zerodha's `INFY`. The exchange sync is worse — `sync.rs::record_unresolved` writes
+a bare asset code with no scheme prefix at all, so the mapping writes no alias and the unscoped
+UPDATE was its entire effect.
+
+**Consequence while it stood:** naming one broker's holding silently claimed another broker's,
+unrecoverably. The collaterally claimed entry left the mapping UI, because
+`unresolved_for_document` filters `mapped_at IS NULL`; `dismiss_entry` refused it for the same
+reason; `record_unresolved` never clears `mapped_at`, so re-importing did not reopen it; and the
+settings review queue printed "Named as \<the other broker's instrument\> on \<date\>" — a dated
+claim the user never made, about a security they never chose.
+
+The update now takes the reach the identifier has, decided by the same discriminator the alias write
+uses: a global scheme (`isin`, `amfi`, `nse`, `bse`, `ticker`) answers in every account exactly as
+before; `provider-local:` answers within that provider; and an identifier that yields no alias at
+all — `name:`, and the exchange sync's bare codes — answers only in the account it was asked about.
+
 ### ~~The review queue had three states in the schema and no screen showing any of them~~ — FIXED
 
 Migration 0006 split `ignored_at` and `mapped_at` out of `resolved_at` so that dismissing an entry

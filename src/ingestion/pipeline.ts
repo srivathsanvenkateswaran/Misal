@@ -97,6 +97,20 @@ export interface ImportDeps {
    * should get.
    */
   readonly withheldFor?: (documentId: string) => Promise<number>
+  /**
+   * Whether this document's own last run left rows it still owes the ledger.
+   *
+   * `withheldFor` reads the review queue, and the queue cannot answer for a document. One open
+   * entry is shared by every statement naming the same unmapped identifier, so mapping it and
+   * re-importing February landed February's rows and closed the entry — after which January, whose
+   * rows were never written, reported nothing withheld and could never be read again. And a plugin
+   * that throws part way through a file withholds nothing at all: the folios it never reached
+   * raised no queue entries, so the queue had never heard of them.
+   *
+   * This reads `import_run.outstanding_reason` instead, which the document's own newest run wrote
+   * about itself. Absent means the short-circuit always wins, as above.
+   */
+  readonly outstandingFor?: (documentId: string) => Promise<boolean>
 }
 
 export interface ImportCounters {
@@ -149,13 +163,21 @@ export async function runImport(request: ImportRequest, deps: ImportDeps): Promi
 
   // Document-level idempotency. Not an error, and deliberately no import_run: nothing happened.
   //
-  // Except where the document is still withholding rows. Then nothing happening is the problem:
+  // Except where the document still owes the ledger rows. Then nothing happening is the problem:
   // those rows are absent from every total, mapping their identifier does not write them, and this
   // file is the only place they exist. It is read again, into the document it already has.
+  //
+  // Two signals, and the second is the one that can be trusted about *this* document. `withheldFor`
+  // reads a queue entry shared with every other statement naming the same identifier, so a release
+  // earned by one of them silences it for all of them; `outstandingFor` reads what this document's
+  // own last run recorded, which is also the only thing that can speak for a file a plugin threw
+  // half way through. Either one standing means the file is read again.
   const seen = await deps.store.findDocumentByHash(contentHash)
   if (seen !== null) {
     const stillWithheld = deps.withheldFor === undefined ? 0 : await deps.withheldFor(seen.id)
-    if (stillWithheld === 0) {
+    const stillOutstanding =
+      deps.outstandingFor === undefined ? false : await deps.outstandingFor(seen.id)
+    if (stillWithheld === 0 && !stillOutstanding) {
       return {
         status: 'already-imported',
         contentHash,
@@ -219,9 +241,13 @@ async function importDecoded(
   const accounts: NormalizedAccount[] = []
   const transactions: NormalizedTransaction[] = []
   const positions: NormalizedPosition[] = []
-  let failed = issues
-    .all()
-    .filter((i) => i.severity === 'error' && i.code !== 'E_PLUGIN_CRASH' && i.raw !== undefined).length
+  // A crash counts as a failure, and used to be the one error that did not. Excluding it recorded
+  // `rows_failed: 0`, `status: 'completed'` and `read == committed` for a statement the parser gave
+  // up half way through — an audit record that reads exactly like a clean import of the whole file,
+  // for an import that read part of one. It has no `raw` payload to replay, so it is counted
+  // separately rather than by the filter.
+  let failed = issues.all().filter((i) => i.severity === 'error' && i.raw !== undefined).length
+  if (crashed !== null) failed += 1
 
   for (const record of sink.records) {
     const before = issues.count('error')
@@ -427,7 +453,14 @@ async function importDecoded(
       sourceDocumentId: documentId,
       startedAt: now,
       finishedAt: deps.now(),
-      // A partial import is a first-class outcome: completed, with a non-zero rows_failed.
+      // A partial import is a first-class outcome, and in this schema's vocabulary it is spelled
+      // `completed` with a non-zero `rows_failed` — see the header of `src-tauri/src/ingest.rs`.
+      // A run whose plugin threw is now one of those, because the crash is counted in `failed`.
+      //
+      // What makes such a run re-readable is not this column but `import_run.outstanding_reason`,
+      // which storage derives from the batch: `E_PLUGIN_CRASH` among the issues, or rows still
+      // withheld once the queue has been updated. It is not written from here because the second
+      // half of that is only knowable after the write.
       status: 'completed',
       parserVersion: deps.parserVersion ?? plugin.id,
       rowsRead: counters.read,
