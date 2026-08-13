@@ -22,9 +22,9 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         include_str!("../migrations/0003-alias-uniqueness.sql"),
     ),
     (
-        4,
+        5,
         "amc-identity",
-        include_str!("../migrations/0004-amc-identity.sql"),
+        include_str!("../migrations/0005-amc-identity.sql"),
     ),
 ];
 
