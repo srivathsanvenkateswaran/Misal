@@ -96,6 +96,14 @@ export interface PriceRow {
   readonly fetchedAt: string
 }
 
+export interface FxRateRow {
+  readonly base: string
+  readonly quote: string
+  readonly asOf: string
+  readonly rate: string
+  readonly source: string
+}
+
 export interface UnresolvedRow {
   readonly id: string
   readonly accountId: string
@@ -117,6 +125,7 @@ export const listAliases = (): Promise<AliasRow[]> => invoke<AliasRow[]>('list_a
 export const listTransactions = (): Promise<TxnRow[]> => invoke<TxnRow[]>('list_transactions')
 export const listPositions = (): Promise<PositionRow[]> => invoke<PositionRow[]>('list_positions')
 export const listPrices = (): Promise<PriceRow[]> => invoke<PriceRow[]>('list_prices')
+export const listFxRates = (): Promise<FxRateRow[]> => invoke<FxRateRow[]>('list_fx_rates')
 export const listUnresolved = (): Promise<UnresolvedRow[]> =>
   invoke<UnresolvedRow[]>('list_unresolved')
 
@@ -131,6 +140,7 @@ export interface PortfolioRows {
   readonly transactions: readonly TxnRow[]
   readonly positions: readonly PositionRow[]
   readonly prices: readonly PriceRow[]
+  readonly fxRates: readonly FxRateRow[]
   readonly unresolved: readonly UnresolvedRow[]
   readonly settings: ReadonlyMap<string, string>
 }
@@ -143,7 +153,17 @@ export interface PortfolioRows {
  * during an import, which for a net-worth figure reads as a bug rather than as loading.
  */
 export async function loadPortfolioRows(): Promise<PortfolioRows> {
-  const [accounts, instruments, aliases, transactions, positions, prices, unresolved, settings] =
+  const [
+    accounts,
+    instruments,
+    aliases,
+    transactions,
+    positions,
+    prices,
+    fxRates,
+    unresolved,
+    settings,
+  ] =
     await Promise.all([
       listAccounts(),
       listInstruments(),
@@ -151,8 +171,19 @@ export async function loadPortfolioRows(): Promise<PortfolioRows> {
       listTransactions(),
       listPositions(),
       listPrices(),
+      listFxRates(),
       listUnresolved(),
       getSettings(),
     ])
-  return { accounts, instruments, aliases, transactions, positions, prices, unresolved, settings }
+  return {
+    accounts,
+    instruments,
+    aliases,
+    transactions,
+    positions,
+    prices,
+    fxRates,
+    unresolved,
+    settings,
+  }
 }

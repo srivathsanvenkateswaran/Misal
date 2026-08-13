@@ -61,6 +61,7 @@ pub fn run() {
             queries::list_transactions,
             queries::list_positions,
             queries::list_prices,
+            queries::list_fx_rates,
             queries::list_unresolved,
             queries::get_settings,
             ingest::ingest_find_document_by_hash,

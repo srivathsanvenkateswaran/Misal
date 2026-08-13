@@ -231,19 +231,45 @@ export function valueFromRows(
   const accounts = buildAccounts(rows, instruments, asOf)
   const prices = buildPriceService(rows, instruments, () => asOf)
 
-  const fx = new FxTable([])
+  // Seeded from stored rates. An empty table is not a neutral default: the engine refuses to
+  // convert rather than assume a rate, so every USD holding - the E*TRADE and Fidelity RSUs this
+  // product exists to consolidate - would be silently absent from every total rather than merely
+  // unpriced.
+  const fx = new FxTable(
+    rows.fxRates.map((r) => ({
+      base: r.base,
+      quote: r.quote,
+      asOf: r.asOf as never,
+      rate: requireDec(r.rate, `fx rate ${r.base}/${r.quote} on ${r.asOf}`),
+      source: r.source,
+    })),
+  )
 
   const input: PortfolioInput = {
     accounts,
     instruments,
     prices,
     fx,
+    // Fully mapped, and deliberately not cast. An earlier version omitted `resolvedAt` and
+    // silenced the resulting type error with `as never`; the engine filters on
+    // `resolvedAt === null`, `undefined === null` is false, and so every unresolved row was
+    // dropped and the withheld value always reported zero. The whole point of the queue is to
+    // state what is being held out of the totals, so it reported the opposite of the truth.
+    //
+    // list_unresolved returns only rows where resolved_at IS NULL, hence the constant.
     unresolved: rows.unresolved.map((u) => ({
       id: u.id,
       accountId: u.accountId,
       rawIdentifier: u.rawIdentifier,
+      rawName: u.rawName,
+      observedQuantity:
+        u.observedQuantity === null
+          ? null
+          : requireDec(u.observedQuantity, `unresolved ${u.id} quantity`),
       observedValueMinor: u.observedValueMinor === null ? null : minor(u.observedValueMinor),
-    })) as never,
+      currency: u.currency === null ? null : requireCurrency(u.currency, `unresolved ${u.id}`),
+      resolvedAt: null,
+    })),
     asOf: asOf,
   }
 

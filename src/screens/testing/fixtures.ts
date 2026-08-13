@@ -395,7 +395,8 @@ export function portfolioRows(over: Partial<PortfolioRows> = {}): PortfolioRows 
     transactions: TRANSACTIONS,
     positions: POSITIONS,
     prices: PRICES,
-    unresolved: UNRESOLVED,
+    fxRates: [],
+  unresolved: UNRESOLVED,
     settings: new Map([['base_currency', 'INR']]),
     ...over,
   }
@@ -410,7 +411,8 @@ export function emptyRows(): PortfolioRows {
     transactions: [],
     positions: [],
     prices: [],
-    unresolved: [],
+    fxRates: [],
+  unresolved: [],
     settings: new Map(),
   }
 }
@@ -428,6 +430,7 @@ export function allLedgerRows(): PortfolioRows {
   return portfolioRows({
     accounts: ACCOUNTS.filter((account) => account.capability === 'ledger'),
     positions: [],
-    unresolved: [],
+    fxRates: [],
+  unresolved: [],
   })
 }

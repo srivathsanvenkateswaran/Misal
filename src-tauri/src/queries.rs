@@ -102,6 +102,16 @@ pub struct PriceRow {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct FxRateRow {
+    pub base: String,
+    pub quote: String,
+    pub as_of: String,
+    pub rate: String,
+    pub source: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UnresolvedRow {
     pub id: String,
     pub account_id: String,
@@ -300,6 +310,29 @@ pub fn list_unresolved(state: tauri::State<'_, AppState>) -> Result<Vec<Unresolv
             observed_value_minor: row.get(6)?,
             currency: row.get(7)?,
             first_seen_at: row.get(8)?,
+        })
+    })?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+/// Stored exchange rates.
+///
+/// Without these no foreign holding can enter net worth at all - the engine refuses to convert
+/// rather than assume a rate, so a missing table silently makes every US holding invisible in
+/// every total rather than merely unpriced.
+#[tauri::command]
+pub fn list_fx_rates(state: tauri::State<'_, AppState>) -> Result<Vec<FxRateRow>> {
+    let conn = state.conn.lock().expect("storage mutex poisoned");
+    let mut stmt = conn.prepare(
+        "SELECT base, quote, as_of, rate, source FROM fx_rate ORDER BY base, quote, as_of",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(FxRateRow {
+            base: row.get(0)?,
+            quote: row.get(1)?,
+            as_of: row.get(2)?,
+            rate: row.get(3)?,
+            source: row.get(4)?,
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)

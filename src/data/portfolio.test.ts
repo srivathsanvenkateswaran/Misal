@@ -114,6 +114,7 @@ function rows(over: Partial<PortfolioRows> = {}): PortfolioRows {
         fetchedAt: AS_OF,
       },
     ],
+    fxRates: [],
     unresolved: [],
     settings: new Map([['base_currency', 'INR']]),
     ...over,
@@ -154,6 +155,70 @@ describe('instrument mapping', () => {
     // Silently treating a EUR holding as INR would misstate net worth without any visible error.
     const bad = rows({ instruments: [{ ...rows().instruments[0]!, currency: 'EUR' }] })
     expect(() => buildInstruments(bad, ALIASES)).toThrow(/unsupported currency/)
+  })
+})
+
+describe('foreign holdings', () => {
+  it('cannot enter net worth without a stored rate, and says so rather than assuming one', () => {
+    const bundle = valueFromRows(rows(), ALIASES, AS_OF)
+    expect(bundle.snapshot.ok).toBe(true)
+    if (!bundle.snapshot.ok) return
+    // Only the INR fund is counted. The USD holding is absent from the total, not valued at zero.
+    expect(bundle.snapshot.value.netWorthMinor).toBe('7550000')
+  })
+
+  it('converts a USD holding once a rate is stored', () => {
+    // The regression this guards: an empty FxTable was constructed unconditionally, so every
+    // E*TRADE and Fidelity RSU - the holdings this product exists to consolidate - was silently
+    // missing from every total rather than merely unpriced.
+    const withFx = rows({
+      prices: [
+        ...rows().prices,
+        {
+          instrumentId: 'i-cat',
+          asOf: '2026-08-12',
+          close: '350.0000',
+          currency: 'USD',
+          source: 'twelvedata',
+          fetchedAt: AS_OF,
+        },
+      ],
+      fxRates: [
+        { base: 'USD', quote: 'INR', asOf: '2026-08-12', rate: '87.4400', source: 'manual' },
+      ],
+    })
+    const bundle = valueFromRows(withFx, ALIASES, AS_OF)
+    expect(bundle.snapshot.ok).toBe(true)
+    if (!bundle.snapshot.ok) return
+    // 40 x $350 = $14,000 at 87.44 = Rs 12,24,160, plus the Rs 75,500 fund.
+    expect(bundle.snapshot.value.netWorthMinor).toBe('129966000')
+  })
+})
+
+describe('unresolved instruments', () => {
+  it('reaches the engine, so the withheld value is not reported as zero', () => {
+    // The regression this guards: the mapping omitted resolvedAt and was cast with `as never`.
+    // The engine filters on `resolvedAt === null`, undefined === null is false, and so every
+    // unresolved row was dropped - the queue reported nothing withheld however much was.
+    const withUnresolved = rows({
+      unresolved: [
+        {
+          id: 'u1',
+          accountId: 'a-coin',
+          rawIdentifier: 'UNKNOWN-FUND-XYZ',
+          rawName: 'Some Fund',
+          assetClassHint: 'mutual_fund',
+          observedQuantity: '100.0000',
+          observedValueMinor: '19658000',
+          currency: 'INR',
+          firstSeenAt: AS_OF,
+        },
+      ],
+    })
+    const bundle = valueFromRows(withUnresolved, ALIASES, AS_OF)
+    expect(bundle.snapshot.ok).toBe(true)
+    if (!bundle.snapshot.ok) return
+    expect(bundle.snapshot.value.coverage.unresolvedInstrumentCount).toBe(1)
   })
 })
 
