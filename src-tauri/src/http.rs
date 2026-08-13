@@ -23,7 +23,10 @@ use std::time::Duration;
 /// An explicit table rather than a scheme check. Restricting to HTTPS would still allow any host
 /// on the internet; naming them means a compromised frontend cannot redirect a fetch somewhere
 /// that logs what a user holds.
-const MARKET_DATA_HOSTS: &[(&str, &str)] = &[
+/// Public so `settings.rs` can generate the "what leaves this machine" disclosure from the list the
+/// socket layer actually enforces. A disclosure written separately would drift the first time a
+/// host was added here.
+pub const MARKET_DATA_HOSTS: &[(&str, &str)] = &[
     // AMFI's daily NAV file. Keyless and official, which is why mutual funds price before the
     // user has entered any provider key.
     ("portal.amfiindia.com", "/spages/"),
