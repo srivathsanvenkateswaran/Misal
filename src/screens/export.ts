@@ -96,7 +96,21 @@ const HOLDING_COLUMNS: readonly ExportColumn<HoldingRow>[] = [
   { id: 'instrument_currency', cell: (row) => cell(row.position.currency) },
   { id: 'quantity', cell: (row) => cell(row.position.quantity) },
   { id: 'last_price', cell: (row) => figureCell(row.position.lastPrice), withReason: true },
-  { id: 'avg_cost', cell: (row) => figureCell(row.position.avgCost), withReason: true },
+  /*
+   * `avg_cost_inr`, not `avg_cost`.
+   *
+   * `PositionView.avgCost` divides a cost basis that has already been converted by `costInInr`, so
+   * it is rupees per unit — while `last_price` in the column before it is native and
+   * `instrument_currency` two columns earlier names the row's own unit. Exported as a bare
+   * `avg_cost` it was read under that declared unit: the Caterpillar row said $28,705.82 average
+   * cost against a $376.20 last price, a 98.7% loss, two columns from `unrealised_pct` of +14.67.
+   * The true dollar figure is $336.47 — the mismatch is the exchange rate, ~85×.
+   *
+   * Worse here than on screen, because the unit is asserted in the row's own metadata and travels
+   * to whoever receives the file. The `_inr` suffix is this module's word for "Misal converted
+   * this", which is exactly what happened to it.
+   */
+  { id: 'avg_cost_inr', cell: (row) => figureCell(row.position.avgCost), withReason: true },
   {
     id: 'value_inr_minor',
     cell: (row) => (row.position.priced ? cell(row.position.valueMinor) : unmeasuredCell('no_price')),
@@ -246,8 +260,11 @@ const MONEY_NOTE =
   'Amounts appear twice: <name>_minor is the stored integer in the smallest unit of its currency ' +
   'and <name> is the exact decimal derived from it. Neither is rounded. A column named ' +
   '<name>_inr_minor / <name>_inr is in rupees and paise because Misal converted it — that is the ' +
-  'holdings table, where value, cost and unrealised P&L are all converted to INR at the stored ' +
-  'rate. The transactions table is NOT converted: each row is in its own currency, given in the ' +
+  'holdings table, where value, cost, average cost and unrealised P&L are all converted to INR at ' +
+  'the stored rate. last_price is the one figure in that table Misal did not convert: it is the ' +
+  'stored close in the currency instrument_currency names, so avg_cost_inr and last_price are not ' +
+  'in the same unit for a holding quoted outside India. ' +
+  'The transactions table is NOT converted at all: each row is in its own currency, given in the ' +
   'currency column beside the amount, and price is quoted in that same currency. Every value is a ' +
   'string; a spreadsheet may turn it into a float when it opens the file, which Misal cannot ' +
   'prevent and has not done.'

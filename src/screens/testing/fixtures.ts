@@ -581,6 +581,82 @@ export function freshInstallRows(over: Partial<PortfolioRows> = {}): PortfolioRo
   })
 }
 
+// ---------------------------------------------------------------------------
+// Three shapes an aggregate can be in, only one of which the corpus could reach.
+//
+// `unpricedSnapshotRows()` makes a whole account unpriced, so every total over it comes out at
+// zero — which renders as `fullCoverage(0)` and a coverage attribute of "0.0%", the harmless-
+// looking end of the defect. What follows are the shapes that are not harmless: an aggregate that
+// is *partly* priced, where the sum is a real, large, wrong number; a genuine zero, which must
+// keep saying zero; and the state of every install between an import and its first refresh.
+// ---------------------------------------------------------------------------
+
+/**
+ * One account holding one priced instrument and one unpriced one.
+ *
+ * Nothing in the corpus produced this. Every unpriced fixture makes the whole aggregate unpriced,
+ * so the sum is zero and looks like an empty state; here the E*TRADE account holds ten grams of
+ * gold — ₹1,11,737 — beside a dollar holding with no stored rate, and summing the unpriced one as
+ * zero yields a confident rupee figure that silently omits a holding, under a coverage of 100.0%:
+ * the one number this product documents as meaning complete.
+ *
+ * Pricing is decided per instrument (a stored close plus a rate for its currency), so an account
+ * is the smallest scope that can be *partly* priced. That is why this fixture moves a holding
+ * between accounts rather than pricing half an instrument: the latter is not a state the engine
+ * can be in.
+ */
+export function partlyPricedAccountRows(over: Partial<PortfolioRows> = {}): PortfolioRows {
+  return portfolioRows({
+    positions: [
+      ...POSITIONS,
+      {
+        id: 'p-etrade-gold',
+        accountId: 'a-etrade',
+        instrumentId: 'i-gold',
+        quantity: '10.0000',
+        asOf: '2026-08-09T00:00:00+05:30',
+        sourceDocumentId: 'd-etr-1',
+      },
+    ],
+    unresolved: [],
+    ...over,
+  })
+}
+
+/**
+ * A holding sold down to nothing, with the statement row retained.
+ *
+ * The one case where a zero on the screen is the truth: the units are known, the price is known,
+ * and the product of the two is ₹0. It is here to bound the fix for the unpriced sums — an
+ * aggregate that omits a holding it could not price must be withheld, and an aggregate that
+ * genuinely came to zero must not be, or "not measured" becomes the new way of saying nothing.
+ */
+export function zeroQuantityRows(over: Partial<PortfolioRows> = {}): PortfolioRows {
+  return portfolioRows({
+    positions: POSITIONS.map((row) =>
+      row.accountId === 'a-gold' ? { ...row, quantity: '0.0000' } : row,
+    ),
+    unresolved: [],
+    ...over,
+  })
+}
+
+/**
+ * A fresh install: statements imported, no refresh yet, so not one price is stored.
+ *
+ * This is not an exotic state — it is every install between its first import and its first
+ * refresh, and it is what the user sees while deciding whether the product works. With no price
+ * row at all, every holding is unpriced, every instrument total and every account total is a sum
+ * of zeros, and the defect this fixture exists for renders on *every* tile and *every* row at
+ * once rather than on the one foreign holding.
+ *
+ * `freshInstallRows()` is the neighbouring state and a different one: there, one refresh has
+ * happened, so today is priced and only the earlier months are not.
+ */
+export function noPricesRows(over: Partial<PortfolioRows> = {}): PortfolioRows {
+  return portfolioRows({ prices: [], ...over })
+}
+
 /**
  * A sub-paisa crypto price, with a ledger behind it.
  *

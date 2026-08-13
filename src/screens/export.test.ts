@@ -19,7 +19,7 @@ import {
 import { flatten } from '../data/export'
 import { buildPortfolioView } from './view-model'
 import type { PortfolioData } from './view-model'
-import { AS_OF, portfolioRows, usdLedgerRows } from './testing/fixtures'
+import { AS_OF, noPricesRows, portfolioRows, usdLedgerRows } from './testing/fixtures'
 
 /**
  * Built once. `buildPortfolioView` values the portfolio at twelve month ends as well as today, so
@@ -67,7 +67,10 @@ describe('the exported column lists', () => {
       'instrument_currency',
       'quantity',
       'last_price',
-      'avg_cost',
+      // Not `avg_cost`. It divides a cost basis Misal has already converted, so it is rupees per
+      // unit in a row whose `instrument_currency` may say USD — the `_inr` suffix is this file's
+      // word for "converted", and it is what happened to this figure.
+      'avg_cost_inr',
       'value_inr_minor',
       'value_inr',
       'cost_inr_minor',
@@ -143,6 +146,39 @@ describe('holdings', () => {
     expect(gold?.[reason]).toBe('no transaction history')
   })
 
+  it('does not write a rupee average cost under a row declaring dollars', () => {
+    /*
+     * The Caterpillar row was in every `flatten()` result this file already built, and nothing
+     * looked at the column: `instrument_currency=USD, last_price=376.2000, avg_cost=28705.82`.
+     * Read under the unit the row itself declares — which is the only unit a recipient of the file
+     * has — that is a 98.7% loss stated two columns from an `unrealised_pct` of +14.67, and the
+     * mismatch is the exchange rate, about 85×.
+     *
+     * The unit is asserted in the row's own metadata here, and the file outlives the screen, so
+     * this is the worse of the two surfaces the same quotient reaches.
+     */
+    const flat = flatten(holdingsTable(usdData()))
+    expect(flat.headers).not.toContain('avg_cost')
+    expect(flat.headers).toContain('avg_cost_inr')
+
+    const instrument = flat.headers.indexOf('instrument')
+    const currency = flat.headers.indexOf('instrument_currency')
+    const lastPrice = flat.headers.indexOf('last_price')
+    const avgCost = flat.headers.indexOf('avg_cost_inr')
+    const cost = flat.headers.indexOf('cost_inr')
+    const quantity = flat.headers.indexOf('quantity')
+
+    const cat = flat.rows.find((row) => row[instrument] === 'Caterpillar Inc')
+    expect(cat?.[currency]).toBe('USD')
+    // Native, and the only column in this table that is.
+    expect(cat?.[lastPrice]).toBe('376.2000')
+    // Converted, and now named as converted: it is `cost_inr` divided by `quantity`, which is a
+    // derivation a recipient can check against two other columns of the same row.
+    expect(cat?.[cost]).toBe('975998')
+    expect(cat?.[quantity]).toBe('34')
+    expect(cat?.[avgCost]).toMatch(/^28705\.8235/u)
+  })
+
   it('says a holding it cannot price is unpriced, not worth nothing', () => {
     const flat = flatten(holdingsTable(data()))
     const instrument = flat.headers.indexOf('instrument')
@@ -152,6 +188,28 @@ describe('holdings', () => {
     const cat = flat.rows.find((row) => row[instrument] === 'Caterpillar Inc')
     expect(cat?.[value]).toBe('')
     expect(cat?.[reason]).toMatch(/no (price|exchange rate)/u)
+  })
+
+  it('writes no rupee figure at all on an install that has fetched no price', () => {
+    // Every holding unpriced, which is the state of any install between its first import and its
+    // first refresh. The screens summed these rows to a measured ₹0; the export asks `priced` per
+    // row, and this asserts that it keeps doing so for a file where *no* row is priced.
+    const view = buildPortfolioView(noPricesRows(), AS_OF)
+    if (!view.ok) throw new Error(view.message)
+    const flat = flatten(holdingsTable(view.data))
+    const value = flat.headers.indexOf('value_inr')
+    const valueMinor = flat.headers.indexOf('value_inr_minor')
+    const reason = flat.headers.indexOf('value_inr_not_measured')
+    const quantity = flat.headers.indexOf('quantity')
+
+    expect(flat.rows.length).toBeGreaterThan(0)
+    for (const row of flat.rows) {
+      expect(row[value]).toBe('')
+      expect(row[valueMinor]).toBe('')
+      expect(row[reason]).toBe('no price available')
+      // The quantity is still there: the units are known, and only their value is not.
+      expect(row[quantity]).not.toBe('')
+    }
   })
 })
 

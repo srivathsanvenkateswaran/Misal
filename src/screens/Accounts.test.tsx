@@ -85,6 +85,23 @@ describe('Accounts', () => {
     assertHonest(container)
   })
 
+  it('does not answer ₹0 for the value of holdings it has just said it cannot price', () => {
+    /*
+     * The count was right and the arithmetic was not: the view-model summed the unpriced holding
+     * in as `ZERO_MINOR` and published the total as measured, so this row read a confident ₹0 one
+     * column from its own "1 not priced" badge.
+     */
+    const { container } = render(<Accounts data={data(unpricedSnapshotRows())} />)
+    const row = [...container.querySelectorAll('[data-row-scope="account"]')].find(
+      (candidate) => candidate.textContent?.includes('E*TRADE') === true,
+    )
+    const value = row?.querySelector('[data-metric="value"]')
+    expect(value?.getAttribute('data-not-measured')).toBe('no_fx_rate')
+    expect(value?.textContent).toContain('Not converted')
+    expect(value?.textContent).not.toMatch(/^[\s₹0.,%—–-]*$/u)
+    assertHonest(container)
+  })
+
   it('reports the data date it actually has, rather than inventing a sync time', () => {
     const { container } = render(<Accounts data={data()} />)
     expect(screen.getAllByText('Latest transaction date').length).toBeGreaterThan(0)

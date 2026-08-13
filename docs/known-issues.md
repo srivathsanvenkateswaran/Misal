@@ -1465,10 +1465,11 @@ The corpus had no fixture that could catch it: the only USD account was snapshot
 transactions and therefore no lots and no amounts. `usdLedgerRows()` in
 `src/screens/testing/fixtures.ts` is that fixture.
 
-**Left open:** `PositionView.avgCost` is `pair.costMinor / quantity` — rupees per unit — and sits in
-the same table as `lastPrice`, which is the stored close in the instrument's own currency. Both are
-`qtyFigure`s with no unit, under headers "Avg cost" and "Last price". They are not the same unit for
-a foreign holding, and nothing on that row says so.
+~~**Left open:** `PositionView.avgCost` is `pair.costMinor / quantity` — rupees per unit — and sits
+in the same table as `lastPrice`, which is the stored close in the instrument's own currency. Both
+are `qtyFigure`s with no unit, under headers "Avg cost" and "Last price". They are not the same unit
+for a foreign holding, and nothing on that row says so.~~ — **now fixed**, with the export column
+that carried the same quotient; see "An average cost in rupees, in a row declaring dollars" below.
 
 ### ~~"100.0% LEDGER-BACKED" over an account whose holdings were all unpriced~~ — FIXED
 
@@ -1539,6 +1540,109 @@ untouched for any price it can show, and a value that would round to a row of ze
 its stored string actually carries, capped at 8 — the chart's own cap, so the two cannot disagree
 about how many digits a price has. A genuine zero still prints `0.00`, because zero is a measurement
 here rather than a rounding artefact. `subPaisaRows()` is the fixture.
+
+### ~~Unpriced holdings were summed as ₹0 and republished as measured~~ — FIXED
+
+`buildPosition` writes `valueMinor = ZERO_MINOR` when `pair.marketValue` is not measured. That is
+correct in itself — the sibling `value` field takes `notMeasured`, so nothing renders the zero — but
+both aggregates over those positions summed it and wrapped the result in `fullCoverage`:
+`buildInstrumentViews` for `totalValue`, and the account loop in `build` for `AccountView.value`, on
+the line directly after computing `unpriced`. The count was there; the arithmetic ignored it.
+
+**Consequence, on the shipped fixture:** the Instruments detail printed "Units held 34.0000" beside
+"Current value ₹0 · 0.00% of net worth" under a stamp reading "Quantity multiplied by the latest
+stored price", while the position row in the same panel said "Not converted — no exchange rate for
+this date". The Accounts row badged "1 not priced" one column from a measured ₹0; the Dashboard's
+per-account table and both Instruments screens carried no qualifier at all. `lastPriceNote` on the
+same tile said "No price has been fetched for this instrument" above a printed 376.20 — the engine
+dates only a price it could use, so a holding that priced but would not convert has a stored close
+and no `priceAge`.
+
+**Scope, which is far wider than that fixture suggests:** with `prices: []` — every install between
+its first import and its first refresh — *every* instrument tile and *every* account row printed a
+measured ₹0.
+
+**Why the honesty suite could not see it:** H3 inspects `[data-not-measured]` nodes, and marking the
+sum measured is exactly what removes the node. It was considered and deliberately not fixed there:
+in the DOM a measured ₹0 over an unpriced holding and a measured ₹0 over a sold-out one are
+identical, down to `data-coverage-pct="0.0"` (`fullCoverage(0)` short-circuits). What separates them
+is which positions went into the sum, so the check has to live where the sum is taken — it is a
+corpus-wide invariant in `view-model.test.ts`: for every account and every instrument, in every
+fixture, the total is measured exactly when all of its own positions are priced.
+
+Fixed by withholding the aggregate — `notMeasured(<the member's own reason>, pricedMinor)` — when
+any holding under it is unpriced. There is no partial branch, and that is the interesting part:
+`Coverage` is a pair of rupee amounts and an unpriced holding contributes a rupee amount to neither
+side of it, so `partialCoverage(priced, priced)` reads 100.0%, and 100% is the one value this
+product documents as meaning complete (`pricedCoveragePct`). A partly priced total therefore cannot
+be qualified the way a partly known cost basis can. The priced subtotal stays on `valueMinor` for
+the weights, the sort and the export — the export was already right, guarding on `row.position.priced`
+at `export.ts`, which is what proved this was the screens' convention and not the data's. A genuinely
+zero total — units sold, price known — stays measured, because zero is a measurement there.
+
+The reason is taken from the first unpriced member rather than fixed at `no_price`, so the tile says
+"Not converted — no exchange rate for this date" wherever the row beneath it does. `lastPriceNote`
+now distinguishes "no price stored" from "priced, but not convertible to rupees".
+
+Three fixtures, because the corpus could reach only the harmless end of this:
+`partlyPricedAccountRows()` (one priced holding and one unpriced under one account — the sum that
+looks entirely plausible, and the shape nothing produced), `noPricesRows()` (a fresh install) and
+`zeroQuantityRows()` (the genuine zero the fix must not swallow). `unpricedSnapshotRows()` and
+`usdLedgerRows()` already existed and were already used; what was missing were assertions over the
+columns and the totals they had been producing all along.
+
+**Left open, and it is the same shape one level up:** `readout.netWorth` is
+`measured(moneyFigure(netWorth), fullCoverage(netWorth))` over a `netWorthMinor` that omits every
+unpriced holding. It is qualified today by the calibration bar's unpriced count rather than by the
+figure itself, and `portfolio.ts` states the countervailing rule — "one unmeasurable holding must
+never blank the net-worth figure". Deciding between those two is a design question, not a bug fix,
+and it was out of this branch's scope.
+
+### ~~An average cost in rupees, in a row declaring dollars~~ — FIXED
+
+`PositionView.avgCost` is `divDec(minorToDec(pair.costMinor.value, 'INR'), pair.quantity)`, and
+`pair.costMinor` has already been through `costInInr` — so the quotient is **rupees per unit**
+whatever the instrument is quoted in. It was rendered as a bare `qtyFigure` under headers reading
+"Avg cost", next to a "Last price" that is the stored close in the instrument's own currency, and
+exported as a bare `avg_cost` column next to `last_price` (native) and `instrument_currency` (which
+names the row's unit).
+
+**Consequence in the export, which is the worse surface because the unit is asserted in the row's
+own metadata and travels to whoever receives the file:** the Caterpillar row read
+`instrument_currency=USD, quantity=34, last_price=376.2000, avg_cost=28705.82…, unrealised_pct=14.67`.
+Read under its own declared unit, that file says $28,705.82 average cost against a $376.20 last
+price — a 98.7% loss — two columns from an unrealised percentage of +14.67. The true dollar figure
+is $336.47; the mismatch is the exchange rate, about 85×. On screen it is the residual left open by
+the native-currency fix above.
+
+**The decision, since either answer is defensible:** the average stays *converted*, and states its
+unit. The cost basis it divides is the one the engine computes, the one `cost_inr`, `unrealised_inr`
+and the "Invested — FIFO cost ₹" tile all show, and the one Indian tax is assessed in; a native
+average would be a second cost basis disagreeing with every rupee figure beside it, and the engine
+does not compute one per position.
+
+Fixed by putting the unit on the figure — `qtyFigure(perUnit, { precision, unit: 'INR' })`, so the
+cell reads `28,705.82 INR` — rather than in the header, because on the Holdings screen that header
+also carries the portfolio's total cost and cannot name one unit for both. The export column is
+`avg_cost_inr`: `_inr` is this module's word for "Misal converted this", which is what happened to
+it, and `MONEY_NOTE` now names `last_price` as the one figure in the holdings table that is *not*
+converted. The export whitelist test locks the new name.
+
+The fixture was not missing: `usdLedgerRows()` has been in `export.test.ts` since the currency fix,
+and the Caterpillar row was in every `flatten()` result it built. Nothing asserted on that column.
+
+### Export is documented as shipped and has no button
+
+`runExport` and `EXPORT_CHOICES` are complete and tested, and nothing on any screen calls them —
+only `export.test.ts` does — while `docs/USING.md` documents "Settings → Export writes CSV or JSON
+of your holdings and transactions". So the feature exists, is reachable from no screen, and is
+promised to the user in the manual.
+
+Not a missing state: a missing button. Wiring it needs a panel on the Settings screen, a
+`SettingsRuntime` method to reach `loadPortfolioRows` + `buildPortfolioView` the way
+`accountsWithValue` already does, and — per this repo's own workflow — a reviewable mockup first,
+since it is new UI. That is a small feature rather than a fix, so it is recorded here rather than
+smuggled into a defect branch.
 
 ## Exchange adapters
 

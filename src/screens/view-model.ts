@@ -114,7 +114,14 @@ export interface PositionView {
   readonly quantity: Dec
   readonly precision: number
   readonly currency: CurrencyCode
+  /**
+   * Cost basis per unit, **in rupees**, and the figure carries `INR` as its unit because of it.
+   *
+   * It divides `pair.costMinor`, which is already through `costInInr`, so it is not in the same
+   * unit as `lastPrice` beside it for any foreign holding. See `buildPosition`.
+   */
   readonly avgCost: Measured<Figure>
+  /** The stored close, in the instrument's own currency. Native, unlike `avgCost`. */
   readonly lastPrice: Measured<Figure>
   readonly priceNote: string | undefined
   readonly staleDays: number | undefined
@@ -664,9 +671,29 @@ function buildPosition(
   } else if (isZeroDec(pair.quantity)) {
     avgCost = notMeasured('no_transaction_history', valueMinor)
   } else {
+    /*
+     * Rupees per unit, and it says so.
+     *
+     * `pair.costMinor` has already been through `costInInr`, so this quotient is INR per unit
+     * whatever the instrument is quoted in — while `lastPrice`, in the very next column of the
+     * same row, is the stored close in the instrument's own currency. For Caterpillar the two read
+     * "28,705.82" and "376.20" under headers that named no unit at all: a 98.7% loss stated two
+     * columns from an unrealised percentage of +14.67.
+     *
+     * Converted is the right choice rather than native. The cost basis this divides is the one the
+     * engine computes, the one `cost_inr`, `unrealised_inr` and the FIFO tile all show, and the one
+     * Indian tax is assessed in; a native average would be a second cost basis that disagreed with
+     * every rupee figure beside it. So the unit travels *with the figure* rather than being
+     * asserted by a header — the same repair the lot table's native cost took, in the other
+     * direction — because the header over this column also carries a portfolio total on the
+     * Holdings screen and cannot name one unit for both.
+     */
     const perUnit = divDec(minorToDec(pair.costMinor.value, 'INR'), pair.quantity)
     avgCost = measured(
-      qtyFigure(perUnit, { precision: priceDecimals(instrument.assetClass, perUnit) }),
+      qtyFigure(perUnit, {
+        precision: priceDecimals(instrument.assetClass, perUnit),
+        unit: 'INR',
+      }),
       pair.costMinor.coverage,
     )
   }
@@ -1167,6 +1194,21 @@ function withheldFrom(rows: PortfolioRows): {
 // Instruments
 // ---------------------------------------------------------------------------
 
+/**
+ * Why an aggregate over these positions could not be totalled, in the words the rows themselves
+ * use.
+ *
+ * Taken from the first unpriced member rather than fixed at `no_price`, so the instrument tile and
+ * the account row say "Not converted — no exchange rate for this date" wherever the position row
+ * beneath them says it. Two different sentences about one holding read as two different problems.
+ */
+function unpricedReasonOf(positions: readonly PositionView[]): NotMeasuredReason {
+  for (const position of positions) {
+    if (!position.value.measured) return position.value.reason
+  }
+  return 'no_price'
+}
+
 function buildInstrumentViews(
   snapshot: ValuationSnapshot,
   rows: PortfolioRows,
@@ -1189,6 +1231,11 @@ function buildInstrumentViews(
       const pairs = snapshot.pairs.filter((pair) => pair.instrumentId === id)
 
       const valueMinor = addMinor(...own.map((position) => position.valueMinor))
+      // The sum above is the *priced* value: `buildPosition` writes `ZERO_MINOR` into `valueMinor`
+      // for a holding it could not price, because the sibling `value` field takes the false branch
+      // and there is no rupee figure to carry. Summing those zeros and publishing the result as
+      // measured re-asserts, one level up, exactly what the position row declined to say.
+      const allPriced = own.length > 0 && own.every((position) => position.priced)
       const capabilities = new Set(own.map((position) => position.capability))
       const capability: Capability | 'mixed' =
         capabilities.size === 1 ? (own[0]?.capability ?? 'snapshot') : 'mixed'
@@ -1311,10 +1358,19 @@ function buildInstrumentViews(
               fullCoverage(valueMinor),
             )
           : notMeasured<Figure>('no_price', valueMinor),
+        /*
+         * `age` comes from the pairs, and the engine only dates a price it could actually use: a
+         * holding that priced but would not convert has a stored close and no `priceAge`. Saying
+         * "no price has been fetched" there contradicted the figure printed directly above it —
+         * Caterpillar's tile read 376.20 under that sentence — and pointed the user at a refresh
+         * that would fetch a price they already have, instead of at the missing rate.
+         */
         lastPriceNote:
-          age === null
-            ? 'No price has been fetched for this instrument.'
-            : `${instrument.currency} · as of ${formatDate(age.asOf)} · ${age.ageDays.toString()} d old · ${age.source}`,
+          age !== null
+            ? `${instrument.currency} · as of ${formatDate(age.asOf)} · ${age.ageDays.toString()} d old · ${age.source}`
+            : read.ok
+              ? `${instrument.currency} · as of ${formatDate(read.value.asOf)} · ${read.value.source} · not converted to rupees, so this instrument is in no rupee total`
+              : 'No price has been fetched for this instrument.',
         positions: own,
         totalQuantity: measured<Figure>(
           qtyFigure(own.length === 0 ? ZERO_DEC : addDec(...own.map((position) => position.quantity)), {
@@ -1322,7 +1378,21 @@ function buildInstrumentViews(
           }),
           fullCoverage(valueMinor),
         ),
-        totalValue: measured(moneyFigure(valueMinor, { symbol: false }), fullCoverage(valueMinor)),
+        /*
+         * Measured only when every holding of this instrument is priced.
+         *
+         * There is no third branch, and the reason is worth stating: `Coverage` is a pair of rupee
+         * amounts, and an unpriced holding contributes a rupee amount to neither side of it — that
+         * is what "unpriced" means. So a partly-priced total cannot be qualified by a coverage the
+         * way a partly-known cost basis can: `partialCoverage(priced, priced)` reads 100.0%, and
+         * 100% is the one value this product documents as meaning complete (see
+         * `pricedCoveragePct`). Withholding says the true thing — the total is not known — and the
+         * priced subtotal stays on `valueMinor` for the weights, the sort and the export, each of
+         * which already asks `priced` per row.
+         */
+        totalValue: allPriced
+          ? measured(moneyFigure(valueMinor, { symbol: false }), fullCoverage(valueMinor))
+          : notMeasured<Figure>(unpricedReasonOf(own), valueMinor),
         totalCost:
           costPairs.length === 0
             ? notMeasured<Figure>('no_transaction_history', valueMinor)
@@ -1474,7 +1544,21 @@ function build(rows: PortfolioRows, asOf: IsoInstant): PortfolioData {
       shortCode: shortCode(account),
       capability: account.capability,
       series: firstClass === undefined ? 'other' : SERIES_BY_ASSET_CLASS[firstClass],
-      value: measured(moneyFigure(valueMinor, { symbol: false }), fullCoverage(valueMinor)),
+      /*
+       * The same seam as `totalValue`, and the `unpriced` count on the line above is the proof it
+       * was known: the loop computed how many of this account's holdings could not be priced and
+       * then published their zeros as a measured rupee total anyway. The Accounts screen badged
+       * "1 not priced" beside a value of ₹0; the Dashboard's per-account table carried no
+       * qualifier at all.
+       *
+       * An account with no holdings is a different statement and keeps its measured zero: nothing
+       * is missing from that total, and the row's own "No rows imported for this account yet"
+       * already says why it is empty.
+       */
+      value:
+        unpriced === 0
+          ? measured(moneyFigure(valueMinor, { symbol: false }), fullCoverage(valueMinor))
+          : notMeasured<Figure>(unpricedReasonOf(own), valueMinor),
       valueMinor,
       holdings: own.length,
       unpriced,
