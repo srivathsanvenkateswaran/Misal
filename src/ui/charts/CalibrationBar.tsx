@@ -66,6 +66,20 @@ export interface CalibrationBarProps {
    */
   readonly accountsLedger: number
   readonly accountsTotal: number
+  /**
+   * How many holdings could not be priced at all.
+   *
+   * Nothing else on this component can express them. An unpriced holding has no rupee value, so it
+   * is in neither `ledgerBacked` nor `snapshotOnly` nor `netWorth`, and it therefore cancels out of
+   * every percentage drawn here — leaving a bar that reads "100.0% LEDGER-BACKED" over a portfolio
+   * with a whole account missing from it. The failure runs the wrong way round: a rate ageing past
+   * its bound drops a holding out of both sides and *raises* the number, so the honesty indicator
+   * improves as the data degrades.
+   *
+   * Non-zero, and the percentages stop being claims about the portfolio and become claims about
+   * the priced part of it, said in those words. 100.0% is reserved for a bar that is complete.
+   */
+  readonly unpriced?: number
   /** Defaults to `netWorth` rounded up to a clean ₹5L / ₹50L / ₹5Cr step. */
   readonly scaleMax?: Minor
   readonly state?: CalibrationState
@@ -144,12 +158,26 @@ export function CalibrationBar(props: CalibrationBarProps): ReactNode {
     total: props.netWorth,
     excludedAccounts: [],
   })
-  const ledgerLabel = `${ledgerPctText}% LEDGER-BACKED · ${formatMoney(money(props.ledgerBacked))}`
+  /*
+   * The percentages below are a fraction of `netWorth`, and `netWorth` is the value that could be
+   * priced. With nothing unpriced those are the same portfolio and the bar speaks plainly. With
+   * something unpriced they are not, and every reading of the bar — the label, the readout, the
+   * accessible name — says which of the two it is talking about. Qualified, not suppressed: the
+   * split it draws is exactly right about the part it can see, and the count says what it cannot.
+   */
+  const unpriced = props.unpriced ?? 0
+  const whole = unpriced === 0
+  const unpricedText = `${unpriced.toString()} ${unpriced === 1 ? 'holding has' : 'holdings have'} no stored price, so ${unpriced === 1 ? 'it is' : 'they are'} in neither amount above and in no percentage on this bar`
+  const ledgerLabel = `${ledgerPctText}%${whole ? '' : ' OF PRICED VALUE'} LEDGER-BACKED · ${formatMoney(money(props.ledgerBacked))}`
   const snapshotLabel = `${snapshotPctText}% SNAPSHOT ONLY · ${formatMoney(money(props.snapshotOnly))}`
 
   const label =
     state === 'ready'
-      ? `Calibration bar: ${ledgerPctText} percent of net worth is backed by full transaction history; ${snapshotPctText} percent is a holdings snapshot with no transaction history.`
+      ? `Calibration bar: ${ledgerPctText} percent of ${whole ? 'net worth' : 'the value Misal could price'} is backed by full transaction history; ${snapshotPctText} percent is a holdings snapshot with no transaction history.${
+          whole
+            ? ''
+            : ` ${unpricedText}, so this is not a statement about the whole portfolio and the percentage cannot be read as completeness.`
+        }`
       : 'Calibration bar: nothing measured yet.'
 
   const boundaryX = px(x(props.ledgerBacked))
@@ -167,6 +195,10 @@ export function CalibrationBar(props: CalibrationBarProps): ReactNode {
       data-basis="mixed"
       data-coverage-pct={state === 'ready' ? ledgerPctText : undefined}
       data-coverage-minor={state === 'ready' ? props.ledgerBacked : undefined}
+      // Machine-readable alongside the words, so a screen or a test can ask whether the percentage
+      // above is a claim about the whole portfolio without parsing a sentence to find out.
+      data-coverage-complete={state === 'ready' ? String(whole) : undefined}
+      data-unpriced-count={state === 'ready' ? unpriced.toString() : undefined}
     >
       <div className="calib-head">
         <div>
@@ -176,9 +208,11 @@ export function CalibrationBar(props: CalibrationBarProps): ReactNode {
         <div className="calib-readout">
           {state === 'ready' ? (
             <>
-              Ledger-backed <b>{ledgerPctText}%</b> &nbsp;·&nbsp;{' '}
+              Ledger-backed <b>{ledgerPctText}%</b>
+              {whole ? '' : ' of priced value'} &nbsp;·&nbsp;{' '}
               {formatMoney(money(props.ledgerBacked))} of {formatMoney(money(props.netWorth))}{' '}
               &nbsp;·&nbsp; {props.accountsLedger} of {props.accountsTotal} accounts
+              {whole ? '' : ` · ${unpriced.toString()} not priced`}
             </>
           ) : state === 'loading' ? (
             <span className="skel" style={{ width: '240px', height: '18px' }} aria-hidden="true" />
@@ -252,7 +286,7 @@ export function CalibrationBar(props: CalibrationBarProps): ReactNode {
         </p>
       )}
 
-      {state === 'ready' && <CalibrationLegend segments={segments} />}
+      {state === 'ready' && <CalibrationLegend segments={segments} unpriced={unpriced} note={unpricedText} />}
     </section>
   )
 }
@@ -390,11 +424,22 @@ function Segments({
 
 function CalibrationLegend({
   segments,
+  unpriced,
+  note,
 }: {
   readonly segments: readonly CalibrationSegment[]
+  readonly unpriced: number
+  readonly note: string
 }): ReactNode {
   return (
     <div className="legend">
+      {unpriced > 0 && (
+        // Not a swatch, because there is no geometry to point at: the whole statement is that
+        // something held is absent from every shape on this bar.
+        <span className="lg" data-unpriced-note="true">
+          {note}
+        </span>
+      )}
       {segments.map((segment) => (
         <span className="lg" key={segment.assetClass}>
           <span

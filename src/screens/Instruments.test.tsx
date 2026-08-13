@@ -11,7 +11,7 @@ import { assertHonest } from '@ui/testing/assert-honest'
 import { InstrumentDetail, InstrumentIndex } from './Instruments'
 import { buildPortfolioView } from './view-model'
 import type { PortfolioData } from './view-model'
-import { AS_OF, portfolioRows } from './testing/fixtures'
+import { AS_OF, portfolioRows, subPaisaRows, usdLedgerRows } from './testing/fixtures'
 
 function data(rows = portfolioRows()): PortfolioData {
   const view = buildPortfolioView(rows, AS_OF)
@@ -122,6 +122,67 @@ describe('InstrumentDetail — the price history', () => {
     expect(container.querySelector('.navchart [data-hatch]')).not.toBeNull()
     expect(screen.getByText(/NO TRANSACTION HISTORY/u)).toBeInTheDocument()
 
+    assertHonest(container)
+  })
+})
+
+describe('InstrumentDetail — an instrument held in dollars', () => {
+  /*
+   * Three static headers on this screen said ₹ over figures that are not rupees: "Cost" over
+   * `OpenLot.costMinor`, "Price" and "Amount" over the transaction's own stored values. The
+   * severe case is right here on one screen — the "Invested — FIFO cost" tile is the same cost
+   * through `costInInr`, so the tile and the lot table beneath it disagreed by ~87× with nothing
+   * anywhere to say why.
+   */
+  it('states the lot currency in the cell instead of asserting rupees in the header', () => {
+    const { container } = render(
+      <InstrumentDetail data={data(usdLedgerRows())} instrumentId="i-cat" />,
+    )
+    expect(screen.queryByText('Cost ₹')).toBeNull()
+    expect(screen.getByText('Cost')).toBeInTheDocument()
+    // 12 × $310, in dollars, in the cell — as the lot's cost and again as the trade's amount.
+    expect(screen.getAllByText('$3,720')).toHaveLength(2)
+    assertHonest(container)
+  })
+
+  it('states the tile’s own currency, so the two figures are comparable', () => {
+    const { container } = render(
+      <InstrumentDetail data={data(usdLedgerRows())} instrumentId="i-cat" />,
+    )
+    expect(screen.getByText('Invested — FIFO cost ₹')).toBeInTheDocument()
+    expect(container.querySelector('[data-metric="cost-basis"]')?.textContent).toBe('9,75,998')
+    expect(screen.getByText(/the lot table below is in each lot’s own currency/u)).toBeInTheDocument()
+    assertHonest(container)
+  })
+
+  it('prints a transaction amount and price in the currency they were struck in', () => {
+    const { container } = render(
+      <InstrumentDetail data={data(usdLedgerRows())} instrumentId="i-cat" />,
+    )
+    expect(screen.queryByText('Amount ₹')).toBeNull()
+    expect(screen.queryByText('Price ₹')).toBeNull()
+    expect(screen.getByText('310.0000 USD')).toBeInTheDocument()
+    assertHonest(container)
+  })
+
+  it('keeps a rupee instrument printing rupee figures under the same headers', () => {
+    const { container } = render(<InstrumentDetail data={data()} instrumentId="i-ppfc" />)
+    expect(screen.getAllByText(/^₹\d/u).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/ INR$/u).length).toBeGreaterThan(0)
+    assertHonest(container)
+  })
+})
+
+describe('InstrumentDetail — a price below a paisa', () => {
+  it('does not print 0.00 beside a non-zero value', () => {
+    const { container } = render(
+      <InstrumentDetail data={data(subPaisaRows())} instrumentId="i-shib" />,
+    )
+    // The chart above these cells derives its precision from the data and always showed the real
+    // digits; the cells took theirs from the asset class and showed none of them.
+    expect(container.querySelector('[data-metric="price"]')?.textContent).toBe('0.00092400')
+    expect(container.querySelector('[data-metric="price"]')?.textContent).not.toBe('0.00')
+    expect(container.querySelector('[data-metric="value"]')?.textContent).toBe('1,10,880')
     assertHonest(container)
   })
 })

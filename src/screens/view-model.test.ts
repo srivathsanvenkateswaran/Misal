@@ -23,10 +23,16 @@ import { buildPortfolioView } from './view-model'
 import {
   ACCOUNTS,
   AS_OF,
+  TRANSACTIONS,
   allLedgerRows,
   allSnapshotRows,
   emptyRows,
+  freshInstallRows,
+  nearlyFullCoverageRows,
   portfolioRows,
+  subPaisaRows,
+  unpricedSnapshotRows,
+  usdLedgerRows,
 } from './testing/fixtures'
 
 function ready(rows = portfolioRows()) {
@@ -701,5 +707,210 @@ describe('failure', () => {
       expect(view.data.accounts).toHaveLength(0)
       expect(view.data.netWorthMinor).toBe('0')
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// A native-currency amount, rendered and exported as though it were rupees.
+// ---------------------------------------------------------------------------
+
+describe('lots and transactions in a currency that is not the rupee', () => {
+  it('states a dollar lot’s cost in dollars, beside a rupee tile derived from the same lot', () => {
+    const data = ready(usdLedgerRows())
+    const cat = data.instruments.find((instrument) => instrument.name === 'Caterpillar Inc')
+    const lot = cat?.lots[0]
+    expect(lot?.currency).toBe('USD')
+    expect(lot?.cost.measured).toBe(true)
+    if (lot?.cost.measured === true) {
+      // 12 × $310 = $3,720, and it says so. Under the old call this was "3,720" beneath a static
+      // "Cost ₹" header: right digits, wrong unit, and ~87× away from what it appeared to claim.
+      expect(formatFigure(lot.cost.value)).toBe('$3,720')
+      expect(formatFigure(lot.cost.value)).not.toBe('3,720')
+    }
+
+    // The tile a reader compares it against is the same cost through `costInInr` — a genuinely
+    // different quantity, ~87× larger, and stated in rupees under a label that says so.
+    expect(cat?.totalCost.measured).toBe(true)
+    if (cat?.totalCost.measured === true) {
+      expect(formatFigure(cat.totalCost.value)).toBe('9,75,998')
+    }
+  })
+
+  it('states a dollar transaction’s amount in dollars', () => {
+    const data = ready(usdLedgerRows())
+    const cat = data.instruments.find((instrument) => instrument.name === 'Caterpillar Inc')
+    const txn = cat?.transactions.find((entry) => entry.occurredOn === '2024-11-14')
+    expect(txn?.currency).toBe('USD')
+    expect(txn?.amount.measured).toBe(true)
+    if (txn?.amount.measured === true) {
+      expect(formatFigure(txn.amount.value)).toBe('$3,720')
+    }
+  })
+
+  it('keeps a rupee transaction printing as rupees', () => {
+    const data = ready()
+    const rel = data.instruments.find((instrument) => instrument.name === 'Reliance Industries')
+    const txn = rel?.transactions.find((entry) => entry.id === 't-rel-r18')
+    expect(txn?.currency).toBe('INR')
+    expect(txn?.amount.measured).toBe(true)
+    if (txn?.amount.measured === true) {
+      expect(formatFigure(txn.amount.value)).toBe('₹1,93,020')
+    }
+  })
+
+  it('names the unit of a USDT-quoted fill, and withholds the amount it cannot format', () => {
+    /*
+     * `X:` is migration 0002's namespace for anything with no minor unit and no rupee rate. This
+     * is the reachable half of the defect and the route is worth stating: `buildAccounts` drops a
+     * snapshot account's transactions before mapping them, so no `MappingError` is raised — but
+     * `buildInstrumentViews` reads `rows.transactions` directly, so the fill still reaches the
+     * transactions table. Its quote price sat under a static "Price ₹" header: BTC at 43,000 USDT
+     * read "₹43,000", three lines below a panel meta stating "USD per unit".
+     */
+    const rows = portfolioRows({
+      transactions: [
+        ...TRANSACTIONS,
+        {
+          ...TRANSACTIONS[0]!,
+          id: 't-cat-usdt',
+          accountId: 'a-etrade',
+          instrumentId: 'i-cat',
+          quantity: '1.00000000',
+          price: '43000.00000000',
+          amountMinor: '4300000',
+          currency: 'X:USDT',
+          naturalKey: 'binance:btcusdt:1',
+        },
+      ],
+    })
+    const data = ready(rows)
+    const cat = data.instruments.find((instrument) => instrument.name === 'Caterpillar Inc')
+    const txn = cat?.transactions.find((entry) => entry.id === 't-cat-usdt')
+    expect(txn?.currency).toBe('USDT')
+    // The price is stated, in its own unit — the cell appends `currency` rather than sitting under
+    // a header that names a currency it cannot know.
+    expect(txn?.price).toBe('43000.00000000')
+    // The amount is not: there is no formatting rule for USDT, and a bare integer beside rupees is
+    // exactly what must not be printed.
+    expect(txn?.amount.measured).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// "No history" said of months that have one.
+// ---------------------------------------------------------------------------
+
+describe('a month that held everything and could price none of it', () => {
+  it('does not call it a gap, and does not claim history begins this month', () => {
+    /*
+     * Eleven columns held 24 SIP purchases and three equity trades and priced none of them,
+     * because the only stored price rows are dated today. Net worth is zero for those months, and
+     * zero net worth used to take the gap branch — which threw away the `unpricedCount` computed
+     * on the line above it and pushed a literal 0 in its place. Four surfaces then told the user
+     * their imported history did not exist, and the chart annotated the date it supposedly began.
+     *
+     * No rupee figure was wrong. The reason was, and the reason is what the reader acts on.
+     */
+    const data = ready(freshInstallRows())
+    const earlier = data.months.slice(0, -1)
+    expect(earlier).toHaveLength(11)
+
+    for (const month of earlier) {
+      // Held, and not priced — not "nothing here". `[]` rather than `null` is what says so: the
+      // priced value of that month is zero, which is a measurement, and the count says why.
+      expect(month.segments).toEqual([])
+      expect(month.unpricedCount).toBe(2)
+    }
+
+    // The last column is the one refresh that happened. It draws real segments, and it is still
+    // marked incomplete — gold's price and the dollar rate are both older than that refresh.
+    const last = data.months[data.months.length - 1]
+    expect(last?.segments?.length).toBeGreaterThan(0)
+    expect(last?.unpricedCount).toBe(2)
+
+    // Nothing began in August. `historyBegins` is drawn as "HISTORY BEGINS <month> — EARLIER
+    // MONTHS ARE NOT DRAWN" over a ledger starting 2024-09-07.
+    expect(data.historyBegins).toBeUndefined()
+  })
+
+  it('still draws a genuine gap as a gap, with nothing to count', () => {
+    // Nine months before the first transaction: no holdings, no prices, nothing folded. `null` is
+    // reserved for exactly this, and the distinction is the whole point of the change above.
+    const firstTxnOnly = portfolioRows({
+      transactions: TRANSACTIONS.filter((txn) => txn.occurredAt >= '2026-06-01'),
+      positions: [],
+      unresolved: [],
+    })
+    const data = ready(firstTxnOnly)
+    const gaps = data.months.filter((month) => month.segments === null)
+    expect(gaps.length).toBeGreaterThan(0)
+    expect(gaps.every((month) => (month.unpricedCount ?? 0) === 0)).toBe(true)
+    expect(data.historyBegins).toBeDefined()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Coverage that reads as complete over a portfolio it could not price.
+// ---------------------------------------------------------------------------
+
+describe('unpriced holdings and the coverage figures', () => {
+  it('carries the unpriced count to the screen rather than leaving it in the engine', () => {
+    const data = ready()
+    // Caterpillar is quoted in dollars with no stored rate: priced by nothing, and therefore in
+    // neither side of the calibration split.
+    expect(data.unpricedCount).toBe(1)
+    expect(data.accounts.find((account) => account.label.startsWith('E*TRADE'))?.unpriced).toBe(1)
+  })
+
+  it('exposes the count on the reproduction where the split comes out clean', () => {
+    const data = ready(unpricedSnapshotRows())
+    // Nothing to hatch, nothing to bracket, and a 100/0 split — over a portfolio missing an
+    // account. The count is the only thing that can say so.
+    expect(data.snapshotOnlyMinor).toBe('0')
+    expect(data.ledgerBackedMinor).toBe(data.netWorthMinor)
+    expect(data.unpricedCount).toBe(1)
+  })
+
+  it('refuses to promise 100% coverage while something is unpriced', () => {
+    expect(ready().coverageOpportunity).not.toMatch(/raise coverage to 100\.0%/u)
+    expect(ready().coverageOpportunity).toMatch(/no stored price/u)
+    // Priced end to end, so the promise is one the import can actually keep.
+    expect(ready(nearlyFullCoverageRows()).coverageOpportunity).toMatch(/coverage to 100\.0%/u)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// A price smaller than the convention can show.
+// ---------------------------------------------------------------------------
+
+describe('prices smaller than a paisa', () => {
+  it('shows a sub-paisa price rather than rounding it to zero', () => {
+    const data = ready(subPaisaRows())
+    const shib = data.instruments.find((instrument) => instrument.name === 'Shiba Inu')
+    expect(shib?.lastPrice.measured).toBe(true)
+    if (shib?.lastPrice.measured === true) {
+      // The stored close at the precision it was stored with — the same reading NavHistoryChart
+      // takes of the same rows. Two fixed decimals printed '0.00'.
+      expect(formatFigure(shib.lastPrice.value)).toBe('0.00092400')
+      expect(formatFigure(shib.lastPrice.value)).not.toBe('0.00')
+    }
+
+    const position = data.positions.find((entry) => entry.instrumentId === 'i-shib')
+    expect(position?.avgCost.measured).toBe(true)
+    if (position?.avgCost.measured === true) {
+      expect(formatFigure(position.avgCost.value)).not.toBe('0.00')
+      expect(formatFigure(position.avgCost.value)).toMatch(/^0\.000\d/u)
+    }
+    // The value beside them is unaffected and non-zero, which is what made the two zeros a visible
+    // contradiction rather than a plausible reading.
+    expect(position?.valueMinor).toBe('11088000')
+  })
+
+  it('leaves every price the convention can show exactly as it was', () => {
+    const data = ready()
+    const rel = data.instruments.find((instrument) => instrument.name === 'Reliance Industries')
+    if (rel?.lastPrice.measured === true) expect(formatFigure(rel.lastPrice.value)).toBe('2,908.60')
+    const ppfc = data.instruments.find((instrument) => instrument.name === 'Parag Parikh Flexi Cap')
+    if (ppfc?.lastPrice.measured === true) expect(formatFigure(ppfc.lastPrice.value)).toBe('69.7670')
   })
 })

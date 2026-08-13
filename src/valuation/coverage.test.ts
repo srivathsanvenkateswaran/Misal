@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { addMinor, minor, subMinor } from '@domain/numeric'
-import { coverageReport, historyCoveragePct, metricCoverage } from './coverage'
+import { NOTHING, coverageReport, historyCoveragePct, metricCoverage, pricedCoveragePct } from './coverage'
 import type { MeasurementReason } from './types'
 
 const REASON: MeasurementReason = {
@@ -95,5 +95,55 @@ describe('coverage report', () => {
     // Withheld value is reported beside net worth, never inside it.
     expect(report.withheldMinor).toBe('4500000')
     expect(report.historyCoveragePct).toBe('80.99')
+  })
+
+  it('caps priced coverage below 100% while a position is unpriced', () => {
+    /*
+     * The invariant this module's own header states, and which nothing implemented. An unpriced
+     * position is added to neither `measuredMinor` nor `valuedMinor` — there is no value to add —
+     * so it cancels out of the fraction and a portfolio with a whole account missing from it
+     * reports exact completeness. The failure runs backwards: a rate ageing past its bound drops a
+     * holding out of both sides and *raises* the figure.
+     */
+    const valued = minor('79000000')
+    const withUnpriced = coverageReport({
+      asOf: '2026-08-12T18:30:00+05:30',
+      breakdown: {
+        valuedMinor: valued,
+        withheldMinor: NOTHING,
+        unpricedCount: 1,
+        unpricedInstrumentIds: ['i-cat'],
+      },
+      measuredMinor: valued,
+      perMetric: [],
+      stalePriceCount: 0,
+      stalestPriceAgeDays: null,
+      unresolvedInstrumentCount: 0,
+    })
+    expect(withUnpriced.historyCoveragePct).not.toBe('100.00')
+    expect(withUnpriced.historyCoveragePct).toBe('99.99')
+
+    // 100.00 is still reachable, and now means what it has always claimed to mean.
+    const priced = coverageReport({
+      asOf: '2026-08-12T18:30:00+05:30',
+      breakdown: {
+        valuedMinor: valued,
+        withheldMinor: NOTHING,
+        unpricedCount: 0,
+        unpricedInstrumentIds: [],
+      },
+      measuredMinor: valued,
+      perMetric: [],
+      stalePriceCount: 0,
+      stalestPriceAgeDays: null,
+      unresolvedInstrumentCount: 0,
+    })
+    expect(priced.historyCoveragePct).toBe('100.00')
+  })
+
+  it('leaves a partial percentage alone: the cap is about completeness, not accuracy', () => {
+    expect(pricedCoveragePct(minor('2000000'), minor('10000000'), 4)).toBe('20.00')
+    // Nothing to cover is still null rather than a percentage of nothing.
+    expect(pricedCoveragePct(NOTHING, NOTHING, 2)).toBeNull()
   })
 })

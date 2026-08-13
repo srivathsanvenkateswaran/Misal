@@ -12,7 +12,7 @@ import { assertHonest } from '@ui/testing/assert-honest'
 import { Accounts } from './Accounts'
 import { buildPortfolioView } from './view-model'
 import type { PortfolioData } from './view-model'
-import { AS_OF, allLedgerRows, portfolioRows } from './testing/fixtures'
+import { AS_OF, allLedgerRows, portfolioRows, unpricedSnapshotRows } from './testing/fixtures'
 
 function data(rows = portfolioRows()): PortfolioData {
   const view = buildPortfolioView(rows, AS_OF)
@@ -60,6 +60,28 @@ describe('Accounts', () => {
     expect(
       screen.getByText(/Every account supplies transaction history, so nothing on this screen is withheld\./u),
     ).toBeInTheDocument()
+    assertHonest(container)
+  })
+
+  it('does not deny a snapshot account listed three rows above it', () => {
+    /*
+     * The foot used to be chosen by a rupee quantity: `coverageOpportunity` is null both when
+     * there is no snapshot account and when there is one whose holdings could not be priced. In
+     * the second case the panel printed "Every account supplies transaction history, so nothing on
+     * this screen is withheld" directly beneath a row badged "Holdings only · 1 not priced".
+     *
+     * It is an account question, so it is asked of the accounts. The rupee figure only decides how
+     * much can be promised.
+     */
+    const { container } = render(<Accounts data={data(unpricedSnapshotRows())} />)
+    expect(
+      screen.queryByText(/Every account supplies transaction history/u),
+    ).toBeNull()
+    expect(screen.getByText(/supplies holdings only/u)).toBeInTheDocument()
+    expect(screen.getByText(/None of those holdings could be priced/u)).toBeInTheDocument()
+    // And the row it would have been denying is right there, saying the same thing.
+    expect(screen.getAllByText('Holdings only').length).toBeGreaterThan(0)
+    expect(screen.getByText(/1 not priced/u)).toBeInTheDocument()
     assertHonest(container)
   })
 

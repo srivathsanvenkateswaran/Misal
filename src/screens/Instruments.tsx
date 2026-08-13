@@ -177,9 +177,20 @@ const LOT_COLUMNS: readonly DataTableColumn<LotView>[] = [
     align: 'right',
     cell: (row) => formatQty(row.quantity),
   },
+  /*
+   * "Cost ₹" was a static header over a native figure. `OpenLot.costMinor` is the currency the lot
+   * was acquired in — dollars for an RSU vest, and the same table is fed by every account holding
+   * the instrument — so a header naming one currency for all of them is wrong for some of them by
+   * construction, and wrong invisibly: the digits are right.
+   *
+   * The symbol moves into the cell, which is the only place that knows. It is also the tile above
+   * this table that a reader compares against, and that one — "Invested — FIFO cost" — is
+   * `pair.costMinor`, already through `costInInr`. The two disagree by the exchange rate, so the
+   * only thing that makes the pair readable is each one naming its own unit.
+   */
   {
     id: 'cost',
-    header: 'Cost ₹',
+    header: 'Cost',
     align: 'right',
     cell: (row) => (
       <Metric value={row.cost} metric="open-lots" scope="position" basis="ledger" size="table" />
@@ -197,15 +208,22 @@ const TXN_COLUMNS: readonly DataTableColumn<TxnView>[] = [
     align: 'right',
     cell: (row) => formatQty(row.quantity),
   },
+  /*
+   * The stored trade price, in the currency the trade was struck in. This is the reachable half of
+   * the same defect: a Binance or CoinDCX fill in a USDT-quoted market puts its quote price here,
+   * so BTC at 43,000 USDT read "₹43,000" — while the price-history panel three lines up printed
+   * "USD per unit" in its own meta. The unit is now on the figure rather than asserted by a header
+   * that cannot know it.
+   */
   {
     id: 'price',
-    header: 'Price ₹',
+    header: 'Price',
     align: 'right',
-    cell: (row) => (row.price === null ? '' : formatQty(row.price)),
+    cell: (row) => (row.price === null ? '' : formatQty(row.price, { unit: row.currency })),
   },
   {
     id: 'amount',
-    header: 'Amount ₹',
+    header: 'Amount',
     align: 'right',
     cell: (row) => (
       <Metric value={row.amount} metric="value" scope="position" basis="ledger" size="table" />
@@ -377,8 +395,15 @@ export function InstrumentDetail({
           stampReference={`${instrument.positions.length.toString()} acct`}
           stampDescription="Summed from each account's own stamped position rows."
         />
+        {/*
+          Both of these are rupee figures the engine converted, and neither said so: the tiles
+          render `symbol: false` figures under labels that named no currency at all. That was
+          tolerable only while every lot beneath them was also read as rupees. Now that the lot
+          table states its own native unit, these two have to state theirs, or the ~87× gap between
+          "Invested — FIFO cost" and the dollar lots that produced it reads as an arithmetic error.
+        */}
         <StatCell
-          label="Current value"
+          label="Current value ₹"
           value={instrument.totalValue}
           metric="value"
           note={`${formatPct(instrument.weight)} of net worth`}
@@ -386,12 +411,12 @@ export function InstrumentDetail({
           stampDescription="Quantity multiplied by the latest stored price. No network call was made to render this."
         />
         <StatCell
-          label="Invested — FIFO cost"
+          label="Invested — FIFO cost ₹"
           value={instrument.totalCost}
           metric="cost-basis"
-          note={`${instrument.lots.length.toString()} open lots`}
+          note={`${instrument.lots.length.toString()} open lots · converted to rupees at the stored rate; the lot table below is in each lot’s own currency`}
           stampReference="fifo"
-          stampDescription="Derived by folding this instrument's transactions in FIFO order."
+          stampDescription="Derived by folding this instrument's transactions in FIFO order, then converting each lot's cost to rupees at the stored rate."
         />
         <StatCell
           label="XIRR"

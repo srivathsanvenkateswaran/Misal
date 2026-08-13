@@ -67,6 +67,35 @@ const CAPABILITY_MATRIX: readonly { readonly metric: string; readonly full: bool
   { metric: 'XIRR', full: false },
 ]
 
+/**
+ * What the capability panel says at the bottom.
+ *
+ * "Every account supplies transaction history" is an answer to a question about *accounts*, and it
+ * used to be decided by a rupee quantity: `coverageOpportunity` is null whenever the snapshot
+ * accounts contribute nothing to net worth, which is true both when there are no snapshot accounts
+ * and when there is one whose holdings could not be priced. The second case printed "nothing on
+ * this screen is withheld" directly beneath a row badged "Holdings only · 1 not priced" — the
+ * account is right there, its capability is stated in the same table, and the foot denied it.
+ *
+ * So the question is asked of the accounts. The rupee figure only decides *how much* can be
+ * promised, and when it cannot be stated the sentence says that rather than saying nothing is
+ * missing.
+ */
+function capabilityFoot(data: PortfolioData): string {
+  const snapshotAccounts = data.accounts.filter((account) => account.capability === 'snapshot')
+  if (snapshotAccounts.length === 0) {
+    return 'Every account supplies transaction history, so nothing on this screen is withheld.'
+  }
+  if (data.coverageOpportunity !== null) return data.coverageOpportunity
+  const names = snapshotAccounts.map((account) => account.label).join(', ')
+  return (
+    `${names} ${snapshotAccounts.length === 1 ? 'supplies' : 'supply'} holdings only. ` +
+    'None of those holdings could be priced, so how much a transaction history would move across ' +
+    'the calibration line is not a figure Misal can state — importing one is still the only thing ' +
+    'that changes what the metrics above can measure.'
+  )
+}
+
 export function Accounts({ data }: { readonly data: PortfolioData }): ReactNode {
   return (
     <>
@@ -135,10 +164,7 @@ export function Accounts({ data }: { readonly data: PortfolioData }): ReactNode 
         <Panel
           title="What each capability unlocks"
           meta="Honest by construction"
-          foot={
-            data.coverageOpportunity ??
-            'Every account supplies transaction history, so nothing on this screen is withheld.'
-          }
+          foot={capabilityFoot(data)}
         >
           <table className="dtable">
             <caption className="vh">What each account capability unlocks</caption>
