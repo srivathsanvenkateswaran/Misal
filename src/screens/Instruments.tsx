@@ -10,8 +10,11 @@
  */
 
 import type { ReactNode } from 'react'
+import { isNegativeDec, isZeroDec } from '@domain/numeric'
 import type { Measured } from '@domain/measured'
 import type { Figure } from '@ui/figure'
+import { NavHistoryChart } from '@ui/charts/NavHistoryChart'
+import type { RugMark } from '@ui/charts/NavHistoryChart'
 import { Metric } from '@ui/measured/Metric'
 import { StampGutter } from '@ui/provenance/SourceStamp'
 import { DataTable } from '@ui/table/DataTable'
@@ -210,6 +213,64 @@ const TXN_COLUMNS: readonly DataTableColumn<TxnView>[] = [
   },
 ]
 
+/**
+ * The rug's marks: every transaction that moved units, in the direction it moved them.
+ *
+ * A dividend or a fee has no quantity, so it has no place on a rug whose whole meaning is "units
+ * entered here, units left here". It stays in the ledger table below the chart, which is where the
+ * panel foot points.
+ *
+ * `null` — not `[]` — for a holding with no transaction history. An empty rug says no transaction
+ * happened; this screen is never in a position to say that about a snapshot account.
+ */
+function rugMarks(instrument: InstrumentView): readonly RugMark[] | null {
+  if (instrument.capability === 'snapshot') return null
+  return instrument.transactions
+    .filter((txn) => !isZeroDec(txn.quantity))
+    .map((txn) => ({
+      key: txn.id,
+      on: txn.occurredOn,
+      direction: isNegativeDec(txn.quantity) ? ('sell' as const) : ('buy' as const),
+      label: txn.type,
+    }))
+}
+
+function PriceHistoryPanel({ instrument }: { readonly instrument: InstrumentView }): ReactNode {
+  const marks = rugMarks(instrument)
+  const points = instrument.priceHistory
+  const first = points[0]
+  const last = points[points.length - 1]
+  const title = instrument.assetClass === 'mutual_fund' ? 'NAV history' : 'Price history'
+  const meta =
+    first === undefined || last === undefined
+      ? 'No stored price'
+      : `${formatDate(first.asOf)} → ${formatDate(last.asOf)} · ${points.length.toString()} stored prices · ${instrument.currency} per unit`
+  const marked = marks?.length ?? 0
+  const total = instrument.transactions.length
+
+  return (
+    <Panel
+      title={title}
+      meta={meta}
+      foot={
+        marks === null
+          ? 'No transaction history for this instrument, so there is nothing to mark beneath the axis. The line is the stored price series only.'
+          : `The rug beneath the axis marks ${marked.toString()} of the ${total.toString()} transactions Misal holds for this instrument — the ones that moved units. All ${total.toString()} are in the ledger table below.`
+      }
+    >
+      <div className="panel-body">
+        <NavHistoryChart
+          points={points}
+          marks={marks}
+          instrumentName={instrument.name}
+          currency={instrument.currency}
+          series={instrument.series}
+        />
+      </div>
+    </Panel>
+  )
+}
+
 function StatCell({
   label,
   value,
@@ -342,7 +403,9 @@ export function InstrumentDetail({
         />
       </div>
 
-      <div className="dashgrid-2" style={{ padding: '16px', gridTemplateColumns: '1fr 1fr' }}>
+      <div className="dashgrid" style={{ padding: '16px 16px 0' }}>
+        <PriceHistoryPanel instrument={instrument} />
+
         <Panel title="Position by account" meta={`${instrument.positions.length.toString()} accounts`}>
           <DataTable
             caption="Position in this instrument, per account"
@@ -357,7 +420,9 @@ export function InstrumentDetail({
             )}
           />
         </Panel>
+      </div>
 
+      <div className="dashgrid-2" style={{ padding: '16px', gridTemplateColumns: '1fr 1fr' }}>
         {snapshotOnly ? (
           <Panel title="Open lots — FIFO cost basis" meta="Not measured">
             <EmptyState headline="Not measured — no transaction history">
@@ -392,9 +457,7 @@ export function InstrumentDetail({
             />
           </Panel>
         )}
-      </div>
 
-      <div style={{ padding: '0 16px 16px' }}>
         <Panel
           title="Transactions"
           meta={`${instrument.transactions.length.toString()} total · most recent first`}

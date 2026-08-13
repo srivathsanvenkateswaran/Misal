@@ -62,6 +62,7 @@ import type { SeriesToken } from '@ui/metrics'
 import type { SourceStampProps } from '@ui/provenance/SourceStamp'
 import type { CalibrationSegment } from '@ui/charts/CalibrationBar'
 import type { ConcentrationRow } from '@ui/charts/ConcentrationChart'
+import type { NavPoint } from '@ui/charts/NavHistoryChart'
 import type { StackMonth } from '@ui/charts/NetWorthStackChart'
 import type { AccountRow, PortfolioRows, TxnRow } from '../data/client'
 import { buildAccounts, valueFromRows } from '../data/portfolio'
@@ -222,6 +223,13 @@ export interface InstrumentView {
   readonly lots: readonly LotView[]
   readonly transactions: readonly TxnView[]
   readonly weight: Dec
+  /**
+   * Every stored `price` row for this instrument, in its own currency, oldest first.
+   *
+   * Passed to the chart untouched: no filling of missing dates, no month-ending, no resampling.
+   * A period with no row is a period Misal has no price for, and the chart draws it as one.
+   */
+  readonly priceHistory: readonly NavPoint[]
 }
 
 export interface PortfolioData {
@@ -954,6 +962,12 @@ function buildInstrumentViews(
         lots,
         transactions,
         weight: shareOf(valueMinor, netWorth),
+        // Rows in the instrument's own currency only. A dollar close and a rupee close on one
+        // axis would be a chart of two different things drawn as though it were one.
+        priceHistory: rows.prices
+          .filter((price) => price.instrumentId === id && price.currency === instrument.currency)
+          .map((price) => ({ asOf: price.asOf.slice(0, 10), close: dec(price.close) }))
+          .sort((a, b) => (a.asOf < b.asOf ? -1 : 1)),
       }
     })
     .filter((view): view is InstrumentView => view !== null)
