@@ -54,12 +54,21 @@ pub struct SettingDefinition {
     pub choices: Vec<&'static str>,
 }
 
-/// Currencies the numeric layer has a minor-unit exponent for.
+/// Base currencies this setting may be set to.
 ///
-/// Kept in step with `CURRENCY_EXPONENT` in `src/domain/numeric.ts`: a base currency this list
-/// admits but that table does not would fail at the first attempt to format a total, which is a
-/// worse place to discover it than here.
-const CURRENCIES: &[&str] = &["INR", "USD"];
+/// **INR alone, deliberately.** The numeric layer has a minor-unit exponent for USD as well, and an
+/// earlier version offered both on that basis — but the valuation engine converts every holding to
+/// INR unconditionally, and the rate feed in `src/data/refresh.ts` only fetches pairs quoted in
+/// INR. Choosing USD therefore stopped USD/INR ever being written again while the engine carried on
+/// converting through the last rate it had: net worth kept moving daily on refreshed prices with
+/// the FX leg frozen at the day the setting changed, and nothing on screen said so.
+///
+/// A choice that changes a label without changing the arithmetic is worse than no choice, so the
+/// list is one entry until the engine reads the setting. Any other currency is refused here rather
+/// than accepted and quietly ignored. Kept in step with `CURRENCY_EXPONENT` in
+/// `src/domain/numeric.ts`: a base currency this list admits but that table does not would fail at
+/// the first attempt to format a total.
+const CURRENCIES: &[&str] = &["INR"];
 
 struct Spec {
     key: &'static str,
@@ -81,8 +90,10 @@ const SPECS: &[Spec] = &[
     Spec {
         key: "base_currency",
         label: "Base currency",
-        help: "The currency totals are expressed in. Foreign holdings convert at the rate stored \
-               for the transaction date, never at today's rate.",
+        help: "The currency every total is expressed in. INR only: the valuation engine converts \
+               to INR unconditionally, so a second choice here would relabel the totals without \
+               converting them. Present value uses the latest stored rate; cost and XIRR use the \
+               rate stored on each transaction.",
         range: None,
     },
     Spec {
@@ -153,7 +164,8 @@ pub fn validate_setting(key: &str, raw: &str) -> Result<String> {
             let upper = value.to_ascii_uppercase();
             if !CURRENCIES.contains(&upper.as_str()) {
                 return Err(MisalError::Other(format!(
-                    "{} must be one of {}; {} is not a currency Misal can convert to",
+                    "{} must be one of {}; every total is computed in INR, so {} would relabel \
+                     them without converting them",
                     spec.label,
                     CURRENCIES.join(", "),
                     quoted(value)
@@ -920,7 +932,7 @@ mod tests {
         let currency = write_setting(&conn, "base_currency", "EUR")
             .unwrap_err()
             .to_string();
-        assert!(currency.contains("INR, USD"), "{currency}");
+        assert!(currency.contains("must be one of INR"), "{currency}");
 
         let unknown = write_setting(&conn, "telemetry_enabled", "1")
             .unwrap_err()
@@ -938,11 +950,45 @@ mod tests {
         assert_eq!(ttl, "360");
     }
 
+    /// The base currency offers INR and nothing else, and USD is refused rather than stored.
+    ///
+    /// The defect this guards: USD was selectable, nothing in the engine read the setting, and the
+    /// FX refresh in `src/data/refresh.ts` early-returns for any base but INR. Selecting it stopped
+    /// USD/INR ever being written again while the engine carried on converting at the last rate it
+    /// had — net worth moving daily on refreshed prices with one factor frozen, and no warning
+    /// anywhere. The setting is closed until the engine reads it.
+    #[test]
+    fn the_base_currency_offers_only_the_one_the_engine_actually_uses() {
+        let (_dir, conn) = open_test_db();
+        assert_eq!(CURRENCIES, ["INR"]);
+
+        let definition = definitions()
+            .into_iter()
+            .find(|d| d.key == "base_currency")
+            .expect("base_currency has a definition");
+        assert_eq!(definition.choices, vec!["INR"]);
+
+        let refused = write_setting(&conn, "base_currency", "USD")
+            .unwrap_err()
+            .to_string();
+        assert!(refused.contains("computed in INR"), "{refused}");
+
+        // And the stored value is untouched, so a refused choice cannot freeze the rate feed.
+        let stored: String = conn
+            .query_row(
+                "SELECT value FROM setting WHERE key = 'base_currency'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(stored, "INR");
+    }
+
     #[test]
     fn a_valid_setting_is_normalised_and_stamped() {
         let (_dir, conn) = open_test_db();
-        let row = write_setting(&conn, "base_currency", " usd ").unwrap();
-        assert_eq!(row.value, "USD");
+        let row = write_setting(&conn, "base_currency", " inr ").unwrap();
+        assert_eq!(row.value, "INR");
 
         let stored: (String, String) = conn
             .query_row(
@@ -951,7 +997,7 @@ mod tests {
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .unwrap();
-        assert_eq!(stored.0, "USD");
+        assert_eq!(stored.0, "INR");
         assert_ne!(stored.1, row.updated_at.is_empty().to_string());
         assert!(stored.1.ends_with('Z'));
     }

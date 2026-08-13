@@ -235,10 +235,22 @@ function dayLabel(iso: string): string {
 }
 
 /**
- * The cadence a series is treated as having: twice its median interval, never finer than five days.
+ * The cadence a series is treated as having: half again its median interval, never finer than five
+ * days.
  *
  * A month-end series flags a missing month; a daily series does not flag a weekend or a holiday,
  * which are not gaps in Misal's knowledge but in the market's.
+ *
+ * **One and a half, not two.** A single missing observation in a regular series produces a delta of
+ * exactly twice the cadence, which a threshold of `median * 2` and a strict `>` both reject: a
+ * month-end series missing June has deltas of 28, 31, 30, 31, 61, 31, 30 — a median of 31, a
+ * threshold of 62, and 61 > 62 is false. The line was drawn straight through the hole, `data-gaps` stayed 0, and
+ * the accessible table lost the row saying nothing was stored — the interpolation this whole
+ * component refuses to do, done silently. Relaxing the comparison to `>=` is not enough either,
+ * because calendar months are 28 to 31 days long: a missing February gives 59 against a threshold
+ * of 62 and is still missed. At `3/2` the threshold sits above the widest ordinary interval (31 →
+ * 46, and no month exceeds 31) and below the narrowest doubled one (28 × 2 = 56), which is the
+ * whole of the requirement. Weekly: 7 → 10, flagging 14 and passing 7.
  */
 function gapThreshold(days: readonly number[], override: number | undefined): number {
   if (override !== undefined) return override
@@ -249,7 +261,8 @@ function gapThreshold(days: readonly number[], override: number | undefined): nu
   if (deltas.length === 0) return MIN_GAP_DAYS
   const sorted = [...deltas].sort((a, b) => a - b)
   const median = sorted[Math.floor(sorted.length / 2)] ?? 0
-  return Math.max(MIN_GAP_DAYS, median * 2)
+  // Day counts, floored to stay an integer. Pixel geometry is elsewhere; nothing here is money.
+  return Math.max(MIN_GAP_DAYS, Math.floor((median * 3) / 2))
 }
 
 interface Plotted {

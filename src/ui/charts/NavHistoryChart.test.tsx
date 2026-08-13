@@ -114,6 +114,80 @@ describe('NavHistoryChart — gaps', () => {
     ).toBeInTheDocument()
   })
 
+  /**
+   * The defect this guards: the threshold was `median * 2` and the comparison is a strict `>`, so
+   * the one shape a gap most often takes — a single missing period — was the one shape that could
+   * never be flagged. A month-end series missing June has a delta of 61 against a threshold of 62.
+   * The line was drawn through the hole, `data-gaps` read 0, the aria-label dropped its clause, and
+   * the table lost the row that says the period is not interpolated. Every promise in this file's
+   * header, broken quietly, on the commonest case.
+   */
+  it('flags a single missing month in a month-end series', () => {
+    const missingJune: readonly NavPoint[] = [
+      { asOf: '2026-01-31', close: dec('60.1000') },
+      { asOf: '2026-02-28', close: dec('61.2000') },
+      { asOf: '2026-03-31', close: dec('62.3000') },
+      { asOf: '2026-04-30', close: dec('63.4000') },
+      { asOf: '2026-05-31', close: dec('64.5000') },
+      // June is missing. Deltas: 28, 31, 30, 31, 61, 31, 30.
+      { asOf: '2026-07-31', close: dec('66.7000') },
+      { asOf: '2026-08-31', close: dec('67.8000') },
+      { asOf: '2026-09-30', close: dec('68.9000') },
+    ]
+    const { container } = render(
+      <NavHistoryChart points={missingJune} marks={[]} instrumentName="PPFC" />,
+    )
+    expect(container.querySelector('svg')?.getAttribute('data-gaps')).toBe('1')
+    expect(container.querySelectorAll('[data-gap="true"]')).toHaveLength(1)
+    // Two runs, because nothing is drawn across the hole.
+    expect(container.querySelectorAll('.line-s2')).toHaveLength(2)
+    expect(container.querySelector('svg')?.getAttribute('aria-label')).toContain(
+      '1 period no price is stored for',
+    )
+    expect(
+      screen.getByText('No price stored for this period — not interpolated'),
+    ).toBeInTheDocument()
+    assertHonest(container)
+  })
+
+  /**
+   * And the same for the short month, which is why the multiplier had to move rather than the
+   * comparison: a missing February is a 59-day delta, under `median * 2` however the `>` reads.
+   */
+  it('flags a missing February, whose delta is shorter than two average months', () => {
+    const missingFebruary: readonly NavPoint[] = [
+      { asOf: '2025-11-30', close: dec('58.1000') },
+      { asOf: '2025-12-31', close: dec('59.1000') },
+      // February is missing. Deltas: 31, 31, 59, 31, 30, 31.
+      { asOf: '2026-01-31', close: dec('60.1000') },
+      { asOf: '2026-03-31', close: dec('62.3000') },
+      { asOf: '2026-04-30', close: dec('63.4000') },
+      { asOf: '2026-05-31', close: dec('64.5000') },
+      { asOf: '2026-06-30', close: dec('65.6000') },
+    ]
+    const { container } = render(
+      <NavHistoryChart points={missingFebruary} marks={[]} instrumentName="PPFC" />,
+    )
+    expect(container.querySelector('svg')?.getAttribute('data-gaps')).toBe('1')
+  })
+
+  it('flags a single missing week in a weekly series without flagging the weeks around it', () => {
+    const weekly: readonly NavPoint[] = [
+      { asOf: '2026-06-05', close: dec('60.1000') },
+      { asOf: '2026-06-12', close: dec('60.2000') },
+      { asOf: '2026-06-19', close: dec('60.3000') },
+      // One week missing: a 14-day delta against a 7-day cadence.
+      { asOf: '2026-07-03', close: dec('60.5000') },
+      { asOf: '2026-07-10', close: dec('60.6000') },
+      { asOf: '2026-07-17', close: dec('60.7000') },
+    ]
+    const { container } = render(
+      <NavHistoryChart points={weekly} marks={[]} instrumentName="PPFC" />,
+    )
+    expect(container.querySelector('svg')?.getAttribute('data-gaps')).toBe('1')
+    expect(container.querySelectorAll('.line-s2')).toHaveLength(2)
+  })
+
   it('does not treat a weekend in a daily series as a gap', () => {
     const daily: readonly NavPoint[] = [
       { asOf: '2026-08-06', close: dec('69.1000') },

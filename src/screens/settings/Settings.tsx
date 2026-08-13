@@ -213,10 +213,13 @@ function Preferences({
           Saved one at a time, and read back exactly as stored — the screen reports what was
           written rather than what was typed.{' '}
           <b>Only the cache lifetime changes behaviour today</b> — the refresh screen uses it to
-          decide whether a price is due. The other three are recorded but not yet consulted:
-          staleness is judged per asset class inside the valuation engine, concentration is
-          reported without a threshold, and the base currency is fixed to INR. They are saved so
-          nothing is lost when those parts start reading them.
+          decide whether a price is due. Two more are recorded but not yet consulted: staleness is
+          judged per asset class inside the valuation engine, and concentration is reported without
+          a threshold. They are saved so nothing is lost when those parts start reading them.{' '}
+          <b>The base currency offers INR alone</b>, because every total is computed in INR and a
+          second choice would rename the totals without converting them — and would stop the
+          exchange rates being fetched, leaving net worth moving on refreshed prices against a
+          frozen rate. It becomes a real choice when the engine reads it.
         </>
       }
     >
@@ -291,9 +294,12 @@ function SettingField({
       </label>
       <div className="set-field-row">
         {definition.kind === 'currency' ? (
+          // Disabled when the core offers one value, rather than rendered as a menu of one that
+          // looks like a decision the user has made. The panel's footnote says why there is one.
           <select
             id={fieldId}
             value={draft}
+            disabled={definition.choices.length < 2}
             onChange={(event) => {
               setDraft(event.target.value)
               setNote(null)
