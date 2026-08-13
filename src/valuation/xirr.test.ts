@@ -280,8 +280,11 @@ describe('xirr properties', () => {
    * back up, so it rises again at large r. What actually holds, and what uniqueness rests on, is
    * that NPV crosses zero exactly once. That is what is asserted.
    *
-   * Given an explicit timeout because 1,600 exact-decimal NPV evaluations legitimately take about
-   * five seconds — right on Vitest's default — so it passed alone and failed in a loaded parallel
+   * Given the longest explicit timeout in the suite because 1,600 exact-decimal NPV evaluations
+   * legitimately take about five seconds idle and over thirty under heavy parallel load. Cutting
+   * the sample count would make it fast and nearly worthless: the counterexample that falsified
+   * the spec's monotonicity claim was found by sampling densely. Time is the right thing to spend
+   * here. It passed alone and failed in a loaded parallel
    * run. Sampling fewer rates would have hidden the counterexamples this test exists to find, so
    * the budget moves rather than the coverage.
    */
@@ -300,7 +303,7 @@ describe('xirr properties', () => {
       }
       expect(crossings).toBe(1)
     }
-  }, 30_000)
+  }, 90_000)
 
   it('has a strictly decreasing NPV in the neighbourhood of the root', () => {
     for (const flows of series.slice(0, 8)) {

@@ -26,6 +26,22 @@ export default defineConfig({
   },
   test: {
     globals: true,
+    /**
+     * Thirty seconds, against Vitest's default of five.
+     *
+     * These are not slow tests in the sense of being badly written. Screen and view-model
+     * fixtures are `PortfolioRows`, so every one of them drives the mapping boundary, the fold,
+     * the FIFO engine and the coverage report for real rather than asserting against a pre-baked
+     * view-model - which is exactly why they catch what they catch. The XIRR property test runs
+     * 1,600 exact-decimal NPV evaluations for the same reason.
+     *
+     * At the default they pass on an idle machine and fail on a busy one. That is the worst
+     * possible outcome: a suite that is green locally, red in CI under contention, and teaches
+     * everyone to re-run rather than to look. The honest options were to make the tests shallower
+     * or to admit they take real time; making them shallower would discard their entire value.
+     */
+    testTimeout: 30_000,
+    hookTimeout: 30_000,
     environment: 'jsdom',
     setupFiles: ['./tests/setup.ts'],
     include: ['src/**/*.test.ts', 'src/**/*.test.tsx', 'tests/**/*.test.ts'],
