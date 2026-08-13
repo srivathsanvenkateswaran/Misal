@@ -169,7 +169,9 @@ old parser.
 
 The two other places the same flaw could live were checked. The **MF folio path** never had it: a
 folio number is printed on its own row and joined back to the roster, which is why that section was
-correct all along. The **transaction path** does not have it because it does not exist — this parser
+correct all along. *That conclusion was wrong, and the entry below says why — the join was on the
+folio **number**, which is not an identity.* The **transaction path** does not have it because it
+does not exist — this parser
 reads no transactions at all today, though the spec describes an 8-column demat ledger grouped under
 `ISIN : <isin>` anchor rows. Whoever implements it inherits the same requirement: a ledger row is
 attributed to the account section it sits in, or it fails.
@@ -225,6 +227,82 @@ so one of the two holdings is silently restated over the other and **that** does
 ID. Carry that as section context the way the CAMS parser carries the folio, and fail the section
 with an issue rather than guessing when no account header has been seen. The single-account
 fixture cannot catch this; a two-demat-account fixture is the first thing the fix needs.
+
+### ~~The NSDL eCAS keys MF folios on the folio number alone~~ — FIXED
+
+Resolved by `FolioRoster` and `emitFolioRecords` in `src/ingestion/pdf/nsdl-ecas.ts`. The roster's
+folio claims are now keyed on `FolioAmcIndex.scope(printedName, folio)` — the same (house, number)
+pair the identity key itself uses — instead of on the folio number, and that scope is carried
+through both the account loop and the position loop. A scheme row under a number two houses claim is
+attributed by **its own ISIN issuer prefix**; where the prefix names neither claimant, or names no
+house the registry knows, the row **fails** with `E_MISSING_REQUIRED_FIELD` rather than joining to
+whichever roster line printed last. A shared number is reported in its own right, as
+`W_FOLIO_NUMBER_SHARED`, which says that folio numbers are registrar-scoped and that each scheme was
+attributed by its ISIN.
+
+Found by adversarial review of the branch that fixed the demat path, which had explicitly cleared
+the MF path as "correct all along" — it was checked for the *demat* flaw, which it does not have,
+and the check stopped there.
+
+Fixture: `nsdlEcasSharedFolioPages` in `src/ingestion/testing/corpus.ts` prints folio `12345678 / 0`
+under **two** fund houses, each scheme carrying its own issuer prefix (`INF179K` HDFC,
+`INF200K` SBI); `nsdlEcasSharedFolioStrayIsinPages` gives one of them an Axis ISIN that neither
+claimant issued, to exercise the refusal. Every existing fixture gives each folio a distinct number,
+which is exactly why a last-writer-wins map read as correct — the defect is invisible until two
+houses claim one number. `nsdl-ecas.test.ts` also imports the eCAS and then the registrar's own CAS
+for the SBI folio and asserts the units land on **one** account id; that test finds two against the
+old parser.
+
+Two residuals, both deliberate:
+
+- **A scheme row the roster does not account for now fails rather than being dropped.** It was
+  previously discarded in silence, because the join simply missed. An error the user can see is the
+  point; a row that vanishes is not.
+- **Two houses whose names the registry does not know, claiming one number, cannot be told apart
+  by name.** Their schemes still separate correctly when the ISINs resolve, and fail visibly when
+  they do not. There is no third option that is not a guess.
+
+One hole is left open, deliberately but not comfortably:
+
+- **A shared folio number whose roster names only *one* of the two houses still merges.** If the
+  second roster row's DP Name cell is blank or does not parse, there is one claimant, both houses'
+  schemes are attributed to it, and `resolveAmc` picks whichever issuer prefix printed first —
+  the original defect, arriving through an unreadable roster instead of through the map. The
+  evidence to catch it is already on the rows: schemes under one folio number whose ISINs resolve
+  to *two* registry houses are two folios whatever the roster managed to print, and the pair
+  (issuer prefix, folio number) is a complete identity with no guess in it. It is not implemented
+  here because it changes the single-claimant path, which is where `W_AMC_NAME_CONFLICT` lives —
+  a roster that *misnames* one house must keep merging into one account, and telling that apart
+  from a roster that *missed* a house needs the ISIN-count rule above stated as a deliberate
+  design decision rather than smuggled in beside a fix. The same reasoning applies to a roster
+  that does not parse at all: every scheme row then fails, where each row on its own carries both
+  a folio number and an ISIN, and could stand up its own account.
+
+### The NSDL eCAS keys MF folios on the folio number alone (historical)
+
+`folioAmc` in `src/ingestion/pdf/nsdl-ecas.ts` was `Map<folio, dpName>`, written once per roster row
+and last-writer-wins:
+
+```ts
+folioAmc.set(folio, dpName)
+```
+
+Mutual fund folio numbers are issued per registrar rather than globally, which is the entire reason
+`FolioAmcIndex.scope(printedName, folio)` exists and the reason the fund house is mandatory in
+`mf-folio:<amc>:<folio>`. Two roster rows carrying number `12345678` — one under HDFC, one under SBI
+— therefore produced **one** account: the account loop emitted one row per folio *number*,
+`readMfFolio` filed both houses' schemes into one evidence bucket, and `resolveAmc` handed the
+account to whichever ISIN issuer prefix printed first. One of the two folios got no account at all.
+
+**Consequence:** the units of the losing house are reported against the winning house's account, and
+the folio the statement named is missing. That alone is a per-account error rather than a total one
+— but when that house's own CAMS or KFintech CAS is imported it scopes correctly and creates its own
+account, while the eCAS copy of the same units still sits inside the other house's account.
+`derivePositions` works per `(accountId, instrumentId)`, so **both are counted**: the same doubled
+net worth `account.identity_key` was introduced to prevent, arriving through the parser instead of
+through the key. The only signal was a `W_AMC_NAME_CONFLICT`, raised in one print order out of two,
+and its wording describes a name/ISIN disagreement rather than a folio merge — so a user reading it
+would look for a misspelled fund house, not for a missing account.
 
 ## Valuation engine
 

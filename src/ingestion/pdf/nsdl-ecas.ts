@@ -40,13 +40,25 @@
  * on `(account_id, instrument_id, as_of)`, so one ISIN held in two accounts collides and one
  * holding silently restates the other. See `emitDematPositions` for what happens when the document
  * does not say.
+ *
+ * **The roster's folio lines carry the same hazard one level down.** A folio number is issued by a
+ * registrar, not by the market, so the same number appears under two fund houses in one file; the
+ * house is therefore part of the folio's identity rather than a label on it. See `FolioRoster` and
+ * `emitFolioRecords`.
  */
 
+import type { RawIssue } from '../issues'
 import type { ExtractPlugin, RecordSink } from '../plugin'
 import { collapseWhitespace, containsTokens, findIsin, normaliseGlyphs, undouble } from '../text'
 import type { DecodedInput, PdfPage, RawPosition, TextLine } from '../types'
 import { bandIndex, bandIndexLast, findHeader, readRow, type ColumnBand } from './table'
-import { FolioAmcIndex, amcIssues, mfFolioIdentityKey } from '../amc/identity'
+import {
+  FolioAmcIndex,
+  amcIssues,
+  mfFolioIdentityKey,
+  resolveAmc,
+  type AmcResolution,
+} from '../amc/identity'
 
 const PROVIDER_ID = 'nsdl-cas'
 const TIMEZONE = 'Asia/Kolkata'
@@ -102,6 +114,30 @@ interface HeldPosition {
   readonly record: Omit<RawPosition, 'accountKey'>
 }
 
+/**
+ * One roster line's claim on a folio number, by one fund house.
+ *
+ * A folio number is *not* the claim: folio numbers are RTA-scoped rather than globally unique, so
+ * two houses issuing `12345678` are two accounts and the pair (house, number) is the smallest thing
+ * that identifies one of them. See `FolioAmcIndex.scope`, which is the same scoping this uses.
+ */
+interface FolioClaim {
+  /** `FolioAmcIndex.scope(amc, folio)` — house and number together. */
+  readonly scope: string
+  readonly folio: string
+  /** The fund house as the roster printed it. Evidence, never an identity. */
+  readonly amc: string
+  readonly ref: string
+}
+
+/** A scheme row, held until the document has said whose folio it is. */
+interface HeldFolioRow {
+  readonly folio: string
+  readonly isin: string
+  readonly ref: string
+  readonly record: Omit<RawPosition, 'accountKey'>
+}
+
 function extract(input: DecodedInput, sink: RecordSink): void {
   if (input.kind !== 'pdf-text') return
   const pages = input.pages
@@ -120,7 +156,10 @@ function extract(input: DecodedInput, sink: RecordSink): void {
   let section: Section = null
   let bands: readonly ColumnBand[] | null = null
   const accounts = new Map<string, DematAccount>()
-  const folioAmc = new Map<string, string>()
+  // Every (house, folio) the roster declared. Keyed on the pair rather than on the number, because
+  // a map from folio number to house is last-writer-wins and silently merges two houses' folios
+  // into one account; see `FolioRoster`.
+  const roster = new FolioRoster()
   // Which demat account the reader is currently inside. Holdings are attributed to *this*, never
   // to whichever account the roster happened to declare first; see `DematSectionReader`.
   const demat = new DematSectionReader()
@@ -130,7 +169,7 @@ function extract(input: DecodedInput, sink: RecordSink): void {
   // the ISIN is the identifier that does not change between statements. Keying at the roster line
   // would key on the name alone, which is where one folio became two accounts.
   const index = new FolioAmcIndex()
-  const folioPositions: { folio: string; record: Omit<RawPosition, 'accountKey'> }[] = []
+  const folioRows: HeldFolioRow[] = []
 
   for (const page of pages) {
     for (let i = 0; i < page.lines.length; i += 1) {
@@ -183,7 +222,7 @@ function extract(input: DecodedInput, sink: RecordSink): void {
       }
 
       if (section === 'roster') {
-        readRoster(line, bands, accounts, folioAmc, index)
+        readRoster(line, bands, accounts, roster, index, ref)
         continue
       }
 
@@ -192,7 +231,7 @@ function extract(input: DecodedInput, sink: RecordSink): void {
         continue
       }
 
-      readMfFolio(line, bands, folioAmc, index, asOf, ref, folioPositions)
+      readMfFolio(line, bands, asOf, ref, folioRows)
     }
   }
 
@@ -210,36 +249,16 @@ function extract(input: DecodedInput, sink: RecordSink): void {
   }
 
   emitDematPositions(dematPositions, accounts, demat.sawAnyHeader(), sink)
-
-  for (const [folio, amc] of folioAmc) {
-    const resolution = index.resolve(amc, folio)
-    const key = mfFolioIdentityKey(resolution, folio)
-    for (const issue of amcIssues(resolution, folio, key)) sink.issue(issue)
-    sink.account({
-      type: 'account',
-      ref: key,
-      raw: { identity: key, folio, amc },
-      accountKey: key,
-      label: `${resolution.kind === 'canonical' ? resolution.canonicalName : amc} · ${folio}`,
-      externalRef: folio,
-      capability: 'snapshot',
-      baseCurrency: CURRENCY,
-    })
-  }
-
-  for (const held of folioPositions) {
-    const amc = folioAmc.get(held.folio)
-    if (amc === undefined) continue
-    sink.position({ ...held.record, accountKey: index.identityKey(amc, held.folio) })
-  }
+  emitFolioRecords(roster, folioRows, index, sink)
 }
 
 function readRoster(
   line: TextLine,
   bands: readonly ColumnBand[],
   accounts: Map<string, DematAccount>,
-  folioAmc: Map<string, string>,
+  roster: FolioRoster,
   index: FolioAmcIndex,
+  ref: string,
 ): void {
   const cells = readRow(line, bands)
   const dpName = cells[bandIndex(bands, ['dp', 'name'])] ?? ''
@@ -256,8 +275,10 @@ function readRoster(
   }
   if (folio !== '' && dpName !== '') {
     // The roster's DP Name column carries the fund house for a folio line. It is evidence, not an
-    // identity: the account row is emitted once the holdings table has contributed its ISINs.
-    folioAmc.set(folio, dpName)
+    // identity: the account row is emitted once the holdings table has contributed its ISINs. The
+    // claim is recorded against the *pair*, so a second house naming the same number does not
+    // overwrite the first.
+    roster.claim(dpName, folio, ref)
     index.observeName(dpName, folio)
   }
 }
@@ -610,11 +631,9 @@ function undoubled(text: string): string {
 function readMfFolio(
   line: TextLine,
   bands: readonly ColumnBand[],
-  folioAmc: Map<string, string>,
-  index: FolioAmcIndex,
   asOf: string | null,
   ref: string,
-  out: { folio: string; record: Omit<RawPosition, 'accountKey'> }[],
+  out: HeldFolioRow[],
 ): void {
   const isin = findIsin(line.text)
   if (isin === null || asOf === null) return
@@ -623,15 +642,15 @@ function readMfFolio(
   const name = cells[bandIndex(bands, ['scheme'])] ?? ''
   const quantity = cells[bandIndex(bands, ['closing'])] ?? cells[bandIndex(bands, ['balance'])] ?? ''
   const value = cells[bandIndexLast(bands, ['value'])] ?? ''
-  const amc = folioAmc.get(folio)
-  if (folio === '' || quantity === '' || amc === undefined) return
+  if (folio === '' || quantity === '') return
 
-  // The strongest AMC identifier this document prints for a folio, and the only one shared with
-  // the registrar's own statement.
-  index.observeIsin(amc, folio, isin)
-
+  // The row is *held* rather than attributed here. Which house's folio this number is cannot be
+  // decided from the number alone — see `attribute` — and the ISIN this row carries is the evidence
+  // that decides it, so nothing is filed into the AMC index until every roster claim is known.
   out.push({
     folio,
+    isin,
+    ref,
     record: {
       type: 'position',
       ref,
@@ -645,6 +664,179 @@ function readMfFolio(
       currency: CURRENCY,
     },
   })
+}
+
+// ---------------------------------------------------------------------------
+// Mutual fund folios
+// ---------------------------------------------------------------------------
+
+/**
+ * Every (fund house, folio number) the roster declared, in the order it declared them.
+ *
+ * The map this replaces was `folio number → house`, and it was last-writer-wins. A folio number is
+ * RTA-scoped rather than globally unique, so `12345678` under HDFC and `12345678` under SBI are two
+ * accounts that a real statement can and does print together; the old map kept the second and lost
+ * the first, then filed **both** houses' schemes into the surviving house's evidence bucket, where
+ * `resolveAmc` handed the account to whichever ISIN issuer prefix happened to print first. One folio
+ * got no account at all, and its units were reported against the other house.
+ *
+ * That the units then reappear under their own house when the registrar's own CAS is imported is
+ * what makes it a money bug rather than a labelling one: `derivePositions` works per
+ * `(accountId, instrumentId)`, so the misfiled copy and the correct one are both counted.
+ *
+ * Claims are keyed on `FolioAmcIndex.scope`, so two spellings of one house are one claim — the
+ * lookup key reduces "HDFC Mutual Fund" and "HDFC Asset Management Company Limited" alike — while
+ * two genuinely different houses stay two.
+ */
+class FolioRoster {
+  private readonly claims = new Map<string, FolioClaim>()
+  private readonly byNumber = new Map<string, FolioClaim[]>()
+
+  /** Record that `amc` claims `folio`. Repeating a claim is not a second claim. */
+  claim(amc: string, folio: string, ref: string): void {
+    const scope = FolioAmcIndex.scope(amc, folio)
+    if (this.claims.has(scope)) return
+    const claim: FolioClaim = { scope, folio, amc, ref }
+    this.claims.set(scope, claim)
+    const siblings = this.byNumber.get(folio)
+    if (siblings === undefined) this.byNumber.set(folio, [claim])
+    else siblings.push(claim)
+  }
+
+  /** Every house that claimed this folio number. More than one is legal, and is the hard case. */
+  claimants(folio: string): readonly FolioClaim[] {
+    return this.byNumber.get(folio) ?? []
+  }
+
+  all(): readonly FolioClaim[] {
+    return [...this.claims.values()]
+  }
+
+  /** The folio numbers more than one house claimed, in document order. */
+  contested(): readonly (readonly FolioClaim[])[] {
+    return [...this.byNumber.values()].filter((claims) => claims.length > 1)
+  }
+}
+
+/**
+ * Emit one account per (house, folio), and each scheme row against the house that issued its ISIN.
+ *
+ * The attribution rule is the same shape as `emitDematPositions`', and for the same reason: a row
+ * is filed only where the document *said* it goes.
+ *
+ *   1. **One house claimed the number.** The roster's own statement of ownership, and the ordinary
+ *      case. The ISIN still decides the account's identity — `resolveAmc` prefers it to the printed
+ *      name — so a roster that misnames the house is corrected rather than believed.
+ *   2. **Several houses claimed it.** Then the folio number identifies nothing on its own, and the
+ *      row is attributed by *its own* ISIN issuer prefix: the one identifier on the row that names
+ *      a fund house without depending on which roster line printed last.
+ *   3. **Otherwise the row fails**, naming the houses it might have belonged to. An ISIN whose
+ *      issuer is not in the registry cannot break a tie between two houses, and neither can an ISIN
+ *      that matches none of the claimants — a plausible wrong answer here is a doubled holding.
+ */
+function emitFolioRecords(
+  roster: FolioRoster,
+  rows: readonly HeldFolioRow[],
+  index: FolioAmcIndex,
+  sink: RecordSink,
+): void {
+  for (const claims of roster.contested()) sink.issue(sharedFolioIssue(claims))
+
+  const attributed: { claim: FolioClaim; record: Omit<RawPosition, 'accountKey'> }[] = []
+  for (const row of rows) {
+    const claimants = roster.claimants(row.folio)
+    const claim = attribute(claimants, row.isin)
+    if (claim === null) {
+      sink.issue(unattributedRowIssue(row, claimants))
+      continue
+    }
+    // The strongest AMC identifier this document prints for a folio, and the only one shared with
+    // the registrar's own statement. It is filed under the claim this row was attributed to, so a
+    // contested number does not pool two houses' ISINs into one bucket.
+    index.observeIsin(claim.amc, claim.folio, row.isin)
+    attributed.push({ claim, record: row.record })
+  }
+
+  // Two spellings of one house reduce to one claim, but two claims can still resolve to one
+  // identity — a former name and a current one, say — and one account must not be emitted twice.
+  const emitted = new Set<string>()
+  for (const claim of roster.all()) {
+    const resolution = index.resolve(claim.amc, claim.folio)
+    const key = mfFolioIdentityKey(resolution, claim.folio)
+    if (emitted.has(key)) continue
+    emitted.add(key)
+    for (const issue of amcIssues(resolution, claim.folio, key)) sink.issue(issue)
+    sink.account({
+      type: 'account',
+      ref: key,
+      raw: { identity: key, folio: claim.folio, amc: claim.amc },
+      accountKey: key,
+      label: `${resolution.kind === 'canonical' ? resolution.canonicalName : claim.amc} · ${claim.folio}`,
+      externalRef: claim.folio,
+      capability: 'snapshot',
+      baseCurrency: CURRENCY,
+    })
+  }
+
+  for (const held of attributed) {
+    sink.position({
+      ...held.record,
+      accountKey: index.identityKey(held.claim.amc, held.claim.folio),
+    })
+  }
+}
+
+/** Which claimant owns this scheme row, or null when the document does not say. */
+function attribute(claimants: readonly FolioClaim[], isin: string): FolioClaim | null {
+  if (claimants.length === 0) return null
+  if (claimants.length === 1) return claimants[0] ?? null
+  const issuer = houseOf(resolveAmc({ printedNames: [], isins: [isin] }))
+  if (issuer === null) return null
+  // Several claimants can name one house — a rename, printed both ways — and they resolve to one
+  // identity key, so the first is as good as any. Zero matches is a gap, never a guess.
+  const owner = claimants.find(
+    (claim) => houseOf(resolveAmc({ printedNames: [claim.amc], isins: [] })) === issuer,
+  )
+  return owner ?? null
+}
+
+/** The registry id a resolution names, or null when it named no house the registry knows. */
+function houseOf(resolution: AmcResolution): string | null {
+  return resolution.kind === 'canonical' ? resolution.amcId : null
+}
+
+function sharedFolioIssue(claims: readonly FolioClaim[]): RawIssue {
+  const houses = claims.map((claim) => `"${claim.amc}"`).join(', ')
+  return {
+    severity: 'warning',
+    code: 'W_FOLIO_NUMBER_SHARED',
+    message:
+      `folio number ${claims[0]?.folio ?? ''} is listed under ${String(claims.length)} fund ` +
+      `houses in this statement (${houses}). Folio numbers are issued per registrar, not ` +
+      `globally, so these are separate accounts and each scheme was attributed to the house that ` +
+      `issued its ISIN.`,
+    ref: claims.map((claim) => claim.ref).join(', '),
+  }
+}
+
+function unattributedRowIssue(row: HeldFolioRow, claimants: readonly FolioClaim[]): RawIssue {
+  const houses = claimants.map((claim) => `"${claim.amc}"`).join(', ')
+  const because =
+    claimants.length === 0
+      ? `no fund house in this statement's roster claims folio ${row.folio}`
+      : `folio ${row.folio} is claimed by ${houses}, and this scheme's ISIN (${row.isin}) does ` +
+        `not identify which of them issued it`
+  return {
+    severity: 'error',
+    code: 'E_MISSING_REQUIRED_FIELD',
+    message:
+      `${because}, so which account holds this scheme cannot be decided. It was left out rather ` +
+      `than attributed to a guess: folio numbers are registrar-scoped, and attributing units to ` +
+      `the wrong house double-counts them once that house's own statement is imported.`,
+    ref: row.ref,
+    // Replayable: the import report has to be able to show the user the row it dropped.
+    raw: row.record.raw,
+  }
 }
 
 const KNOWN_HEADINGS =

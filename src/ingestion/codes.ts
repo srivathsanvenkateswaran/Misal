@@ -58,6 +58,15 @@ export type WarningCode =
   | 'W_AMC_UNRECOGNISED'
   /** The AMC name printed against a folio names a different house than its ISIN does. */
   | 'W_AMC_NAME_CONFLICT'
+  /**
+   * One statement lists the same folio number under more than one fund house.
+   *
+   * Legal, and not a parse error: folio numbers are issued per registrar rather than globally, so
+   * two houses can hold the same number. It is reported because the two are separate accounts and
+   * every scheme under that number had to be attributed by its own ISIN rather than by the roster
+   * line above it — a user seeing one number twice deserves to know why.
+   */
+  | 'W_FOLIO_NUMBER_SHARED'
 
 export type IssueCode = DocumentCode | RowCode | WarningCode
 

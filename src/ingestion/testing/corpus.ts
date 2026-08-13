@@ -478,6 +478,124 @@ export function nsdlEcasTwoDematPages(overrides: CorpusSpellings = {}): RawPdfPa
   return buildPages([roster, first, second, folios])
 }
 
+// ---------------------------------------------------------------------------
+// One folio number, two fund houses
+// ---------------------------------------------------------------------------
+
+/** The SBI scheme held in the folio whose **number** is also HDFC's. `INF200K` is SBI's prefix. */
+export const SHARED_FOLIO_SBI_ISIN = 'INF200K01UT8'
+
+/**
+ * An NSDL eCAS printing one folio *number* under two fund houses.
+ *
+ * A folio number is issued by a registrar and is unique only within that registrar's books, so one
+ * investor genuinely holds `12345678` at two houses and one eCAS prints both. Every other fixture
+ * here gives each folio a distinct number, which is exactly why the folio-doubling bug survived a
+ * full suite: a `folio number → fund house` map is indistinguishable from a correct one until two
+ * houses claim a number, and then it keeps the second, loses the first, and files both houses'
+ * schemes into the survivor.
+ *
+ * The two schemes carry their own issuer prefixes — `INF179K` is HDFC's, `INF200K` is SBI's — so
+ * each row can be attributed without reference to whichever roster line printed last. That is the
+ * only evidence a parser is allowed to use here, and the fixture exists to make sure it is used.
+ */
+export function nsdlEcasSharedFolioPages(overrides: CorpusSpellings = {}): RawPdfPage[] {
+  const amc = spellings({ hdfc: AMC_SPELLINGS.hdfc[1], ...overrides })
+  const page: FixturePage = {
+    rows: [
+      'NSDL Consolidated Account Statement',
+      'National Securities Depository Limited',
+      'Statement for the period from 01-Mar-2025 to 31-Mar-2025',
+      'Your Demat Account and Mutual Fund Folios',
+      [
+        { text: 'Account Type', x: 40 },
+        { text: 'DP Name', x: 150 },
+        { text: 'DP ID', x: 380 },
+        { text: 'Client ID', x: 440 },
+        { text: 'Folio No', x: 505 },
+      ],
+      [
+        { text: 'NSDL Demat Account', x: 40 },
+        { text: 'EXAMPLE SECURITIES', x: 150 },
+        { text: 'IN300394', x: 380 },
+        { text: '12345678', x: 440 },
+      ],
+      [
+        { text: 'Mutual Fund Folio', x: 40 },
+        { text: amc.hdfc, x: 150 },
+        { text: '', x: 380 },
+        { text: '', x: 440 },
+        { text: '12345678 / 0', x: 505 },
+      ],
+      // The same number, at a different house. Printed second, which is what made it the winner
+      // under the map this fixture retires.
+      [
+        { text: 'Mutual Fund Folio', x: 40 },
+        { text: 'SBI Mutual Fund', x: 150 },
+        { text: '', x: 380 },
+        { text: '', x: 440 },
+        { text: '12345678 / 0', x: 505 },
+      ],
+      ...dematHeaderRows('NSDL', 'EXAMPLE SECURITIES', 'IN300394', '12345678'),
+      [
+        { text: 'ISIN / Stock Symbol', x: 40 },
+        { text: 'Company Name', x: 170 },
+        right('Face Value in ₹', 310),
+        right('No. of Shares', 380),
+        right('Market Price in ₹', 470),
+        right('Value in ₹', 545),
+      ],
+      [
+        { text: 'INE009A01021 INFY.NSE', x: 40 },
+        { text: 'INFOSYS LIMITED', x: 170 },
+        right('5.00', 310),
+        right('8.000', 380),
+        right('1,610.75', 470),
+        right('12,886.00', 545),
+      ],
+      'Mutual Fund Folios (F)',
+      [
+        { text: 'Folio No', x: 40 },
+        { text: 'Scheme Name', x: 130 },
+        { text: 'ISIN', x: 300 },
+        right('Closing Balance', 420),
+        right('NAV', 470),
+        right('Value', 545),
+      ],
+      [
+        { text: '12345678 / 0', x: 40 },
+        { text: 'HDFC Flexi Cap Fund - Growth', x: 130 },
+        { text: amc.hdfcIsin, x: 300 },
+        right('147.300', 420),
+        right('60.0000', 470),
+        right('8,838.00', 545),
+      ],
+      [
+        { text: '12345678 / 0', x: 40 },
+        { text: 'SBI Bluechip Fund - Growth', x: 130 },
+        { text: SHARED_FOLIO_SBI_ISIN, x: 300 },
+        right('310.400', 420),
+        right('80.0000', 470),
+        right('24,832.00', 545),
+      ],
+    ],
+    footer: ['Page 1 of 1', 'About NSDL'],
+  }
+  return buildPages([page])
+}
+
+/**
+ * The same shared-number statement with a scheme no roster line can account for.
+ *
+ * Its ISIN belongs to a third house — Axis — so neither claimant issued it and no honest reading
+ * says which account holds it. The row has to fail: attributing it to either claimant would put
+ * units in an account that does not hold them, and they would be counted twice the moment the
+ * house that does hold them sends its own statement.
+ */
+export function nsdlEcasSharedFolioStrayIsinPages(): RawPdfPage[] {
+  return mutate(nsdlEcasSharedFolioPages(), SHARED_FOLIO_SBI_ISIN, 'INF846K01EW2')
+}
+
 /**
  * The same statement with the **first** account's header block unreadable.
  *
