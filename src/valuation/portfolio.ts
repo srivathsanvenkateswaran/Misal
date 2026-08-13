@@ -47,6 +47,7 @@ import { type Disposal, type RealisedGains, classifyDisposal, summariseRealised 
 import { financialYear } from './calendar'
 import {
   type InstrumentRef,
+  type IsoDate,
   type IsoInstant,
   type MeasurementReason,
   type Result,
@@ -213,7 +214,7 @@ export function valuePortfolio(input: PortfolioInput): Result<ValuationSnapshot>
     }
 
     const priceRead = input.prices.priceAt(position.instrumentId, 'latest')
-    const fxRead = input.fx.latest(instrument.currency, 'INR')
+    const fxRead = input.fx.latest(instrument.currency, 'INR', valuationDate)
 
     let marketValue: Measured<Minor> = notMeasured('no_price', ZERO_MINOR)
     let age: PriceAge | null = null
@@ -231,7 +232,13 @@ export function valuePortfolio(input: PortfolioInput): Result<ValuationSnapshot>
       marketValue = notMeasured('no_fx_rate', ZERO_MINOR)
       warnings.push({
         code: fxRead.error.code === 'NO_FX_SOURCE' ? 'NO_FX_SOURCE' : 'NO_FX_RATE',
-        message: `No INR rate for ${instrument.currency}, so ${instrument.displayName} is excluded from net worth.`,
+        // A frozen rate is named as frozen, with its age. "No rate" and "a rate from five weeks
+        // ago" are different problems with different fixes, and the second one is the one a user
+        // would otherwise never learn about.
+        message:
+          fxRead.error.code === 'FX_RATE_STALE'
+            ? `The newest ${instrument.currency}/INR rate is from ${fxRead.error.asOf}, ${fxRead.error.ageDays.toString()} days before this valuation, so ${instrument.displayName} is excluded from net worth rather than converted at a frozen rate. Refresh prices to store a current rate.`
+            : `No INR rate for ${instrument.currency}, so ${instrument.displayName} is excluded from net worth.`,
         ref: { instrumentId: position.instrumentId, accountId: position.accountId },
       })
     } else {
@@ -322,7 +329,7 @@ export function valuePortfolio(input: PortfolioInput): Result<ValuationSnapshot>
   const withheldMinor = addMinor(
     ...input.unresolved
       .filter((row) => row.resolvedAt === null && row.observedValueMinor !== null)
-      .map((row) => convertWithheld(row, input.fx)),
+      .map((row) => convertWithheld(row, input.fx, valuationDate)),
   )
 
   const breakdown: ValueBreakdown = {
@@ -366,13 +373,14 @@ export function valuePortfolio(input: PortfolioInput): Result<ValuationSnapshot>
   )
 }
 
-function convertWithheld(row: UnresolvedInstrumentRow, fx: FxService): Minor {
+function convertWithheld(row: UnresolvedInstrumentRow, fx: FxService, asOf: IsoDate): Minor {
   const value = row.observedValueMinor ?? ZERO_MINOR
   const currency = row.currency ?? 'INR'
   if (currency === 'INR') return value
-  const rate = fx.latest(currency, 'INR')
-  // An unresolved holding in a currency with no rate contributes nothing rather than an assumed
-  // conversion; it is still counted in `unresolvedInstrumentCount`.
+  const rate = fx.latest(currency, 'INR', asOf)
+  // An unresolved holding in a currency with no rate — or with none current enough to be called
+  // today's — contributes nothing rather than an assumed conversion; it is still counted in
+  // `unresolvedInstrumentCount`.
   if (!rate.ok) return ZERO_MINOR
   return decToMinor(mulDec(minorToDec(value, currency), rate.value.rate), 'INR')
 }

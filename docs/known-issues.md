@@ -438,6 +438,62 @@ The daily quota is enforced; the per-minute limit is not, and there is no retry 
 **Consequence:** a burst of requests can trip the provider's minute limit and fail a sync with no
 recovery.
 
+### ~~Choosing USD as the base currency froze every exchange rate, permanently and silently~~ — FIXED
+
+`settings.rs` offered `["INR", "USD"]` as base currencies while nothing in the engine read the
+setting. Selecting USD made `refreshFx` early-return for good, so no USD/INR row was ever written
+again — but `valueFromRows` hardcodes INR and converts through `FxTable.latest`, which, unlike
+`on`, had no age bound at all.
+
+**Consequence, as it stood:** net worth kept moving every day on refreshed prices while the FX leg
+was pinned to the day the setting changed. Nothing marked it: FX age appeared in neither `priceAge`
+nor `stalePriceCount`. The refresh note claimed foreign holdings "will stay out of net worth",
+which was the opposite of the truth — they stayed *in*, at a frozen rate. And because
+`foreignCurrencies` is computed against the configured base, a portfolio held entirely in USD
+produced no foreign currencies at all and returned before the note was pushed, so the user whose
+whole portfolio was affected was the only one told nothing.
+
+Fixed in three places:
+
+- `CURRENCIES` is `["INR"]`, and the Settings control disables itself when the core offers one
+  value. A choice that renames the totals without converting them is worse than no choice. The
+  screen's footnote now says that, rather than saying the setting does nothing.
+- `FxTable.latest` takes the valuation date and refuses a rate older than `MAX_FX_LATEST_AGE_DAYS`
+  (7), returning `FX_RATE_STALE` carrying the rate's own date and age. The holding leaves net worth
+  with a warning naming the age, exactly as it does when no rate was ever stored. **A stale rate is
+  refused, never extrapolated** — a bounded absence is auditable and a frozen number is not. Seven
+  days rather than `on`'s three because `latest` is bounded against the user's refresh habit, not
+  against a market weekend.
+- The `FX_BASE_UNSUPPORTED` note is raised before anything is counted as needed, names the
+  currencies quoted against INR, and describes what actually happens: totals moving on refreshed
+  prices against a frozen rate, and holdings dropping out once the rate passes the bound.
+
+**Residual, deliberate:** the bound only becomes visible when the engine values a portfolio. An FX
+rate whose age is between a failed refresh and the bound is still not reflected in `priceAge` or
+`stalePriceCount`, which count price age alone. Surfacing FX age as a first-class staleness input
+belongs with whoever next owns `src/valuation/portfolio.ts`'s coverage reporting.
+
+## Interface
+
+### ~~A single missing period was drawn as a continuous line~~ — FIXED
+
+`NavHistoryChart`'s gap threshold was `Math.max(MIN_GAP_DAYS, median * 2)`, consumed by a strict
+`delta > threshold`. In any regular series one missing observation produces a delta of exactly
+twice the cadence, so the commonest shape of a gap was the one shape that could never be flagged: a
+month-end series missing June has deltas of 28, 31, 30, 31, **61**, 31, 30 — median 31, threshold
+62, and 61 > 62 is false. A weekly series missing one week gives 14 against 14.
+
+**Consequence, as it stood:** the line was drawn straight through the hole, `data-gaps` read 0, the
+aria-label dropped its "N periods no price is stored for" clause, and the accessible table lost its
+"not interpolated" row. The file's own header promises the opposite, and the only existing test
+used a five-month hole, which cleared the threshold by accident of size.
+
+Fixed to `Math.max(MIN_GAP_DAYS, Math.floor(median * 3 / 2))`. Relaxing the comparison to `>=`
+would not have been enough: calendar months run 28 to 31 days, so a missing February gives 59
+against a threshold of 62. At `3/2` the threshold sits above the widest ordinary month (31 → 46)
+and below the narrowest doubled one (28 × 2 = 56). Tests cover a missing June, a missing February
+and a missing week, all three of which fail against `median * 2`.
+
 ## Test coverage
 
 ### Tax rule tables were nearly unguarded

@@ -526,6 +526,71 @@ describe('what the user is told', () => {
     expect(outcome.notes.some((n) => n.code === 'FX_BASE_UNSUPPORTED')).toBe(true)
   })
 
+  /**
+   * Two defects in one note, both of them silences.
+   *
+   * `foreignCurrencies` is computed against the *configured* base, so a portfolio held entirely in
+   * the misconfigured currency had no foreign currency at all and the function returned before the
+   * note was ever pushed: the user whose whole portfolio was frozen was the only one told nothing.
+   *
+   * And the note claimed those holdings "will stay out of net worth", which is the opposite of what
+   * happens. They stay in, converted at whatever rate was stored on the day the setting changed,
+   * while prices carry on refreshing daily.
+   */
+  it('warns even when every holding is in the misconfigured currency, and says the rate freezes rather than that the holdings leave', async () => {
+    const usdOnly = rows({
+      accounts: [
+        {
+          id: 'a-etrade',
+          providerId: 'etrade',
+          label: 'E*TRADE',
+          externalRef: null,
+          identityKey: null,
+          capability: 'ledger',
+          baseCurrency: 'USD',
+          createdAt: NOW,
+          providerShortCode: 'ETR',
+        },
+      ],
+      instruments: [
+        {
+          id: 'i-aapl',
+          assetClass: 'us_equity',
+          taxRegime: 'foreign_equity',
+          displayName: 'Apple',
+          isin: null,
+          currency: 'USD',
+          precision: 4,
+          fmv31Jan2018: null,
+        },
+      ],
+      aliases: [{ instrumentId: 'i-aapl', scheme: 'ticker', value: 'AAPL', providerId: null }],
+      settings: new Map([
+        ['base_currency', 'USD'],
+        ['price_cache_ttl_minutes', '360'],
+      ]),
+    })
+    // Nothing here is foreign *relative to USD*, which is exactly the case that used to be silent.
+    expect(foreignCurrencies(buildInstruments(usdOnly, usdOnly.aliases), usdOnly, 'USD')).toEqual([])
+
+    const { call, fetcher, urls } = harness(ALL_GOOD)
+    const outcome = await refreshPrices({
+      rows: usdOnly,
+      call,
+      fetcher,
+      now: () => NOW,
+      sleep: () => Promise.resolve(),
+    })
+
+    const note = outcome.notes.find((n) => n.code === 'FX_BASE_UNSUPPORTED')
+    expect(note).toBeDefined()
+    // Named against INR, because that is the rate that has stopped being written.
+    expect(note?.subjects).toEqual(['USD'])
+    expect(note?.message).not.toContain('stay out of net worth')
+    expect(note?.message).toContain('frozen')
+    expect(urls.some((u) => u.includes('=X'))).toBe(false)
+  })
+
   it('has a sentence for every provider failure the type system allows', () => {
     const errors = [
       { code: 'NOT_SUPPORTED' },

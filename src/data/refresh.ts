@@ -26,7 +26,10 @@
  *  4. **FX is not optional.** The engine refuses to convert without a stored rate, so a missing
  *     `fx_rate` table does not make a US holding unpriced — it makes it *absent* from net worth
  *     entirely. Rates are therefore refreshed alongside prices, from the keyless Yahoo pair feed,
- *     and a failure there is reported at the same volume as a failed price.
+ *     and a failure there is reported at the same volume as a failed price. A feed that quietly
+ *     stops is the same failure spread over weeks: `FxTable.latest` calls a rate current for
+ *     `MAX_FX_LATEST_AGE_DAYS` and refuses it after that, so a run of failed refreshes ends with
+ *     foreign holdings out of net worth and warned about rather than converted at a frozen rate.
  *
  * Nothing here opens a socket. Every request goes through `fetch_market_data`, which is confined
  * to an allowlisted host and path prefix in Rust; the webview's CSP forbids `fetch` outright, and
@@ -41,6 +44,7 @@ import {
   PriceService,
   TwelveDataProvider,
   YahooProvider,
+  MAX_FX_LATEST_AGE_DAYS,
   type CreditBudget,
   type FxPair,
   type FxQuoteResult,
@@ -574,24 +578,39 @@ interface FxRefreshInput {
  * is visible in the interface and flagged; a holding with no rate cannot be converted at all, so
  * the engine leaves it out of net worth rather than guessing — which is correct behaviour and also
  * completely silent unless something says so. Hence the explicit note.
+ *
+ * The base-currency guard is first, and says what actually happens rather than what would be
+ * tidiest to say. Nothing here can write a rate quoted against anything but INR, so a base of
+ * anything else means this pass stores nothing at all from now on — while the engine carries on
+ * converting at the last rate it has.
  */
 async function refreshFx(
   input: FxRefreshInput,
 ): Promise<{ outcomes: FxOutcome[]; written: number }> {
   const base = input.rows.settings.get(BASE_CURRENCY_SETTING) ?? 'INR'
-  const needed = foreignCurrencies(input.instruments, input.rows, base)
-  if (needed.length === 0) return { outcomes: [], written: 0 }
 
+  // Checked before anything is counted as needed, and against INR rather than against `base`.
+  // Both matter. A portfolio held entirely in the misconfigured currency has no "foreign" currency
+  // relative to that base at all, so the old ordering returned before the note was pushed and the
+  // one user most affected was the only one told nothing. And the currencies whose rates freeze are
+  // the ones quoted against INR, which is what the engine converts through whatever this says.
   if (base !== 'INR') {
     // `FxPair.quote` is 'INR' by construction: the direction convention in `fx.ts` is fixed and a
     // rate stored the other way round turns a ₹50 lakh holding into ₹6,500.
+    const frozen = foreignCurrencies(input.instruments, input.rows, 'INR')
     input.notes.push({
       code: 'FX_BASE_UNSUPPORTED',
-      message: `Exchange rates are only fetched against INR, but the base currency is set to ${base}. Foreign holdings will stay out of net worth until that is resolved.`,
-      subjects: [...needed],
+      message:
+        `Exchange rates are only fetched against INR, but the base currency is set to ${base}, so no rate was fetched and none will be. ` +
+        'Holdings in another currency are not left out of net worth in the meantime — the engine keeps converting them at the newest rate already stored, so every total moves on refreshed prices against an exchange rate frozen at today. ' +
+        `Once that rate is more than ${MAX_FX_LATEST_AGE_DAYS.toString()} days old they drop out of net worth instead. Set the base currency back to INR, which is the only currency Misal computes in.`,
+      subjects: [...frozen],
     })
     return { outcomes: [], written: 0 }
   }
+
+  const needed = foreignCurrencies(input.instruments, input.rows, base)
+  if (needed.length === 0) return { outcomes: [], written: 0 }
 
   const provider = input.provider
   const fetchFx = provider?.fetchFx?.bind(provider)
