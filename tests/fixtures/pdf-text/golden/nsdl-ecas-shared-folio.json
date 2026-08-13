@@ -1,0 +1,144 @@
+{
+  "issues": [
+    {
+      "code": "W_FOLIO_NUMBER_SHARED",
+      "message": "folio number 12345678/0 is listed under 2 fund houses in this statement (\"HDFC Asset Management Company Limited\", \"SBI Mutual Fund\"). Folio numbers are issued per registrar, not globally, so these are separate accounts and each scheme was attributed to the house that issued its ISIN.",
+      "ref": "p.1 r.7, p.1 r.8",
+      "severity": "warning"
+    }
+  ],
+  "records": [
+    {
+      "accountKey": "demat:IN300394-12345678",
+      "baseCurrency": "INR",
+      "capability": "snapshot",
+      "externalRef": "IN300394-12345678",
+      "kind": "account",
+      "label": "EXAMPLE SECURITIES · IN300394-12345678",
+      "origin": {
+        "raw": {
+          "identity": "demat:IN300394-12345678"
+        },
+        "ref": "demat:IN300394-12345678"
+      }
+    },
+    {
+      "accountKey": "demat:IN300394-12345678",
+      "asOf": "2025-03-31T00:00:00+05:30",
+      "asOfDate": "2025-03-31",
+      "asOfTz": "Asia/Kolkata",
+      "currency": "INR",
+      "instrument": {
+        "assetClassHint": "indian_equity",
+        "exchange": "NSE",
+        "isin": "INE009A01021",
+        "name": "INFOSYS LIMITED",
+        "symbol": "INFY"
+      },
+      "kind": "position",
+      "marketValueMinor": "1288600",
+      "origin": {
+        "raw": {
+          "isin": "INE009A01021",
+          "name": "INFOSYS LIMITED",
+          "quantity": "8.000",
+          "value": "12,886.00"
+        },
+        "ref": "p.1 r.15"
+      },
+      "quantity": {
+        "scale": 3,
+        "value": "8.000"
+      }
+    },
+    {
+      "accountKey": "mf-folio:hdfc:12345678/0",
+      "baseCurrency": "INR",
+      "capability": "snapshot",
+      "externalRef": "12345678/0",
+      "kind": "account",
+      "label": "HDFC Mutual Fund · 12345678/0",
+      "origin": {
+        "raw": {
+          "amc": "HDFC Asset Management Company Limited",
+          "folio": "12345678/0",
+          "identity": "mf-folio:hdfc:12345678/0"
+        },
+        "ref": "mf-folio:hdfc:12345678/0"
+      }
+    },
+    {
+      "accountKey": "mf-folio:hdfc:12345678/0",
+      "asOf": "2025-03-31T00:00:00+05:30",
+      "asOfDate": "2025-03-31",
+      "asOfTz": "Asia/Kolkata",
+      "currency": "INR",
+      "instrument": {
+        "assetClassHint": "mutual_fund",
+        "isin": "INF179K01608",
+        "name": "HDFC Flexi Cap Fund - Growth"
+      },
+      "kind": "position",
+      "marketValueMinor": "883800",
+      "origin": {
+        "raw": {
+          "folio": "12345678/0",
+          "isin": "INF179K01608",
+          "name": "HDFC Flexi Cap Fund - Growth",
+          "quantity": "147.300",
+          "value": "8,838.00"
+        },
+        "ref": "p.1 r.18"
+      },
+      "quantity": {
+        "scale": 3,
+        "value": "147.300"
+      }
+    },
+    {
+      "accountKey": "mf-folio:sbi:12345678/0",
+      "baseCurrency": "INR",
+      "capability": "snapshot",
+      "externalRef": "12345678/0",
+      "kind": "account",
+      "label": "SBI Mutual Fund · 12345678/0",
+      "origin": {
+        "raw": {
+          "amc": "SBI Mutual Fund",
+          "folio": "12345678/0",
+          "identity": "mf-folio:sbi:12345678/0"
+        },
+        "ref": "mf-folio:sbi:12345678/0"
+      }
+    },
+    {
+      "accountKey": "mf-folio:sbi:12345678/0",
+      "asOf": "2025-03-31T00:00:00+05:30",
+      "asOfDate": "2025-03-31",
+      "asOfTz": "Asia/Kolkata",
+      "currency": "INR",
+      "instrument": {
+        "assetClassHint": "mutual_fund",
+        "isin": "INF200K01UT8",
+        "name": "SBI Bluechip Fund - Growth"
+      },
+      "kind": "position",
+      "marketValueMinor": "2483200",
+      "origin": {
+        "raw": {
+          "folio": "12345678/0",
+          "isin": "INF200K01UT8",
+          "name": "SBI Bluechip Fund - Growth",
+          "quantity": "310.400",
+          "value": "24,832.00"
+        },
+        "ref": "p.1 r.19"
+      },
+      "quantity": {
+        "scale": 3,
+        "value": "310.400"
+      }
+    }
+  ],
+  "skipped": []
+}
