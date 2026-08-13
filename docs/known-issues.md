@@ -550,6 +550,74 @@ spells a partial import instead. And `import_run.parser_version` — recorded pe
 statement can be reprocessed when a parser bug is fixed" — is still read by nothing: a parser bug
 that produces *wrong* rows rather than throwing still does not reopen the file.
 
+### ~~The flag that stopped statements being lost was cleared by the queue it was written to escape~~ — FIXED
+
+`import_run.outstanding_reason` exists precisely because the shared unresolved queue cannot answer
+for a single document. Two holes in the code added around it handed the question straight back to
+that queue, and both ended exactly where the fix above began: a statement whose rows are not in the
+ledger, answered `already-imported` forever, transactions nowhere but in the PDF.
+
+- **The dismissal sweep was unscoped.** `ingest.rs::ignore_unresolved` cleared the flag with
+  `UPDATE import_run SET outstanding_reason = NULL WHERE outstanding_reason = 'withheld' AND NOT
+  EXISTS (…)` and `[]` as its parameters — naming neither the dismissed entry nor its document. Every
+  dismissal re-derived the flag for every run in the database, from the shared queue. Take January
+  and February sharing one entry: the user maps the ISIN and re-imports February, February's rows
+  land, `release_landed_rows` stamps `resolved_at`, and January's re-importability now rests entirely
+  on its `'withheld'` flag. The user then dismisses **a completely unrelated entry, in a different
+  account, for a different fund**. January's run has no open entry naming it, the `NOT EXISTS`
+  passes, the flag goes NULL, and January is gone. The existing regression test could not see this
+  because it never dismissed anything.
+
+- **Restore was not the inverse of dismiss.** `accounts.rs::restore_entry` ran one statement —
+  `UPDATE unresolved_instrument SET ignored_at = NULL` — and never touched `import_run`. Nothing
+  else in the system writes `outstanding_reason` except `record_outstanding_rows`, at commit time,
+  so there was no path from "Put back" back to that column at all. Three monthly eCAS naming one
+  unmapped ISIN, the entry carrying `source_document_id = d-jan` and `last_seen_document_id = d-mar`:
+  the dismissal cleared all three runs, and pressing "Put back" locked February out **on the spot**,
+  with no re-import involved — while the settings screen told the user the entry "is open again — its
+  value was withheld the whole time it was dismissed, and still is", asserting a restoration that had
+  not happened.
+
+The sweep is now scoped to the documents the dismissed entry actually names, binding the entry's id
+and mirroring the scoping `release_landed_rows` already applies; the `NOT EXISTS` clause stays,
+because a document named on several entries is not settled by dismissing one of them. `restore_entry`
+re-stamps `'withheld'` on the newest run of each document the entry names, skipping runs already
+carrying `'crashed'` — a crash outranks a withholding — and documents that never came from a file.
+Re-stamping is conservative by construction: a flag set where nothing is owed costs one no-op
+re-import, which recomputes and clears it, while a flag missing where rows are owed costs the
+statement. The settings copy now says what actually happens to the statements as well as to the
+value.
+
+Migration 0008 repairs databases the sweep has already run against, by re-deriving the flag with
+migration 0007's own backfill rule. Neither code fix can reach them: the flag is gone, nothing else
+recomputes it, and the rows exist nowhere but in the files.
+
+### ~~Two positions in one import annihilated each other in silence~~ — FIXED
+
+`planPositions` in `src/ingestion/pipeline.ts` decided insert/restate/duplicate purely from
+`deps.store.findPosition`, which reads the database — and every write in the pipeline is buffered
+until the batch ships, so the planner was blind to rows it had planned moments earlier. Two source
+rows resolving to the same `(accountId, instrumentId, asOf)` were both planned as `insert`, and
+`commit_batch`'s `ON CONFLICT … DO UPDATE SET quantity = excluded.quantity` kept whichever landed
+last.
+
+The asymmetry gave it away: `reconcile.ts` has kept a `seenInDocument` map for transactions since
+`txn.occurrence` was added, and emits `W_DUPLICATE_IN_DOCUMENT` from it. Positions had no equivalent.
+
+**Consequence while it stood:** a plugin emitting two positions for one ISIN at the same `asOf` —
+100 units then 40 — yielded `counters: {read: 2, committed: 2, duplicate: 0, failed: 0}`, `issues:
+[]`, and one stored row of 40. A hundred units gone, no warning, and `rows_committed` claiming both
+had landed. `MemoryStore.upsertPosition` replaces in place exactly as SQLite does, so the store the
+whole suite runs against could not catch it either.
+
+`planPositions` now keeps its own seen-set keyed on `${accountId}|${instrumentId}|${asOf}`. A repeat
+is not written — one date carries one holding, and unlike a transaction there is no occurrence
+counter to admit it under — so the figure the file states first is the one that stands, and the
+repeat raises `W_DUPLICATE_IN_DOCUMENT` naming both quantities. Which of the two is correct is not
+knowable in the pipeline: two folios of one scheme under one account would have to be summed and a
+double-read must not be, so it states what it saw and guesses nothing. The repeat counts as
+`skipped` rather than `committed`, because it was read and deliberately not written.
+
 ### ~~Mapping one queue entry claimed every entry printing the same string~~ — FIXED
 
 `ingest.rs::map_unresolved` scoped its alias write correctly and then ran

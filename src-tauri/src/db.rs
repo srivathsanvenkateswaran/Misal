@@ -42,6 +42,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         "import-run-outstanding",
         include_str!("../migrations/0007-import-run-outstanding.sql"),
     ),
+    (
+        8,
+        "outstanding-repair",
+        include_str!("../migrations/0008-outstanding-repair.sql"),
+    ),
 ];
 
 /// Location of the database file for this platform.

@@ -372,14 +372,20 @@ async function importDecoded(
   const runId = deps.newId()
   const accountIds = [...resolvedAccounts.values()].map((a) => a.id)
 
+  // A holding the file states twice is read once and applied once. Counting the repeat as
+  // committed is the lie that made the loss silent — `rows_committed` claimed both had landed
+  // while the ledger held one. It is not `duplicate` either: nothing recognised it from an earlier
+  // import. It was read and deliberately not written, which is what `skipped` counts.
+  const repeatedPositions = positionPlans.filter((p) => p.action === 'repeat-in-document').length
   const committed =
     reconciled.filter((t) => t.disposition !== 'duplicate-in-db').length +
-    positionPlans.filter((p) => p.action !== 'duplicate').length
+    positionPlans.filter((p) => p.action !== 'duplicate' && p.action !== 'repeat-in-document')
+      .length
   const duplicate =
     reconciled.filter((t) => t.disposition === 'duplicate-in-db').length +
     positionPlans.filter((p) => p.action === 'duplicate').length
   const withheld = queue.all().reduce((sum, entry) => sum + entry.rowCount, 0)
-  const skipped = sink.skips.length + withheld
+  const skipped = sink.skips.length + withheld + repeatedPositions
   const counters: ImportCounters = {
     read: committed + duplicate + skipped + failed,
     committed,
@@ -428,7 +434,7 @@ async function importDecoded(
     }
 
     for (const plan of positionPlans) {
-      if (plan.action === 'duplicate') continue
+      if (plan.action === 'duplicate' || plan.action === 'repeat-in-document') continue
       await writer.upsertPosition({ ...plan.row, sourceDocumentId: documentId })
     }
 
@@ -555,9 +561,14 @@ function normalizePeriod(sink: CollectingSink): { start: string | null; end: str
 // ---------------------------------------------------------------------------
 
 interface PositionPlan {
-  readonly action: 'insert' | 'restate' | 'duplicate'
+  readonly action: 'insert' | 'restate' | 'duplicate' | 'repeat-in-document'
   /** Everything but the source document, which does not have an id until commit. */
   readonly row: Omit<PositionRow, 'sourceDocumentId'>
+}
+
+/** The key SQLite enforces: `ON CONFLICT (account_id, instrument_id, as_of)`. */
+function positionKey(position: { accountId: string; instrumentId: string; asOf: string }): string {
+  return `${position.accountId}|${position.instrumentId}|${position.asOf}`
 }
 
 /**
@@ -566,6 +577,21 @@ interface PositionPlan {
  * Re-importing the same statement is a no-op. A corrected statement for the same date is an
  * update — and it writes a warning naming both documents, because a holding changing under the
  * user without a word is exactly the silent behaviour the design forbids.
+ *
+ * **`findPosition` reads the database, and the database has not been written yet.** Every write in
+ * this pipeline is buffered until the batch ships, so a planner that asks only the store is blind
+ * to rows it planned a moment earlier in the same run. Two source rows resolving to the same
+ * `(accountId, instrumentId, asOf)` were therefore both planned as `insert`, both counted as
+ * committed, and `commit_batch`'s `ON CONFLICT … DO UPDATE SET quantity = excluded.quantity` kept
+ * whichever landed last — one holding silently replacing another, with `rows_committed` claiming
+ * both had landed and not one issue raised. `MemoryStore.upsertPosition` replaces in place exactly
+ * as SQLite does, so the store the whole suite runs against could not catch it either.
+ *
+ * So the run keeps its own seen-set, mirroring `seenInDocument` in `reconcile.ts` — which is the
+ * asymmetry that gave this away: transactions have had that map since `txn.occurrence` was added,
+ * and positions never grew one. Transactions can admit the repeat under a higher occurrence;
+ * positions cannot, because one holding on one date is what the key means. The repeat is therefore
+ * skipped rather than written, and it is never skipped silently.
  */
 async function planPositions(
   deps: ImportDeps,
@@ -573,7 +599,42 @@ async function planPositions(
   issues: IssueCollector,
 ): Promise<PositionPlan[]> {
   const plans: PositionPlan[] = []
+  const seenInDocument = new Map<string, string>()
   for (const position of positions) {
+    const key = positionKey(position)
+    const planned = seenInDocument.get(key)
+    if (planned !== undefined) {
+      // The row is not written, so the holding the file states first is the holding that stands.
+      // Which of the two is right is not knowable here — two folios of one scheme under one account
+      // would have to be summed, a double-read must not be — so the pipeline states what it saw and
+      // guesses nothing.
+      issues.add({
+        severity: 'warning',
+        code: 'W_DUPLICATE_IN_DOCUMENT',
+        message:
+          planned === position.quantity.value
+            ? `this file states the holding on ${position.asOfDate} more than once, as ` +
+              `${planned} each time; it was applied once`
+            : `this file states the holding on ${position.asOfDate} twice, as ${planned} and as ` +
+              `${position.quantity.value}; ${planned} was applied and the second was not, because ` +
+              `one date carries one holding`,
+        ref: position.origin.ref,
+        raw: position.origin.raw,
+      })
+      plans.push({
+        action: 'repeat-in-document',
+        row: {
+          id: deps.newId(),
+          accountId: position.accountId,
+          instrumentId: position.instrumentId,
+          quantity: position.quantity.value,
+          asOf: position.asOf,
+        },
+      })
+      continue
+    }
+    seenInDocument.set(key, position.quantity.value)
+
     const existing = await deps.store.findPosition(
       position.accountId,
       position.instrumentId,

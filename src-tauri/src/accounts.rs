@@ -393,11 +393,33 @@ pub fn review_queue(conn: &Connection) -> Result<Vec<ReviewEntryRow>> {
 
 /// Undo a dismissal.
 ///
-/// Clears `ignored_at` alone. `resolved_at` is untouched because it never meant "dealt with" — it
-/// means the rows landed — and `first_seen_at` is untouched because the queue orders by it and a
-/// re-opened entry is not a new sighting.
-pub fn restore_entry(conn: &Connection, entry_id: &str) -> Result<()> {
-    let changed = conn.execute(
+/// `resolved_at` is untouched because it never meant "dealt with" — it means the rows landed — and
+/// `first_seen_at` is untouched because the queue orders by it and a re-opened entry is not a new
+/// sighting.
+///
+/// **The inverse of `ingest.rs::ignore_unresolved`, both halves of it.** Dismissing an entry does
+/// two things: it stops the import report asking, and it tells every document the entry names that
+/// it no longer owes the ledger anything, by clearing `import_run.outstanding_reason`. Clearing
+/// `ignored_at` alone undid the first and left the second standing — and nothing else in the system
+/// ever writes that column except `record_outstanding_rows`, at commit time. So "Put back" restored
+/// the question while leaving those statements permanently answered `already-imported`: their rows
+/// were never written, `raw_payload` cannot reconstruct a CAS row, and Misal never copies the file.
+/// The transactions were gone the moment the button was pressed.
+///
+/// Only the newest run of each named document is re-stamped, which is the rule migration 0007
+/// states: the pass that finished last is the document's current statement of what it still owes.
+/// A run already carrying a reason is left alone, because the only reason it can be carrying is
+/// 'crashed', and a crash outranks a withholding — the run that threw knows nothing about the pages
+/// it never reached, and saying 'withheld' instead would understate what the file is owed.
+/// Documents that never came from a file are skipped for the reason 0007 gives: a page of an
+/// exchange sync is never re-read through the import pipeline, so flagging one would mean nothing.
+///
+/// Re-stamping is the conservative direction by construction. The worst a spurious flag can do is
+/// let a file be read once more, whereupon `record_outstanding_rows` recomputes it from the batch
+/// and clears it; the worst a missing one does is lose a statement.
+pub fn restore_entry(conn: &mut Connection, entry_id: &str) -> Result<()> {
+    let tx = conn.transaction()?;
+    let changed = tx.execute(
         "UPDATE unresolved_instrument SET ignored_at = NULL
           WHERE id = ?1 AND resolved_at IS NULL AND ignored_at IS NOT NULL",
         [entry_id],
@@ -407,14 +429,42 @@ pub fn restore_entry(conn: &Connection, entry_id: &str) -> Result<()> {
             "no dismissed queue entry {entry_id}"
         )));
     }
+
+    tx.execute(
+        "UPDATE import_run SET outstanding_reason = 'withheld'
+          WHERE outstanding_reason IS NULL
+            AND source_document_id IN (
+                  SELECT u.source_document_id FROM unresolved_instrument u WHERE u.id = ?1
+                  UNION ALL
+                  SELECT u.last_seen_document_id FROM unresolved_instrument u WHERE u.id = ?1)
+            AND EXISTS (SELECT 1 FROM source_document d
+                         WHERE d.id = import_run.source_document_id
+                           AND d.kind IN ('cas-pdf', 'csv'))
+            AND NOT EXISTS (SELECT 1 FROM import_run later
+                             WHERE later.source_document_id = import_run.source_document_id
+                               AND (later.started_at > import_run.started_at
+                                 OR (later.started_at = import_run.started_at
+                                     AND later.id > import_run.id)))",
+        [entry_id],
+    )?;
+    tx.commit()?;
     Ok(())
 }
 
 /// Dismiss an entry from the settings queue.
 ///
-/// The same write `ingest.rs::ignore_unresolved` performs, reachable from the standing queue as
-/// well as from the import report — otherwise an entry re-opened here could only be dismissed
-/// again by re-importing the statement that raised it.
+/// The `ignored_at` half of `ingest.rs::ignore_unresolved`, reachable from the standing queue as
+/// well as from the import report — otherwise an entry re-opened here could only be dismissed again
+/// by re-importing the statement that raised it. Two deliberate differences from that function.
+///
+/// A mapped entry is refused, because from here the user cannot see the units, the dates or the
+/// page reference that would tell them what they are silencing.
+///
+/// And `import_run.outstanding_reason` is left alone rather than cleared. That leaves a document
+/// still saying it owes rows the user has asked not to be chased about, which costs one no-op
+/// re-import that recomputes and clears the flag. The alternative errs the other way, and clearing
+/// the flag wrongly is what loses a statement — so the asymmetry stays until there is a reason for
+/// it to go.
 pub fn dismiss_entry(conn: &Connection, entry_id: &str) -> Result<()> {
     let changed = conn.execute(
         "UPDATE unresolved_instrument SET ignored_at = ?1
@@ -457,8 +507,8 @@ pub fn review_queue_list(state: tauri::State<'_, AppState>) -> Result<Vec<Review
 
 #[tauri::command]
 pub fn review_queue_restore(state: tauri::State<'_, AppState>, entry_id: String) -> Result<()> {
-    let conn = state.conn.lock().expect("storage mutex poisoned");
-    restore_entry(&conn, &entry_id)
+    let mut conn = state.conn.lock().expect("storage mutex poisoned");
+    restore_entry(&mut conn, &entry_id)
 }
 
 #[tauri::command]
@@ -818,14 +868,14 @@ mod tests {
 
     #[test]
     fn a_dismissed_entry_can_be_re_opened_and_dismissed_again() {
-        let (_dir, conn) = seeded();
+        let (_dir, mut conn) = seeded();
         conn.execute(
             "UPDATE unresolved_instrument SET ignored_at = '2026-01-08' WHERE id = 'u1'",
             [],
         )
         .unwrap();
 
-        restore_entry(&conn, "u1").unwrap();
+        restore_entry(&mut conn, "u1").unwrap();
         let entry = review_queue(&conn)
             .unwrap()
             .into_iter()
@@ -840,7 +890,7 @@ mod tests {
 
         // Not idempotent by accident: restoring an open entry is a no-op the caller should hear
         // about rather than a silent success that hides a stale screen.
-        assert!(restore_entry(&conn, "u1").is_err());
+        assert!(restore_entry(&mut conn, "u1").is_err());
 
         dismiss_entry(&conn, "u1").unwrap();
         let again = review_queue(&conn)
@@ -851,9 +901,144 @@ mod tests {
         assert_eq!(again.state, "dismissed");
     }
 
+    /// Three monthly statements, one shared entry, and a `withheld` flag on each of their runs —
+    /// the state migration 0007 leaves behind after an eCAS names an ISIN Misal cannot identify.
+    ///
+    /// The entry is named on January (where it was first raised) and on March (the last sighting).
+    /// February is named by neither, which is the whole reason `outstanding_reason` exists: the
+    /// shared queue row cannot speak for a document it does not mention.
+    fn three_withheld_months(conn: &Connection) {
+        conn.execute_batch(
+            "INSERT INTO source_document (id, account_id, provider_id, kind, content_hash,
+                 imported_at)
+               VALUES ('d-jan', 'a1', 'coindcx', 'cas-pdf', 'h-jan', '2026-02-01T10:00:00Z'),
+                      ('d-feb', 'a1', 'coindcx', 'cas-pdf', 'h-feb', '2026-03-01T10:00:00Z'),
+                      ('d-mar', 'a1', 'coindcx', 'cas-pdf', 'h-mar', '2026-04-01T10:00:00Z');
+             INSERT INTO import_run (id, source_document_id, started_at, status, parser_version,
+                 outstanding_reason)
+               VALUES ('r-jan', 'd-jan', '2026-02-01T10:00:00Z', 'completed', '1', 'withheld'),
+                      ('r-feb', 'd-feb', '2026-03-01T10:00:00Z', 'completed', '1', 'withheld'),
+                      ('r-mar', 'd-mar', '2026-04-01T10:00:00Z', 'completed', '1', 'withheld');
+             INSERT INTO unresolved_instrument (id, source_document_id, last_seen_document_id,
+                 account_id, raw_identifier, observed_value_minor, currency, first_seen_at,
+                 last_seen_at)
+               VALUES ('u-cas', 'd-jan', 'd-mar', 'a1', 'isin:INF179K01YV8', 11864000, 'INR',
+                       '2026-02-01T10:00:00Z', '2026-04-01T10:00:00Z');",
+        )
+        .unwrap();
+    }
+
+    fn outstanding_reason(conn: &Connection, run_id: &str) -> Option<String> {
+        conn.query_row(
+            "SELECT outstanding_reason FROM import_run WHERE id = ?1",
+            [run_id],
+            |r| r.get(0),
+        )
+        .unwrap()
+    }
+
+    /// Defect. "Put back" has to be the inverse of the dismissal, not half of it.
+    ///
+    /// Dismissing tells every document the entry names that it no longer owes the ledger anything.
+    /// Restoring used to clear `ignored_at` and stop there, and nothing else in the system ever
+    /// writes `import_run.outstanding_reason` except `record_outstanding_rows`, at commit time —
+    /// so there was no path from this button back to that column. January and March were answered
+    /// `already-imported` from the moment the user pressed it, and their transactions exist nowhere
+    /// but in the PDFs: `raw_payload` cannot reconstruct a CAS row and Misal never copies the file.
+    #[test]
+    fn putting_an_entry_back_makes_its_statements_readable_again() {
+        let (_dir, mut conn) = seeded();
+        three_withheld_months(&conn);
+
+        crate::ingest::ignore_unresolved(&mut conn, "u-cas").unwrap();
+        // The dismissal reaches only the documents this entry names, which is defect (a)'s fix.
+        assert_eq!(outstanding_reason(&conn, "r-jan"), None);
+        assert_eq!(outstanding_reason(&conn, "r-mar"), None);
+        assert_eq!(
+            outstanding_reason(&conn, "r-feb").as_deref(),
+            Some("withheld"),
+            "a document the entry never named was answered for by it"
+        );
+
+        restore_entry(&mut conn, "u-cas").unwrap();
+
+        // The question is open again, and so is the only path those rows have into the ledger.
+        for run in ["r-jan", "r-feb", "r-mar"] {
+            assert_eq!(
+                outstanding_reason(&conn, run).as_deref(),
+                Some("withheld"),
+                "{run}'s statement is locked out of the ledger for good"
+            );
+        }
+    }
+
+    /// A crash outranks a withholding, and putting an entry back must not demote one.
+    ///
+    /// The run that threw knows nothing about the pages it never reached; the entry knows only
+    /// about the rows it withheld. Overwriting 'crashed' with 'withheld' would understate what the
+    /// file is owed, and a later dismissal of this entry would then clear it.
+    #[test]
+    fn putting_an_entry_back_does_not_overwrite_a_crash() {
+        let (_dir, mut conn) = seeded();
+        three_withheld_months(&conn);
+        conn.execute(
+            "UPDATE import_run SET outstanding_reason = 'crashed' WHERE id = 'r-jan'",
+            [],
+        )
+        .unwrap();
+
+        crate::ingest::ignore_unresolved(&mut conn, "u-cas").unwrap();
+        assert_eq!(
+            outstanding_reason(&conn, "r-jan").as_deref(),
+            Some("crashed"),
+            "a dismissal answered for pages no parser ever read"
+        );
+
+        restore_entry(&mut conn, "u-cas").unwrap();
+        assert_eq!(
+            outstanding_reason(&conn, "r-jan").as_deref(),
+            Some("crashed")
+        );
+        assert_eq!(
+            outstanding_reason(&conn, "r-mar").as_deref(),
+            Some("withheld")
+        );
+    }
+
+    /// Only the newest run of a document speaks for it, restoring included.
+    #[test]
+    fn putting_an_entry_back_stamps_only_the_newest_run_of_each_document() {
+        let (_dir, mut conn) = seeded();
+        three_withheld_months(&conn);
+        conn.execute(
+            "INSERT INTO import_run (id, source_document_id, started_at, status, parser_version)
+               VALUES ('r-jan-2', 'd-jan', '2026-05-01T10:00:00Z', 'completed', '1')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "UPDATE import_run SET outstanding_reason = NULL WHERE id = 'r-jan'",
+            [],
+        )
+        .unwrap();
+
+        crate::ingest::ignore_unresolved(&mut conn, "u-cas").unwrap();
+        restore_entry(&mut conn, "u-cas").unwrap();
+
+        assert_eq!(
+            outstanding_reason(&conn, "r-jan-2").as_deref(),
+            Some("withheld")
+        );
+        assert_eq!(
+            outstanding_reason(&conn, "r-jan"),
+            None,
+            "history spoke twice for one document"
+        );
+    }
+
     #[test]
     fn a_landed_entry_cannot_be_re_opened() {
-        let (_dir, conn) = seeded();
+        let (_dir, mut conn) = seeded();
         conn.execute(
             "UPDATE unresolved_instrument
                 SET ignored_at = '2026-01-08', resolved_at = '2026-01-09' WHERE id = 'u1'",
@@ -861,7 +1046,7 @@ mod tests {
         )
         .unwrap();
         assert!(
-            restore_entry(&conn, "u1").is_err(),
+            restore_entry(&mut conn, "u1").is_err(),
             "an entry whose rows have landed was put back in the queue"
         );
     }
