@@ -28,6 +28,35 @@ pub struct StorageStatus {
     pub account_count: i64,
 }
 
+/// Serialises store opening, so React's double-mount cannot start two of them.
+static OPEN_STORE: Mutex<()> = Mutex::new(());
+
+/// Open the encrypted store, on demand, from a window that already exists.
+///
+/// Deliberately not done in `setup`. Reading the database key can raise a system authorization
+/// prompt on macOS and can block on a keyring daemon on Linux, and in `setup` that happens before
+/// any UI exists — which is how a user came to face an empty window and an unexplained password
+/// box. Called from the frontend, every outcome has a screen behind it.
+///
+/// Never returns `Err`: the outcomes here are things to explain, not errors to stringify. An
+/// `Err` would cross the IPC boundary as a flat message the UI could only print.
+#[tauri::command]
+fn startup_open_store(app: tauri::AppHandle, passphrase: Option<String>) -> db::StartupOutcome {
+    let _serialised = OPEN_STORE.lock().unwrap_or_else(|e| e.into_inner());
+    if app.try_state::<AppState>().is_some() {
+        return db::StartupOutcome::Ready;
+    }
+    match db::open_for_startup(passphrase.as_deref()) {
+        Ok(conn) => {
+            app.manage(AppState {
+                conn: Mutex::new(conn),
+            });
+            db::StartupOutcome::Ready
+        }
+        Err(outcome) => outcome,
+    }
+}
+
 #[tauri::command]
 fn storage_status(state: tauri::State<'_, AppState>) -> Result<StorageStatus> {
     let conn = state.conn.lock().expect("storage mutex poisoned");
@@ -51,12 +80,11 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            // Opening the database is the first thing that must succeed. Failing here with a
-            // clear error beats starting a window that cannot show anything.
-            let conn = db::open()?;
-            app.manage(AppState {
-                conn: Mutex::new(conn),
-            });
+            // The store is *not* opened here. Everything in `setup` runs before the window
+            // exists, and the key it needs lives in the keychain, which can prompt or block —
+            // with nothing on screen to say what is asking. The frontend calls
+            // `startup_open_store` once it has a startup screen to show.
+            //
             // Staged exchange credentials live here and nowhere else until the scope check has
             // decided whether they may be written to the keychain at all.
             app.manage(sync::ExchangeState::new());
@@ -66,6 +94,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            startup_open_store,
             storage_status,
             queries::list_accounts,
             queries::list_instruments,

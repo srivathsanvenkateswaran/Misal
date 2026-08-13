@@ -1,0 +1,101 @@
+/* ============================================================
+   MISAL — startup screen.
+   The frame before the frame. Same tokens, same 18px baseline,
+   no colour that is not already in the palette.
+   ============================================================ */
+
+@import '../../ui/tokens.css';
+
+.startup {
+  display: flex;
+  justify-content: center;
+  padding: 48px 16px;
+}
+
+.startup-panel {
+  max-width: 76ch;
+  width: 100%;
+}
+
+.startup-mark {
+  display: block;
+  font-size: var(--fs-label);
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  border-bottom: 1px solid var(--rule-2);
+  padding-bottom: 8px;
+}
+
+.startup-title {
+  font-size: 22px;
+  line-height: 30px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 22px 0 10px;
+}
+
+.startup-body {
+  color: var(--ink-2);
+  font-size: var(--fs-body);
+  margin: 0 0 12px;
+}
+
+.startup-note {
+  color: var(--ink-3);
+  font-size: var(--fs-body);
+  margin: 18px 0 0;
+  border-top: 1px solid var(--rule);
+  padding-top: 10px;
+}
+
+/* The platform's own words, set apart so they read as a quotation rather than as our sentence. */
+.startup-detail {
+  border-left: 3px solid var(--rule-2);
+  padding: 6px 0 6px 10px;
+  margin: 0 0 14px;
+  color: var(--ink-3);
+  font-size: var(--fs-body);
+}
+
+.startup-detail-lab {
+  display: block;
+  font-size: var(--fs-label);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+  margin-bottom: 2px;
+}
+
+.startup-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  border: 1px solid var(--rule-2);
+  padding: 12px;
+  margin: 0 0 14px;
+  background: var(--surface);
+}
+
+.startup-label {
+  font-size: var(--fs-label);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.startup-input {
+  font: inherit;
+  flex: 1 1 24ch;
+  min-width: 20ch;
+  padding: 4px 8px;
+  border: 1px solid var(--rule-2);
+  background: var(--surface-2);
+  color: var(--ink-1);
+}
+
+.startup-actions {
+  display: flex;
+  gap: 8px;
+}
