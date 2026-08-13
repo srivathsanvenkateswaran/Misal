@@ -9,6 +9,15 @@
  * backwards. Back-filling would be the easiest plausible-looking lie available to this component,
  * and it is the one this component is written to make impossible: a month with no data has no
  * `segments`, so there is nothing to draw and no value to invent.
+ *
+ * A month can also be *partly* known, and that is the quieter failure: holdings existed and were
+ * folded, but no price was stored for some of them that month, so the column is a sum over a subset
+ * of the portfolio drawn at the full height of a complete one. `unpricedCount` carries that fact
+ * from the view-model, and a column carrying it is never drawn as an ordinary column: it gets an
+ * open dashed cap, its total is stated as a floor ("at least ₹…") rather than as a total, and the
+ * chart annotates what the mark means. The step between an incomplete month and the month pricing
+ * began is an artefact of the price table, not a movement in net worth, and nothing here may let it
+ * read as one.
  */
 
 import type { ReactNode } from 'react'
@@ -49,6 +58,21 @@ export interface StackMonth {
    * value carried backwards (H10).
    */
   readonly segments: readonly StackSegment[] | null
+  /**
+   * How many instruments the month's own stored rows could not price — `coverage.breakdown
+   * .unpricedCount` at that month end.
+   *
+   * Greater than zero means the holdings existed and the value did not: the column below is a sum
+   * over part of the portfolio. Optional so a caller with nothing to say leaves it out, but a
+   * caller that *has* the number must pass it: a partially priced month drawn as an ordinary one
+   * states a rupee figure for a portfolio it did not measure.
+   */
+  readonly unpricedCount?: number
+}
+
+/** Whether this month's column omits holdings it knows about. */
+export function isIncomplete(month: StackMonth): boolean {
+  return month.segments !== null && (month.unpricedCount ?? 0) > 0
 }
 
 export type ChartState = 'ready' | 'loading' | 'empty' | 'error'
@@ -82,6 +106,11 @@ function stackOrder(segments: readonly StackSegment[]): readonly StackSegment[] 
 
 function monthTotal(segments: readonly StackSegment[]): Minor {
   return segments.length === 0 ? ZERO_MINOR : addMinor(...segments.map((s) => s.value))
+}
+
+/** '1 instrument' / '3 instruments'. The count is the whole disclosure, so it is never rounded. */
+function unpricedPhrase(count: number): string {
+  return `${count.toString()} ${count === 1 ? 'instrument' : 'instruments'} held that month had no stored price`
 }
 
 export function NetWorthStackChart(props: NetWorthStackChartProps): ReactNode {
@@ -118,6 +147,7 @@ export function NetWorthStackChart(props: NetWorthStackChartProps): ReactNode {
 
   const lastMeasured = measured[measured.length - 1]
   const firstMeasuredIndex = months.findIndex((m) => m.segments !== null)
+  const incompleteCount = months.filter(isIncomplete).length
 
   return (
     <>
@@ -125,7 +155,11 @@ export function NetWorthStackChart(props: NetWorthStackChartProps): ReactNode {
         className="nwchart"
         viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
         role="img"
-        aria-label={`Net worth by asset class, month end, ${months[0]?.label ?? ''} ${months[0]?.year ?? ''} to ${lastMeasured?.label ?? ''} ${lastMeasured?.year ?? ''}. The values are listed in the table beside this chart.`}
+        aria-label={`Net worth by asset class, month end, ${months[0]?.label ?? ''} ${months[0]?.year ?? ''} to ${lastMeasured?.label ?? ''} ${lastMeasured?.year ?? ''}.${
+          incompleteCount === 0
+            ? ''
+            : ` ${incompleteCount.toString()} ${incompleteCount === 1 ? 'month is' : 'months are'} marked incomplete: holdings with no stored price for that month are not in those columns, so their height is a floor rather than a total.`
+        } The values are listed in the table beside this chart.`}
         data-state={state}
       >
         <HatchPattern />
@@ -178,9 +212,21 @@ export function NetWorthStackChart(props: NetWorthStackChartProps): ReactNode {
           const ordered = stackOrder(month.segments)
           let cumulative: Minor = ZERO_MINOR
           const total = monthTotal(month.segments)
+          const partial = isIncomplete(month)
+          const capY = px(y(total) - 3)
 
           return (
-            <g key={month.key} data-month={month.key} data-total-minor={total}>
+            <g
+              key={month.key}
+              data-month={month.key}
+              data-total-minor={total}
+              {...(partial
+                ? {
+                    'data-incomplete': 'true',
+                    'data-unpriced-count': (month.unpricedCount ?? 0).toString(),
+                  }
+                : {})}
+            >
               {ordered.map((segment, segmentIndex) => {
                 const bottom = px(y(cumulative) - (segmentIndex === 0 ? 0 : SEGMENT_GAP))
                 cumulative = addMinor(cumulative, segment.value)
@@ -203,9 +249,33 @@ export function NetWorthStackChart(props: NetWorthStackChartProps): ReactNode {
                   </g>
                 )
               })}
+              {partial && (
+                /*
+                 * An open dashed cap, drawn *above* the stack rather than over it: the column ends
+                 * where the priced value ends and the top is left open, because how much more was
+                 * held that month is exactly what these rows do not say. Drawn with `.gap-mark`,
+                 * the same ink the missing-month rule uses — one visual language for "not known".
+                 *
+                 * Deliberately not the 45° hatch: that mark means "no transaction history" and
+                 * nothing else, product-wide, and H5 counts hatch overlays against snapshot
+                 * geometry inside each `<svg>`.
+                 */
+                <path
+                  className="gap-mark"
+                  fill="none"
+                  data-incomplete-cap="true"
+                  aria-hidden="true"
+                  d={`M ${left} ${capY} L ${left} ${px(capY - 9)} L ${px(left + COLUMN_W)} ${px(capY - 9)} L ${px(left + COLUMN_W)} ${capY}`}
+                />
+              )}
               {month === lastMeasured && (
-                <text className="dlab" x={px(centre)} y={px(y(total) - 10)} textAnchor="middle">
-                  {abbreviateMinor(total)}
+                <text
+                  className="dlab"
+                  x={px(centre)}
+                  y={px(y(total) - (partial ? 20 : 10))}
+                  textAnchor="middle"
+                >
+                  {partial ? `≥ ${abbreviateMinor(total)}` : abbreviateMinor(total)}
                 </text>
               )}
             </g>
@@ -225,6 +295,12 @@ export function NetWorthStackChart(props: NetWorthStackChartProps): ReactNode {
             </g>
           )
         })}
+
+        {incompleteCount > 0 && (
+          <text className="gap-lab" data-incomplete-note="true" x={PLOT_LEFT} y={12}>
+            ⌐ OPEN CAP = MONTH PRICED IN PART — HOLDINGS WITH NO STORED PRICE ARE NOT DRAWN
+          </text>
+        )}
 
         {props.historyBegins !== undefined && firstMeasuredIndex > 0 && (
           <text
@@ -249,30 +325,41 @@ export function NetWorthStackChart(props: NetWorthStackChartProps): ReactNode {
           </tr>
         </thead>
         <tbody>
-          {months.map((month) => (
-            <tr key={`row-${month.key}`}>
-              <th scope="row">
-                {month.label} {month.year}
-              </th>
-              <td>
-                {month.segments === null
-                  ? 'No history — not drawn'
-                  : formatMoney(money(monthTotal(month.segments)))}
-              </td>
-              <td>
-                {month.segments === null
-                  ? ''
-                  : month.segments
-                      .map(
-                        (segment) =>
-                          `${ASSET_CLASS_LABEL[segment.assetClass]} ${formatMoney(money(segment.value))}${
-                            segment.basis === 'snapshot' ? ' (snapshot only)' : ''
-                          }`,
-                      )
-                      .join('; ')}
-              </td>
-            </tr>
-          ))}
+          {months.map((month) => {
+            const partial = isIncomplete(month)
+            const composition =
+              month.segments === null
+                ? ''
+                : month.segments
+                    .map(
+                      (segment) =>
+                        `${ASSET_CLASS_LABEL[segment.assetClass]} ${formatMoney(money(segment.value))}${
+                          segment.basis === 'snapshot' ? ' (snapshot only)' : ''
+                        }`,
+                    )
+                    .join('; ')
+            return (
+              <tr key={`row-${month.key}`} {...(partial ? { 'data-incomplete': 'true' } : {})}>
+                <th scope="row">
+                  {month.label} {month.year}
+                </th>
+                {/* A floor is stated as a floor. `formatMoney` alone here would print an exact
+                    rupee figure for a month whose portfolio was only partly priced. */}
+                <td>
+                  {month.segments === null
+                    ? 'No history — not drawn'
+                    : partial
+                      ? `At least ${formatMoney(money(monthTotal(month.segments)))} — incomplete`
+                      : formatMoney(money(monthTotal(month.segments)))}
+                </td>
+                <td>
+                  {partial
+                    ? `${composition}; ${unpricedPhrase(month.unpricedCount ?? 0)}, so this month is a floor and not a total`
+                    : composition}
+                </td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
     </>
