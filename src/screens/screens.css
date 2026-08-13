@@ -1,0 +1,444 @@
+/* ============================================================
+   MISAL — screen chrome.
+
+   Everything here is lifted from the approved mockup
+   (docs/design/mockups/final-consolidated.html): the app bar, the
+   status line, the toolbar, the dashboard grids, the data-quality
+   strip, the account rows and the instrument header.
+
+   The component library owns the components; this file owns the
+   frames they sit in. The one measurement repeated everywhere is
+   --gutter (56px), which is what makes five layouts read as one
+   instrument.
+   ============================================================ */
+
+/* ---------------------------- app chrome ---------------------------- */
+.appbar {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--rule-2);
+  background: var(--surface-2);
+  flex-wrap: wrap;
+}
+
+.nav {
+  display: flex;
+}
+
+.nav a {
+  font-size: var(--fs-meta);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  padding: 9px 16px;
+  border-right: 1px solid var(--rule);
+  display: flex;
+  align-items: center;
+}
+
+.nav a:hover {
+  background: var(--surface);
+  color: var(--ink-1);
+}
+
+.nav a[aria-current='page'] {
+  color: var(--ink-1);
+  background: var(--surface);
+  box-shadow: inset 0 -2px 0 var(--ink-1);
+}
+
+.statusline {
+  display: flex;
+  align-items: center;
+  font-size: var(--fs-meta);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  padding-right: 2px;
+}
+
+.statusline > span {
+  padding: 0 12px;
+  border-left: 1px solid var(--rule);
+}
+
+.statusline b {
+  color: var(--ink-2);
+  font-weight: 400;
+}
+
+/* Derived from the real database handle (H11), never asserted as copy. */
+.dot-local {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  background: var(--st-good);
+  margin-right: 6px;
+  vertical-align: 1px;
+}
+
+.screen-title {
+  font-size: var(--fs-strong);
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  margin: 0;
+}
+
+.screen-head {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  border-bottom: 2px solid var(--ink-1);
+  padding: 10px 16px;
+}
+
+.screen-note {
+  font-size: var(--fs-meta);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-left: auto;
+  text-align: right;
+}
+
+.screen-title:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 4px;
+}
+
+/* ---------------------------- toolbar ---------------------------- */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--surface-2);
+}
+
+.tb-lab {
+  font-size: var(--fs-label);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+
+.select {
+  font-size: var(--fs-meta);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-1);
+  border: 1px solid var(--rule-2);
+  background: var(--surface);
+  padding: 3px 22px 3px 8px;
+  appearance: none;
+  font-family: inherit;
+}
+
+.select-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.select-wrap::after {
+  content: '▾';
+  position: absolute;
+  right: 7px;
+  top: 2px;
+  color: var(--ink-3);
+  pointer-events: none;
+}
+
+.spacer {
+  margin-left: auto;
+}
+
+/* ---------------------------- dashboard grids ---------------------------- */
+.dashgrid {
+  display: grid;
+  grid-template-columns: 1fr 576px;
+  gap: 14px;
+  margin-bottom: 14px;
+  align-items: start;
+}
+
+.dashgrid-2 {
+  display: grid;
+  grid-template-columns: 560px 1fr;
+  gap: 14px;
+  align-items: start;
+}
+
+.dashgrid > *,
+.dashgrid-2 > * {
+  min-width: 0;
+}
+
+/* ---------------------------- data-quality strip ---------------------------- */
+.dq {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: var(--rule);
+  border: 1px solid var(--rule);
+  margin-bottom: 14px;
+}
+
+.dq-cell {
+  background: var(--surface);
+  padding: 9px 12px;
+}
+
+.dq-n {
+  font-size: var(--fs-dq);
+  line-height: 26px;
+  font-weight: 700;
+}
+
+/* ---------------------------- accounts ---------------------------- */
+.acct-row {
+  display: grid;
+  grid-template-columns: var(--gutter) 26px 1fr 130px 150px 120px 170px 96px;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.acct-row:hover {
+  background: var(--surface-2);
+}
+
+.acct-head {
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--rule-2);
+}
+
+.acct-rail {
+  width: 6px;
+  height: 34px;
+}
+
+.acct-row > .pgut {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  padding-right: 6px;
+}
+
+.r-s1 {
+  background: var(--s1);
+}
+.r-s2 {
+  background: var(--s2);
+}
+.r-s3 {
+  background: var(--s3);
+}
+.r-s4 {
+  background: var(--s4);
+}
+.r-s5 {
+  background: var(--s5);
+}
+.r-other {
+  background: var(--other);
+}
+
+/* A snapshot account's rail carries the same 45° convention as every other
+   snapshot geometry in the product (§6.4). */
+.r-snap {
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--surface) 0 1.5px,
+    transparent 1.5px 4px
+  );
+}
+
+.acct-name {
+  font-size: var(--fs-base);
+  font-weight: 700;
+  display: block;
+}
+
+.acct-prov {
+  display: block;
+  font-size: var(--fs-label);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.acct-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------- instrument detail ---------------------------- */
+.inst-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--rule-2);
+}
+
+.inst-name {
+  font-size: var(--fs-inst);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.inst-ids {
+  font-size: var(--fs-label);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-top: 3px;
+}
+
+.inst-nav {
+  text-align: right;
+}
+
+.splitpanel {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: var(--rule);
+}
+
+.splitpanel > div {
+  background: var(--surface);
+  display: grid;
+  grid-template-columns: var(--gutter) minmax(0, 1fr);
+}
+
+.splitpanel > div > .pgut {
+  padding: 10px 6px 10px 12px;
+}
+
+.splitpanel > div > .cell-body {
+  padding: 10px 12px;
+  min-width: 0;
+}
+
+/* ---------------------------- first run ---------------------------- */
+.firstrun {
+  padding: 16px;
+}
+
+.firstrun-head {
+  font-size: 22px;
+  line-height: 30px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 22px 0 6px;
+}
+
+.firstrun-sub {
+  color: var(--ink-3);
+  font-size: var(--fs-body);
+  margin: 0 0 20px;
+  max-width: 76ch;
+}
+
+.doors {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.door {
+  border: 1px solid var(--rule-2);
+  padding: 12px;
+  background: var(--surface);
+}
+
+.door-title {
+  font-size: var(--fs-strong);
+  font-weight: 700;
+  margin: 4px 0 6px;
+}
+
+.door p {
+  margin: 0 0 10px;
+  color: var(--ink-3);
+  font-size: var(--fs-body);
+}
+
+.quiet-door {
+  margin-top: 14px;
+  font-size: var(--fs-body);
+  color: var(--ink-3);
+}
+
+/* ---------------------------- shared bits ---------------------------- */
+.emptystate {
+  padding: 22px 16px;
+  color: var(--ink-3);
+  font-size: var(--fs-body);
+}
+
+.emptystate b {
+  color: var(--ink-1);
+  display: block;
+  font-size: var(--fs-base);
+  margin-bottom: 4px;
+}
+
+.errorstate {
+  padding: 16px;
+  border-left: 3px solid var(--st-crit);
+  background: var(--surface);
+  font-size: var(--fs-body);
+}
+
+.linkish {
+  border-bottom: 1px solid var(--rule-2);
+}
+
+.linkish:hover {
+  border-bottom-color: var(--ink-1);
+  color: var(--ink-1);
+}
+
+.stackrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* ---------------------------- responsive floor: 1024px ---------------------------- */
+@media (max-width: 1360px) {
+  .dashgrid {
+    grid-template-columns: 1fr 496px;
+  }
+  .dashgrid-2 {
+    grid-template-columns: 480px 1fr;
+  }
+  .acct-row {
+    grid-template-columns: var(--gutter) 26px 1fr 112px 128px 104px 148px 88px;
+    gap: 8px;
+  }
+}
+
+@media (max-width: 1140px) {
+  .dashgrid {
+    grid-template-columns: 1fr 436px;
+  }
+  .dashgrid-2 {
+    grid-template-columns: 420px 1fr;
+  }
+  .statusline > span:first-child {
+    display: none;
+  }
+  .doors {
+    grid-template-columns: 1fr;
+  }
+}
