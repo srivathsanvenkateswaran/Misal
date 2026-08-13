@@ -50,6 +50,19 @@ export interface DerivedPosition {
   readonly quantity: Dec
   readonly asOf: IsoInstant
   readonly basis: 'folded' | 'snapshot'
+  /**
+   * Whole days between this snapshot and the valuation instant, for a snapshot-basis position.
+   *
+   * Null for a folded position, whose quantity is derived from transactions and does not go stale
+   * the way a photograph does.
+   *
+   * A snapshot is a statement about one moment. Nothing bounded its age: a balance read two years
+   * ago counted at full value today, priced at today's price, with nothing on screen saying so.
+   * Prices carry a staleness bound and exchange rates carry a seven-day one; this had none. The
+   * quantity is not dropped - the user very likely still owns it, and inventing a zero would be
+   * the worse error - but its age travels with it so a screen can say how old the claim is.
+   */
+  readonly snapshotAgeDays: number | null
   readonly measurement: MeasurementStatus
   readonly reason: MeasurementReason | null
   /** Empty whenever `measurement !== 'measured'`. */
@@ -59,6 +72,17 @@ export interface DerivedPosition {
   readonly quantitySuspect: boolean
   readonly ledger: LotLedger | null
   readonly reconciliation: Reconciliation | null
+}
+
+/**
+ * Age of a snapshot in whole days, or null when the row post-dates the valuation instant.
+ *
+ * `instantToDate` is used rather than a raw instant difference because a snapshot dated yesterday
+ * evening and a valuation this morning is one day old, not zero, and the screens speak in days.
+ */
+function snapshotAge(rowAsOf: IsoInstant, valuationAsOf: IsoInstant): number | null {
+  const days = daysBetween(instantToDate(rowAsOf), instantToDate(valuationAsOf))
+  return days < 0 ? null : days
 }
 
 const SNAPSHOT_REASON: MeasurementReason = {
@@ -144,6 +168,7 @@ export function derivePositions(input: FoldInput): Result<readonly DerivedPositi
         quantity: row.quantity,
         asOf: row.asOf,
         basis: 'snapshot',
+        snapshotAgeDays: snapshotAge(row.asOf, input.asOf),
         measurement: 'not_measured',
         reason: SNAPSHOT_REASON,
         lots: [],
@@ -209,6 +234,7 @@ export function derivePositions(input: FoldInput): Result<readonly DerivedPositi
       quantity,
       asOf: input.asOf,
       basis: 'folded',
+      snapshotAgeDays: null,
       measurement,
       reason,
       lots: measurement === 'measured' ? lots : [],
@@ -229,6 +255,7 @@ export function derivePositions(input: FoldInput): Result<readonly DerivedPositi
       quantity: row.quantity,
       asOf: row.asOf,
       basis: 'snapshot',
+      snapshotAgeDays: snapshotAge(row.asOf, input.asOf),
       measurement: 'not_measured',
       reason: {
         status: 'not_measured',
