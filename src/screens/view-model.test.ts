@@ -28,9 +28,12 @@ import {
   allSnapshotRows,
   emptyRows,
   freshInstallRows,
+  historicFxOnlyRows,
+  latestFxOnlyRows,
   nearlyFullCoverageRows,
   portfolioRows,
   subPaisaRows,
+  unpricedLedgerRows,
   unpricedSnapshotRows,
   usdLedgerRows,
 } from './testing/fixtures'
@@ -876,6 +879,114 @@ describe('unpriced holdings and the coverage figures', () => {
     expect(ready().coverageOpportunity).toMatch(/no stored price/u)
     // Priced end to end, so the promise is one the import can actually keep.
     expect(ready(nearlyFullCoverageRows()).coverageOpportunity).toMatch(/coverage to 100\.0%/u)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// A percentage whose numerator and denominator come from different holdings.
+// ---------------------------------------------------------------------------
+
+describe('unrealised P&L as a percentage', () => {
+  it('divides by the cost of the holdings it was summed over, not by every measured cost', () => {
+    /*
+     * One instrument with no stored price row. No foreign currency is involved: this is the state
+     * of any install holding something no provider covers, and of every install before its first
+     * price refresh.
+     *
+     * Reliance keeps a measured cost of ₹4,22,379 — `costInInr` converts each lot at its own
+     * acquisition-date rate and needs no price at all — and loses its market value, so it is in the
+     * Invested tile and in no P&L figure. The return is ₹43,824 on the ₹2,70,127 of cost that
+     * produced it: 16.22%. Divided by the tile's ₹6,92,506 it read 6.33%, understating the
+     * portfolio's return by two and a half times.
+     */
+    const data = ready(unpricedLedgerRows())
+    expect(data.readout.costBasis.measured && formatFigure(data.readout.costBasis.value)).toBe(
+      '₹6,92,506',
+    )
+    expect(data.readout.unrealised.measured && formatFigure(data.readout.unrealised.value)).toBe(
+      '+₹43,824',
+    )
+    expect(data.readout.unrealisedPct.measured).toBe(true)
+    if (data.readout.unrealisedPct.measured) {
+      expect(formatFigure(data.readout.unrealisedPct.value)).toBe('+16.22%')
+    }
+  })
+
+  it('does the same when the missing input is an exchange rate rather than a price', () => {
+    /*
+     * The other leg of the same failure, and the one a dollar account reaches first: the
+     * acquisition-date rates are stored and today's is not, so Caterpillar's ₹9,75,998 of cost is
+     * measured and its market value is not. ₹1,01,364 of P&L on the ₹6,92,506 of cost behind it is
+     * 14.64%; over the whole ₹16,68,504 of measured cost it printed 6.08%.
+     */
+    const data = ready(historicFxOnlyRows())
+    expect(data.readout.costBasis.measured && formatFigure(data.readout.costBasis.value)).toBe(
+      '₹16,68,504',
+    )
+    expect(data.readout.unrealisedPct.measured).toBe(true)
+    if (data.readout.unrealisedPct.measured) {
+      expect(formatFigure(data.readout.unrealisedPct.value)).toBe('+14.64%')
+    }
+  })
+
+  it('is unchanged where every measured cost has a market value beside it', () => {
+    // The shipped corpus: the only holding without a market value is a snapshot one, which has no
+    // measured cost either, so the two populations coincide and the figure must not move.
+    const data = ready()
+    expect(data.readout.unrealisedPct.measured).toBe(true)
+    if (data.readout.unrealisedPct.measured) {
+      expect(formatFigure(data.readout.unrealisedPct.value)).toBe('+14.64%')
+    }
+  })
+
+  it('names the unpriced cost the Invested tile contains', () => {
+    // Nothing else on the screen discloses it. The coverage badge beside each cell is weighted by
+    // market value, which is zero for exactly the holdings that diverge, so both cells carry the
+    // same percentage of the same total — and `coverageOpportunity` states, in this very scenario,
+    // that an unpriced holding "is in no figure on this screen".
+    expect(ready(unpricedLedgerRows()).readout.costNote).toContain(
+      'includes ₹4,22,379 of cost for holdings with no current value',
+    )
+    expect(ready(historicFxOnlyRows()).readout.costNote).toContain('includes ₹9,75,998 of cost')
+    // And it says nothing where there is nothing to say.
+    expect(ready().readout.costNote).not.toContain('includes')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Rupees from one population, described in the words of another.
+// ---------------------------------------------------------------------------
+
+describe('what the cost basis excludes, and whose fault it is', () => {
+  it('does not blame a snapshot account for a missing exchange rate', () => {
+    /*
+     * Today's rate stored, 2024's and 2025's absent — every install between its first refresh and
+     * the end of the FX backfill, which is paced, capped and skipped entirely by a provider with no
+     * history feed.
+     *
+     * The dollar holding is inside net worth (it has a current rate) and outside the cost metric
+     * (its lots have none), so ₹11,19,195 of *ledger* value is excluded from the cost basis. The
+     * note reported the whole ₹13,59,194 as "snapshot holdings" of a portfolio whose snapshot-only
+     * value is ₹2,39,999 — sending the user to import a statement they already have, when the
+     * missing input is a 2024 exchange rate.
+     */
+    const data = ready(latestFxOnlyRows())
+    expect(data.snapshotOnlyMinor).toBe('23999883')
+    expect(data.readout.costNote).toContain('excludes ₹2,39,999 of snapshot holdings')
+    expect(data.readout.costNote).toContain(
+      'excludes ₹11,19,195 of ledger holdings whose cost could not be measured',
+    )
+    expect(data.readout.costNote).not.toContain('₹13,59,194 of snapshot holdings')
+  })
+
+  it('carries the cost metric’s own covered rupees, so a caller cannot pair them with the wrong percentage', () => {
+    const data = ready(latestFxOnlyRows())
+    const cost = data.coverageByMetric.find((entry) => entry.key === 'cost-basis')
+    // The ledger/snapshot capability split and the cost metric's population are different sets, and
+    // this fixture is where they part: ₹19,13,066 against ₹7,93,871 on one portfolio.
+    expect(data.ledgerBackedMinor).toBe('191306550')
+    expect(cost?.coveredMinor).toBe('79387050')
+    expect(cost?.pct).toBe('36.87')
   })
 })
 

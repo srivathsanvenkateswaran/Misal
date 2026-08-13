@@ -1540,6 +1540,85 @@ its stored string actually carries, capped at 8 — the chart's own cap, so the 
 about how many digits a price has. A genuine zero still prints `0.00`, because zero is a measurement
 here rather than a rounding artefact. `subPaisaRows()` is the fixture.
 
+### ~~The return percentage divided one set of holdings' P&L by another set's cost~~ — FIXED
+
+`buildReadout` in `src/screens/view-model.ts` summed cost with `sumMeasuredCost` — every pair whose
+`costMinor` is measured — and P&L with `sumMeasuredPnl`, which `portfolio.ts` additionally gates on
+`marketValue.measured && cost.measured && age !== null`. Then it divided the second by the first.
+
+`costInInr` converts each lot at its **acquisition-date** rate and never asks for a price, so any
+holding that drops out of net worth keeps its cost and loses its P&L. Two states reach it, and they
+fail independently:
+
+- **An instrument with no stored price row.** No foreign currency involved at all. This is any
+  install holding something no provider covers, and *every* install before its first price refresh.
+  Reproduced with `unpricedLedgerRows()`: cost ₹6,92,506, P&L +₹43,824, printed **+6.33%** against
+  the +16.22% those holdings actually returned.
+- **A foreign holding with acquisition-date rates and no current one.** Reproduced with
+  `historicFxOnlyRows()`: cost ₹16,68,504, P&L +₹1,01,364, printed **+6.08%** against +14.64% —
+  understated 2.4×.
+
+**Consequence while it stood:** the headline return of a portfolio was understated by a factor of
+two or more, and nothing on the screen could contradict it. `cost_basis` coverage weights each pair
+by market value, which is zero for exactly the pairs that cause the divergence, so the coverage
+badge beside the P&L cell and the badge beside the Invested tile were **identical**. The Dashboard
+labelled the sub-row "on measured cost" — literally true, and a larger set of measured costs than
+its own numerator's. And `coverageOpportunity` printed, in this same scenario, "1 holding has no
+stored price and is in no figure on this screen" — the valuation spec's stated invariant that an
+unpriced position "contributes nothing to any rupee figure and cannot". The screen asserted an
+invariant it was breaking two tiles up.
+
+Fixed by forming the denominator over the numerator's own population: `sumPnlCost` sums
+`pair.unrealised.value.costMinor`, which is carried on the pair that produced the P&L, so the two
+cannot drift. The Invested tile now names the cost it holds that no P&L figure counts, and the
+sub-row is labelled "on cost of valued holdings" rather than after the tile above it.
+
+**What made it invisible to the corpus:** `unpricedSnapshotRows()` was the only unpriced fixture,
+and it is snapshot-capability only — a snapshot pair has no measured cost either, so it drops out of
+both sums and the two populations coincide exactly. The shape that matters is a **ledger** pair with
+measured cost and no market value, and no fixture had one. `measuredUnpricedInput()` in
+`src/valuation/__fixtures__/build.ts` is now the engine-level builder for it, and
+`portfolio.test.ts` pins why no coverage figure can report the divergence: both metrics read
+100.00% of the same total while their rupee costs are ₹1,05,000 and ₹1,00,000.
+
+### ~~The Holdings foot stated rupees from one population and percent from another~~ — FIXED
+
+`Holdings.tsx` took the foot's rupee numerator from `data.ledgerBackedMinor` — which is
+`coverage.measuredMinor`, the ledger/snapshot **capability** split — and its percentage from
+`costMetric.pct`, whose rule is `measurement === 'measured' && costMinor.measured`. A ledger pair
+whose cost cannot be converted is in the first and not the second.
+
+**Consequence:** with today's dollar rate stored and the acquisition dates' absent — the state of
+every install between its first price refresh and the end of `backfillFxHistory` — the foot read
+"cover **₹19,13,066** of ₹21,53,064 (**36.8%**)". That ratio is 88.85%. The cost column's real
+coverage was ₹7,93,871, so the sentence overstated it by ₹11.19 lakh while quoting the correct
+percentage beside the wrong rupees.
+
+The same conflation mislabelled the Dashboard's cost note, and there the rupee figure was right and
+the **attribution** was wrong: "excludes ₹13,59,194 of snapshot holdings", of a portfolio whose
+snapshot-only value is ₹2,39,999. It sent the user to import a statement they already have, when
+the missing input was a 2024 exchange rate.
+
+Fixed by giving `CoverageMetricView` its own `coveredMinor`, so a caller writing "covers X of Y
+(Z%)" takes all three from one object, and by splitting the note's excluded value on the account
+that actually owes it: snapshot value is excluded for want of a transaction history, ledger value
+for want of a conversion, and they are now two separate sentences because they have two separate
+remedies.
+
+**The fixture gap behind both entries.** `USD_INR` ships all four dates together, which no install
+ever holds: `refreshFx` stores only `'latest'`, `backfillFxHistory` is paced, capped by
+`MAX_FX_HISTORY_REQUESTS`, skipped entirely when the provider has no `fetchFxHistory`, and halts on
+RATE_LIMITED — and `MAX_FX_BACKFILL_DAYS = 3` against `MAX_FX_LATEST_AGE_DAYS = 7` means the two
+legs age out **independently by design**. `latestFxOnlyRows()` and `historicFxOnlyRows()` split
+them, and each leg breaks a different figure.
+
+**Residual, deliberate:** `ExcludedPair.reason` still comes from `pair.reason ?? priceReason(...)`,
+so the pair excluded from `cost_basis` for a missing acquisition-date rate is labelled "no price"
+inside the metric — the same misattribution one layer down. Nothing renders `excludedPairs` today,
+which is why it was left: fixing it means giving each metric's exclusion its own not-measured
+reason (the cost's for `cost_basis`, the P&L's for `unrealised_pnl`) in `buildMetrics`, and it
+should be done before anything puts those reasons on a screen.
+
 ## Exchange adapters
 
 ### ~~Rotating an API key doubled the holdings it was rotated for~~ — FIXED

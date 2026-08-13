@@ -8,7 +8,14 @@
 
 import { describe, expect, it } from 'vitest'
 import { addMinor, dec, minor } from '@domain/numeric'
-import { instrument, instrumentMap, resetIds, snapshot, txn } from './__fixtures__/build'
+import {
+  instrument,
+  instrumentMap,
+  measuredUnpricedInput,
+  resetIds,
+  snapshot,
+  txn,
+} from './__fixtures__/build'
 import { FxTable } from './fx'
 import type { FoldInput } from './fold'
 import { InMemoryPriceStore, PriceService } from './price/service'
@@ -208,6 +215,68 @@ describe('coverage', () => {
     const dayChange = valued.coverage.perMetric.find((m) => m.metric === 'day_change')!
     expect(dayChange.coveredMinor).toBe('0')
     expect(dayChange.pct).toBe('0.00')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The input that separates `cost_basis` from `unrealised_pnl`, and the reason no coverage figure
+// can show that it has.
+// ---------------------------------------------------------------------------
+
+describe('a measured holding the price table cannot price', () => {
+  function valued() {
+    const result = valuePortfolio(measuredUnpricedInput())
+    if (!result.ok) throw new Error(`valuation failed: ${result.error.message}`)
+    return result.value
+  }
+
+  it('keeps a measured cost while having no market value, no P&L and no weight', () => {
+    const pair = valued().pairs.find((p) => p.instrumentId === 'unpriced')!
+    // Measured, not snapshot: the lot chain is complete. `costInInr` converts each lot at its own
+    // acquisition-date rate and never asks for a price, so the cost survives the missing row.
+    expect(pair.measurement).toBe('measured')
+    expect(pair.costMinor.measured && pair.costMinor.value).toBe('500000')
+    expect(pair.marketValue.measured).toBe(false)
+    expect(pair.unrealised.measured).toBe(false)
+  })
+
+  it('puts that pair inside cost_basis and outside unrealised_pnl', () => {
+    const metrics = valued().coverage.perMetric
+    const cost = metrics.find((m) => m.metric === 'cost_basis')!
+    const pnl = metrics.find((m) => m.metric === 'unrealised_pnl')!
+    expect(cost.excludedPairs.map((p) => p.instrumentId)).toEqual([])
+    expect(pnl.excludedPairs.map((p) => p.instrumentId)).toEqual(['unpriced'])
+  })
+
+  it('reports the two at identical coverage, because the divergence is worth exactly zero', () => {
+    const metrics = valued().coverage.perMetric
+    const cost = metrics.find((m) => m.metric === 'cost_basis')!
+    const pnl = metrics.find((m) => m.metric === 'unrealised_pnl')!
+    /*
+     * This is why the defect above it was invisible for as long as it was. Coverage is weighted by
+     * *market value*, and the market value of a pair that could not be priced is zero — so the pair
+     * that is in one population and not the other moves neither figure. Two badges reading 100.00%
+     * of ₹1,50,000 sit beside two rupee figures summed over different sets of holdings.
+     *
+     * Nothing here is wrong. It is the reason a consumer of these metrics may not form a ratio out
+     * of one metric's numerator and another's denominator, and `sumPnlCost` in
+     * `src/screens/view-model.ts` is where that rule is now enforced.
+     */
+    expect(cost.coveredMinor).toBe(pnl.coveredMinor)
+    expect(cost.pct).toBe(pnl.pct)
+    expect(cost.pct).toBe('100.00')
+
+    // The rupee cost each population carries, which is where they differ: ₹1,05,000 against
+    // ₹1,00,000, on the same portfolio, at the same coverage.
+    const pairs = valued().pairs
+    const measuredCost = addMinor(
+      ...pairs.map((p) => (p.costMinor.measured ? p.costMinor.value : minor('0'))),
+    )
+    const pnlCost = addMinor(
+      ...pairs.map((p) => (p.unrealised.measured ? p.unrealised.value.costMinor : minor('0'))),
+    )
+    expect(measuredCost).toBe('10500000')
+    expect(pnlCost).toBe('10000000')
   })
 })
 

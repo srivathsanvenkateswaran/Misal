@@ -639,3 +639,60 @@ export function subPaisaRows(over: Partial<PortfolioRows> = {}): PortfolioRows {
     ...over,
   })
 }
+
+// ---------------------------------------------------------------------------
+// The two legs of a foreign holding, failing one at a time.
+//
+// `USD_INR` ships all four dates together, which no real install ever holds: `refreshFx` stores
+// only 'latest', `backfillFxHistory` is paced, capped by `MAX_FX_HISTORY_REQUESTS`, skipped
+// entirely when the provider has no `fetchFxHistory`, and halts on RATE_LIMITED. The two bounds
+// differ too — `MAX_FX_BACKFILL_DAYS = 3` against `MAX_FX_LATEST_AGE_DAYS = 7` — so the current
+// rate and the acquisition-date rates fail *independently, by design*, and nothing in this corpus
+// split them. Each leg breaks a different figure, and each one is a state a user is really in.
+// ---------------------------------------------------------------------------
+
+/**
+ * Today's rate stored, 2024's and 2025's absent — every install between its first price refresh
+ * and the completion of the FX backfill.
+ *
+ * The dollar holding is **valued** (it has a current rate) and its cost is **not** (its lots have
+ * no acquisition-date rate), so it sits inside net worth and outside the cost metric. That is the
+ * shape that separates the ledger/snapshot capability split from the cost metric's own population:
+ * ₹19,13,066 of ledger-backed value against ₹7,93,871 of measured cost, on one portfolio.
+ */
+export function latestFxOnlyRows(over: Partial<PortfolioRows> = {}): PortfolioRows {
+  return usdLedgerRows({ fxRates: USD_INR.filter((row) => row.asOf === '2026-08-11'), ...over })
+}
+
+/**
+ * The acquisition dates' rates stored, today's absent — the backfill ran and the latest fetch did
+ * not, or the stored 'latest' has aged past `MAX_FX_LATEST_AGE_DAYS`.
+ *
+ * The mirror image, and the one that breaks the P&L percentage: the dollar holding's cost is
+ * measured at each lot's own rate — `costInInr` needs no current price and no current rate — while
+ * its market value is not, so ₹9,75,998 of cost sits in the Invested tile with no market value to
+ * compare it against. Beside it, two rupee holdings have both. Numerator and denominator therefore
+ * come from different sets within one portfolio, which is exactly what a percentage may not do.
+ */
+export function historicFxOnlyRows(over: Partial<PortfolioRows> = {}): PortfolioRows {
+  return usdLedgerRows({ fxRates: USD_INR.filter((row) => row.asOf < '2026-08-01'), ...over })
+}
+
+/**
+ * A **ledger** holding that cannot be priced, with no foreign currency anywhere in it.
+ *
+ * `unpricedSnapshotRows` is snapshot-capability only, which is why this divergence stayed
+ * invisible: a snapshot pair has no measured cost either, so it drops out of the cost sum and the
+ * P&L sum together and the two populations coincide. The shape that matters is a pair with a
+ * complete lot chain — measured cost — and no market value, and one line produces it: drop the
+ * price rows for Reliance, whose three trades in a ledger account build exactly that pair.
+ *
+ * This is the state of any install holding an instrument no provider covers, and of every install
+ * before its first price refresh. It needs no exchange rate to reproduce.
+ */
+export function unpricedLedgerRows(over: Partial<PortfolioRows> = {}): PortfolioRows {
+  return portfolioRows({
+    prices: PRICES.filter((price) => price.instrumentId !== 'i-rel'),
+    ...over,
+  })
+}

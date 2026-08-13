@@ -420,7 +420,7 @@ export function Gallery(): ReactNode {
               value={fx.unrealisedValue}
               tone
               sub={[
-                { label: 'on measured cost', value: fx.unrealisedPctValue, metric: 'unrealised-pct', tone: true },
+                { label: 'on cost of valued holdings', value: fx.unrealisedPctValue, metric: 'unrealised-pct', tone: true },
               ]}
             />
             <ReadoutCell

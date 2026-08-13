@@ -7,7 +7,11 @@
  */
 
 import { type CurrencyCode, type Dec, type Minor, dec, minor } from '@domain/numeric'
+import type { FoldInput } from '../fold'
 import { type FxRateRow, type FxService, FxTable } from '../fx'
+import type { PortfolioInput } from '../portfolio'
+import { InMemoryPriceStore, PriceService } from '../price/service'
+import type { PricePoint } from '../price/types'
 import type { AliasRef, AssetClass, InstrumentRef, PositionRow, TaxRegime, TxnRow, TxnType } from '../types'
 
 let counter = 0
@@ -163,4 +167,131 @@ export function m(value: string): Minor {
 
 export function d(value: string): Dec {
   return dec(value)
+}
+
+// ---------------------------------------------------------------------------
+// Prices, and the absence of one.
+// ---------------------------------------------------------------------------
+
+export interface PriceSpec {
+  readonly instrumentId: string
+  readonly close: string
+  readonly asOf: string
+  readonly currency?: CurrencyCode
+  readonly source?: PricePoint['source']
+}
+
+export function pricePoint(spec: PriceSpec): PricePoint {
+  return {
+    instrumentId: spec.instrumentId,
+    asOf: spec.asOf,
+    close: dec(spec.close),
+    currency: spec.currency ?? 'INR',
+    source: spec.source ?? 'manual',
+    fetchedAt: `${spec.asOf}T20:00:00+05:30`,
+  }
+}
+
+/**
+ * A price table holding exactly the rows given, and refusing every other lookup.
+ *
+ * The refusal is the point. An instrument with no row here is one no provider covers — or one this
+ * install has not refreshed yet — and `priceAt` answers `NO_PRICE_SOURCE` rather than reaching for
+ * a neighbouring date. Every price fixture in this corpus is built through here so that "unpriced"
+ * is expressed by an absent row rather than by a stub returning zero, which would be a price.
+ */
+export function priceTable(input: {
+  readonly instruments: ReadonlyMap<string, InstrumentRef>
+  readonly asOf: string
+  readonly points: readonly PriceSpec[]
+}): PriceService {
+  const store = new InMemoryPriceStore()
+  for (const spec of input.points) store.put(pricePoint(spec))
+  return new PriceService({ store, instruments: input.instruments, now: () => input.asOf })
+}
+
+/** A ledger account whose entire history is the transactions given. */
+export function ledgerAccount(spec: {
+  readonly accountId: string
+  readonly instruments: ReadonlyMap<string, InstrumentRef>
+  readonly asOf: string
+  readonly txns: readonly TxnRow[]
+}): FoldInput {
+  return {
+    accountId: spec.accountId,
+    capability: 'ledger',
+    txns: spec.txns,
+    snapshots: [],
+    instruments: spec.instruments,
+    asOf: spec.asOf,
+  }
+}
+
+/**
+ * A measured holding the price table cannot price, beside a measured holding it can.
+ *
+ * This is the input the corpus had no builder for, and it is the one input that separates
+ * `cost_basis` coverage from `unrealised_pnl` coverage in `buildMetrics`. `measurement` is
+ * `'measured'` for both — the lot chain is complete, and `costInInr` converts each lot at its own
+ * acquisition-date rate and needs no current price at all — so the unpriced pair keeps a measured
+ * cost and loses its market value, its P&L and its weight in every value-weighted coverage figure.
+ *
+ * It is not exotic: it is any install holding an instrument no provider covers, and every install
+ * before its first price refresh. Nothing foreign is involved, deliberately — the same divergence
+ * arrives through a missing exchange rate, and a fixture that needed one would read as an FX
+ * problem rather than as what it is.
+ *
+ * The figures are chosen to be read at a glance:
+ *
+ * | pair | cost | value | P&L |
+ * |---|---|---|---|
+ * | `priced` | ₹1,00,000 | ₹1,50,000 | +₹50,000 |
+ * | `unpriced` | ₹5,000 | — | — |
+ *
+ * Summed over the cost population the return reads 47.62%; over the P&L population, which is the
+ * only set the numerator came from, it is exactly 50%.
+ */
+export function measuredUnpricedInput(): PortfolioInput {
+  resetIds()
+  const priced = instrument({ id: 'priced', displayName: 'Priced Thing', assetClass: 'indian_equity' })
+  const unpriced = instrument({ id: 'unpriced', displayName: 'Unpriced Thing', assetClass: 'bond' })
+  const instruments = instrumentMap(priced, unpriced)
+  const asOf = '2026-08-12T18:30:00+05:30'
+  return {
+    accounts: [
+      ledgerAccount({
+        accountId: 'acc-ledger',
+        instruments,
+        asOf,
+        txns: [
+          txn({
+            type: 'buy',
+            date: '2024-01-10',
+            quantity: '100',
+            amount: '10000000',
+            instrumentId: 'priced',
+            accountId: 'acc-ledger',
+          }),
+          txn({
+            type: 'buy',
+            date: '2025-01-10',
+            quantity: '50',
+            amount: '500000',
+            instrumentId: 'unpriced',
+            accountId: 'acc-ledger',
+          }),
+        ],
+      }),
+    ],
+    instruments,
+    // No row for `unpriced`, and no provider that could supply one.
+    prices: priceTable({
+      instruments,
+      asOf,
+      points: [{ instrumentId: 'priced', close: '1500.00', asOf: '2026-08-12' }],
+    }),
+    fx: inrOnlyFx(),
+    unresolved: [],
+    asOf,
+  }
 }
