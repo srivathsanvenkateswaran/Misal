@@ -1426,6 +1426,120 @@ The fixture at `src/screens/view-model.test.ts` only ever exercised a row that *
 and a currency — the one shape the code handled — which is why the default case survived. It now
 carries the NULL/NULL, mixed and foreign cases.
 
+### ~~A native-currency amount was printed, and exported, as rupees~~ — FIXED
+
+`moneyFigure(minor, format, currency = 'INR')` defaults its currency, and two call sites in
+`view-model.ts` handed it non-INR values with the argument omitted: `lot.costMinor`, whose currency
+is `OpenLot.currency`, and `txn.amountMinor`, whose currency is `TxnRow.currency`. Both were built
+with `symbol: false`, and `Instruments.tsx` printed them under static headers reading `Cost ₹`,
+`Price ₹` and `Amount ₹`.
+
+Passing the currency alone would not have fixed it. With `symbol: false`, `Figure.currency` only
+selects digit grouping — the visible claim was in the three headers.
+
+**Consequence, milder form and reachable today:** a Binance or CoinDCX fill in a USDT-quoted market
+puts its quote price in that Price column, so BTC at 43,000 USDT read "₹43,000" — three lines below
+the price-history panel printing "USD per unit" in its own meta. (It reaches the screen because
+`buildAccounts` drops a snapshot account's transactions before mapping them, so no `MappingError`
+is raised, while `buildInstrumentViews` reads `rows.transactions` directly.)
+
+**Consequence, severe form:** the first USD ledger row. The "Invested — FIFO cost" tile is
+`pair.costMinor`, already through `costInInr`; the lot table beneath it is native. The two disagreed
+by ~87× with no mark of any kind — ₹9,75,998 above a lot table reading "3,720".
+
+**Consequence in the export, worse still, because the unit was in the column name:**
+`amount_inr_minor` / `amount_inr`, a header note asserting "`<name>_inr_minor` is the stored integer
+in paise", and no currency column anywhere in the transactions table — so the error was not
+recoverable from the file by whoever received it. `src/screens/settings/review.ts` already had the
+rule in its header: "a total is per currency, never mixed."
+
+Fixed by passing each amount's own currency, dropping `symbol: false` so the figure carries its own
+symbol, and dropping `₹` from the three headers. The transaction price cell appends its currency via
+`formatQty`'s `unit`. An amount whose stored code this build has no formatting rule for — the `X:`
+namespace, which has no minor unit and no rupee rate — is withheld rather than printed. The export
+columns are now `currency`, `amount_minor`, `amount`, and the header note states which tables are
+converted and which are not. `formatFigure` also refuses `symbol: false` for a non-INR figure, so a
+future call site that forgets still cannot print a dollar amount bare.
+
+The corpus had no fixture that could catch it: the only USD account was snapshot-only with no
+transactions and therefore no lots and no amounts. `usdLedgerRows()` in
+`src/screens/testing/fixtures.ts` is that fixture.
+
+**Left open:** `PositionView.avgCost` is `pair.costMinor / quantity` — rupees per unit — and sits in
+the same table as `lastPrice`, which is the stored close in the instrument's own currency. Both are
+`qtyFigure`s with no unit, under headers "Avg cost" and "Last price". They are not the same unit for
+a foreign holding, and nothing on that row says so.
+
+### ~~"100.0% LEDGER-BACKED" over an account whose holdings were all unpriced~~ — FIXED
+
+`portfolio.ts` adds an unpriced position to neither `measuredMinor` nor `valuedMinor` — there is no
+value to add — and `coverage.ts` derives `unmeasuredMinor` by subtraction, so it comes out at
+exactly 0. `coverage.ts`'s own header states the rule this breaks: unpriced positions "cap priced
+coverage below 100%". Nothing implemented it.
+
+**Consequence:** with the gold account dropped and the E\*TRADE snapshot holding unpriced, the
+calibration bar printed "100.0% LEDGER-BACKED", its aria-label said the same, and because
+`!isZeroMinor(props.snapshotOnly)` was false the "NO HISTORY — XIRR, COST BASIS & REALISED P&L
+EXCLUDE ₹…" bracket was not drawn at all. `Accounts.tsx` then printed "Every account supplies
+transaction history, so nothing on this screen is withheld" directly beneath a row badged "Holdings
+only · 1 not priced".
+
+The direction is what makes it serious: **the honesty indicator improves as the data quality
+degrades.** A USD rate ageing past its bound drops a holding out of both sides of the fraction and
+flips the bar to 100.0% — the one value this product documents as meaning complete.
+
+Fixed in three places. `coverageReport` now derives `historyCoveragePct` through `pricedCoveragePct`,
+which reuses the module's existing `99.99` clamp rather than inventing a second convention.
+`CalibrationBar` takes an `unpriced` count: non-zero and its label reads "% OF PRICED VALUE
+LEDGER-BACKED", its accessible name says the percentage cannot be read as completeness, the readout
+appends "N not priced", the legend carries the sentence, and `data-coverage-complete` /
+`data-unpriced-count` make it machine-readable. `Accounts.tsx`'s foot is now decided by
+`capability === 'snapshot'` — an account question — rather than by a rupee quantity, and when the
+amount cannot be stated it says that instead of saying nothing is missing. `coverageOpportunity`
+no longer promises "raise coverage to 100.0%" while something is unpriced.
+
+`unpricedSnapshotRows()` is the fixture; it is the reviewers' reproduction, and it is *worse* data
+than the shipped one, which is exactly why it read better.
+
+### ~~Months with holdings but no stored prices were labelled "no history"~~ — FIXED
+
+`buildMonths` gapped on `isZeroMinor(netWorthMinor)` and pushed `{segments: null, unpricedCount: 0}`,
+discarding the real `unpricedCount` available at that call site and used on the branch directly
+above it.
+
+This is the **default state of any install younger than twelve months of refreshes**: nothing calls
+`fetchHistory`, so after one refresh every stored price row is dated today and every earlier column
+prices nothing it holds.
+
+**Consequence:** reproduced as eleven columns with `gap=true unpriced=0`, annotated "HISTORY BEGINS
+AUG 2026", over a portfolio with 28 transactions starting 2024-09-07. No rupee figure was wrong; the
+*reason* was, and the reason is what a reader acts on. Four surfaces told the user their imported
+history did not exist.
+
+Fixed by carrying the real count into that branch and giving the month `segments: []` rather than
+`null` when it held something — a priced value of zero, which is a measurement, so the chart's
+existing floor treatment applies (open cap, "at least ₹0", and the instrument count that says why).
+`null` is kept for its original and only meaning, a month with nothing in it at all, and
+`historyBegins` then points at the first month that actually held something. `!bundle.snapshot.ok`
+has no breakdown to read and so states no count at all: `unpricedCount` is optional precisely so a
+caller with nothing to say can leave it out, and a zero there would be a claim that branch cannot
+support. `freshInstallRows()` is the fixture.
+
+### ~~Sub-paisa prices rendered as 0.00~~ — FIXED
+
+`priceDecimals` returned 4 for a mutual fund and 2 for everything else, from the asset class alone.
+
+**Consequence:** SHIB is in the shipped seed catalogue and trades near $0.00001, so its "Last price"
+and "Avg cost" cells printed `0.00` beside a correct, non-zero Value — while `NavHistoryChart`
+directly above them drew the real digits, because it derives its precision from the data. Cosmetic,
+but a visible contradiction between two components reading the same rows.
+
+Fixed by deriving the precision from the value the same way the chart does: the convention is kept
+untouched for any price it can show, and a value that would round to a row of zeros gets the digits
+its stored string actually carries, capped at 8 — the chart's own cap, so the two cannot disagree
+about how many digits a price has. A genuine zero still prints `0.00`, because zero is a measurement
+here rather than a rounding artefact. `subPaisaRows()` is the fixture.
+
 ## Exchange adapters
 
 ### ~~Rotating an API key doubled the holdings it was rotated for~~ — FIXED

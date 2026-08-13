@@ -201,3 +201,65 @@ describe('CalibrationBar — the harshest honest states', () => {
     expect(screen.queryByText(/48,32,150/)).toBeNull()
   })
 })
+
+/**
+ * The state where every figure on this bar is right and the bar is wrong.
+ *
+ * An unpriced holding has no rupee value, so it is in neither `ledgerBacked` nor `snapshotOnly` nor
+ * `netWorth`: it cancels out of every fraction drawn here. A portfolio whose only snapshot account
+ * is entirely unpriced therefore draws a perfect 100.0% — no hatch, no bracket, nothing withheld —
+ * and does so *because* the data got worse. A rate ageing past its bound drops a holding out of
+ * both sides and pushes the number up.
+ */
+describe('CalibrationBar — a portfolio it could not price whole', () => {
+  const unpricedBar = {
+    segments: fx.ALL_LEDGER_SEGMENTS,
+    ledgerBacked: fx.NET_WORTH,
+    snapshotOnly: fx.R('0'),
+    accountsLedger: 5,
+    accountsTotal: 6,
+    unpriced: 1,
+  }
+
+  it('refuses to print 100.0% LEDGER-BACKED over holdings it could not price', () => {
+    const { container } = render(mockupBar(unpricedBar))
+    const label = container.querySelector('.cal-lab-l')?.textContent ?? ''
+    // The exact string the reviewers reproduced. It is the one value this product documents as
+    // meaning complete, so it is not available to a bar that is not.
+    expect(label).not.toBe('100.0% LEDGER-BACKED · ₹48,32,150')
+    expect(label).toBe('100.0% OF PRICED VALUE LEDGER-BACKED · ₹48,32,150')
+    expect(container.querySelector('.calib')).toHaveAttribute('data-coverage-complete', 'false')
+    expect(container.querySelector('.calib')).toHaveAttribute('data-unpriced-count', '1')
+    assertHonest(container)
+  })
+
+  it('says it in the accessible name too, where the percentage is read aloud', () => {
+    render(mockupBar(unpricedBar))
+    const label = screen.getByRole('img').getAttribute('aria-label') ?? ''
+    expect(label).toContain('the value Misal could price')
+    expect(label).toContain('1 holding has no stored price')
+    expect(label).toContain('cannot be read as completeness')
+    expect(label).not.toContain('percent of net worth')
+  })
+
+  it('states the holdings that are in no shape on the bar, since nothing can draw them', () => {
+    const { container } = render(mockupBar({ ...unpricedBar, unpriced: 3 }))
+    expect(container.querySelector('[data-unpriced-note="true"]')?.textContent).toBe(
+      '3 holdings have no stored price, so they are in neither amount above and in no percentage on this bar',
+    )
+    expect(container.querySelector('.calib-readout')?.textContent).toContain('3 not priced')
+    assertHonest(container)
+  })
+
+  it('leaves a bar that priced everything exactly as the mockup has it', () => {
+    // The qualifier means something only if it is absent when there is nothing to qualify.
+    const { container } = render(mockupBar())
+    expect(container.querySelector('.cal-lab-l')?.textContent).toBe(
+      '71.8% LEDGER-BACKED · ₹34,73,722',
+    )
+    expect(container.querySelector('[data-unpriced-note="true"]')).toBeNull()
+    expect(container.querySelector('.calib')).toHaveAttribute('data-coverage-complete', 'true')
+    expect(screen.getByRole('img').getAttribute('aria-label')).toContain('percent of net worth')
+    assertHonest(container)
+  })
+})

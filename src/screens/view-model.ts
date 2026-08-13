@@ -24,6 +24,7 @@ import {
   addDec,
   addMinor,
   compareMinor,
+  currencyCode,
   dec,
   divDec,
   isZeroDec,
@@ -60,7 +61,7 @@ import {
 } from '@valuation/index'
 import type { Figure } from '@ui/figure'
 import { moneyFigure, pctFigure, qtyFigure } from '@ui/figure'
-import { formatMoney, money } from '@ui/format'
+import { formatMoney, money, roundDec } from '@ui/format'
 import { ASSET_CLASS_LABEL, SERIES_BY_ASSET_CLASS } from '@ui/metrics'
 import type { SeriesToken } from '@ui/metrics'
 import type { SourceStampProps } from '@ui/provenance/SourceStamp'
@@ -198,7 +199,16 @@ export interface LotView {
   readonly acquiredOn: IsoDate
   readonly accountLabel: string
   readonly quantity: Dec
+  /**
+   * The lot's cost **in the currency it was acquired in**, never converted.
+   *
+   * `OpenLot.costMinor` is native — a dollar vest is dollars — while the "Invested — FIFO cost"
+   * tile above the same table comes from `pair.costMinor`, which the engine has already put through
+   * `costInInr`. The two are different quantities and this one says which it is: the figure carries
+   * its own symbol, and `currency` is on the row for anything that needs to name it.
+   */
   readonly cost: Measured<Figure>
+  readonly currency: CurrencyCode
   readonly origin: OpenLot['origin']
   readonly stamp: SourceStampProps
 }
@@ -209,8 +219,18 @@ export interface TxnView {
   readonly type: string
   readonly accountLabel: string
   readonly quantity: Dec
+  /** The stored per-unit price, in `currency`. A USDT-quoted fill's price is USDT, not rupees. */
   readonly price: Dec | null
+  /**
+   * The stored amount, in `currency` — the row's own, never converted to rupees by this layer.
+   *
+   * Withheld rather than printed when the stored code is one this build has no formatting rule
+   * for: a `BTCUSDT` fill carries no `amount_minor` at all, and an amount whose unit cannot be
+   * named is not a figure the interface is allowed to show.
+   */
   readonly amount: Measured<Figure>
+  /** The stored code as a reader sees it — 'INR', 'USD', 'USDT'. Displayed with every amount. */
+  readonly currency: string
   readonly stamp: SourceStampProps
 }
 
@@ -251,6 +271,17 @@ export interface PortfolioData {
   readonly ledgerBackedMinor: Minor
   readonly snapshotOnlyMinor: Minor
   readonly ledgerAccounts: number
+  /**
+   * Holdings the engine could price at all — zero of them, not merely some.
+   *
+   * It travels with the calibration figures because it is the thing that stops them being read as
+   * completeness. An unpriced position contributes to neither `ledgerBackedMinor` nor
+   * `snapshotOnlyMinor` — there is no value to add — so a portfolio whose *only* snapshot account
+   * is entirely unpriced reports a perfectly clean 100% split over the part it can see, and the
+   * indicator improves precisely as the data gets worse. `coverage.ts` states the rule in its own
+   * header: unpriced positions cap priced coverage below 100%. This is what carries it to a screen.
+   */
+  readonly unpricedCount: number
   readonly segments: readonly CalibrationSegment[]
   readonly classes: readonly ClassView[]
   readonly positions: readonly PositionView[]
@@ -305,9 +336,71 @@ export function formatDateTime(iso: string): string {
   return dt.isValid ? dt.toFormat('dd LLL yyyy HH:mm') : iso
 }
 
-/** Four decimals for a NAV, two for a quote. */
-function priceDecimals(assetClass: AssetClass): number {
-  return assetClass === 'mutual_fund' ? 4 : 2
+/**
+ * Digits past the point in a canonical decimal string. `'0.00001234'` → 8.
+ *
+ * The same reading `NavHistoryChart` takes of its own points, and for the same reason: the stored
+ * string is the only statement of how precise the number is.
+ */
+function fractionDigits(value: Dec): number {
+  const dot = value.indexOf('.')
+  return dot === -1 ? 0 : value.length - dot - 1
+}
+
+/** True when `decimals` places would print this value as a row of zeros. */
+function roundsToZero(value: Dec, decimals: number): boolean {
+  const { intDigits, fracDigits } = roundDec(value, decimals)
+  return BigInt(intDigits + fracDigits) === 0n
+}
+
+/**
+ * Past this the tail of a division is being read as stored precision. It is also the chart's cap,
+ * so the two never disagree about how many digits a price has.
+ */
+const MAX_PRICE_DECIMALS = 8
+
+/**
+ * How many decimals a per-unit figure needs.
+ *
+ * Four for a NAV, two for a quote — until the convention would print the price as `0.00`. SHIB is
+ * in the shipped seed catalogue and trades near $0.00001, so "Last price" and "Avg cost" read
+ * `0.00` beside a correct non-zero Value, three lines under a chart drawing the real digits because
+ * it derives its precision from the data rather than from the asset class. This derives it from the
+ * data too: a value that survives rounding keeps the convention exactly as before, and one that
+ * does not gets the digits its stored string actually carries, capped so a `divDec` tail is not
+ * mistaken for precision anyone stored.
+ *
+ * A genuine zero still prints `0.00`. Zero is a measurement here, not a rounding artefact.
+ */
+function priceDecimals(assetClass: AssetClass, value: Dec): number {
+  const base = assetClass === 'mutual_fund' ? 4 : 2
+  if (!roundsToZero(value, base)) return base
+  const stored = fractionDigits(value)
+  if (stored <= base) return base
+  return stored > MAX_PRICE_DECIMALS ? MAX_PRICE_DECIMALS : stored
+}
+
+/**
+ * The stored currency code as a reader sees it: `X:USDT` is a namespace plus a unit, and the unit
+ * is what belongs beside a number. Migration 0002 reserves `X:` for anything with no minor unit and
+ * no rupee rate — a `BTCUSDT` fill is quoted in USDT and is not money this build can total.
+ */
+function displayCurrency(raw: string): string {
+  return raw.startsWith('X:') ? raw.slice(2) : raw
+}
+
+/**
+ * The stored code as a currency this build can *format*, or null when it is not one.
+ *
+ * Null is not a failure to handle: it is the answer for every crypto-quoted amount, and the caller
+ * withholds the figure rather than printing it under whatever unit happens to be nearest.
+ */
+function formattableCurrency(raw: string): CurrencyCode | null {
+  try {
+    return currencyCode(raw)
+  } catch {
+    return null
+  }
 }
 
 const CAPABILITY_TEXT: Record<Capability, string> = {
@@ -458,6 +551,24 @@ function aggregateByClass(
  * The engine already counts them. `coverage.breakdown.unpricedCount` was computed at this very call
  * site and never read; it now travels onto the column, which is what lets the chart refuse to draw
  * a partial month as a complete one.
+ *
+ * There is a third state, and it was the one being told as the first. A month can price *nothing*
+ * it holds — every price row dated after that month end — and its net worth is then zero, which
+ * sent it down the gap branch with the real `unpricedCount` thrown away and a literal `0` pushed in
+ * its place. "No history" and "held, and not one holding could be priced" are opposite statements
+ * about the same rows, and this is the default state of any install younger than twelve months of
+ * refreshes: nothing calls `fetchHistory`, so after one refresh every stored price is dated today
+ * and every earlier column prices nothing. Eleven columns then read as an empty portfolio, and the
+ * chart annotated "HISTORY BEGINS <this month>" over an imported ledger going back years.
+ *
+ * So the count is carried into that branch too, and a month that held something carries `segments:
+ * []` rather than `null` — priced value of zero, which is what was actually measured — so the
+ * chart's floor treatment applies: an open cap, "at least ₹0", and the instrument count that says
+ * why. `null` is kept for its original and only meaning, a month with nothing in it at all.
+ *
+ * `!bundle.snapshot.ok` has no breakdown to read, so it states no count: `unpricedCount` is
+ * optional precisely so a caller with nothing to say can leave it out, and a zero there would be a
+ * claim this branch cannot support.
  */
 function buildMonths(
   rows: PortfolioRows,
@@ -469,8 +580,19 @@ function buildMonths(
     const { label, year } = monthLabel(monthEnd)
     const asAt = rowsAsAt(rows, monthEnd)
     const bundle = valueFromRows(asAt, asAt.aliases, `${monthEnd}T23:59:59+05:30`)
-    if (!bundle.snapshot.ok || isZeroMinor(bundle.snapshot.value.netWorthMinor)) {
-      months.push({ key: monthEnd, label, year, segments: null, unpricedCount: 0 })
+    if (!bundle.snapshot.ok) {
+      months.push({ key: monthEnd, label, year, segments: null })
+      continue
+    }
+    if (isZeroMinor(bundle.snapshot.value.netWorthMinor)) {
+      const unpricedCount = bundle.snapshot.value.coverage.breakdown.unpricedCount
+      months.push({
+        key: monthEnd,
+        label,
+        year,
+        segments: unpricedCount === 0 ? null : [],
+        unpricedCount,
+      })
       continue
     }
     const byClass = aggregateByClass(bundle.snapshot.value, bundle.instruments, accounts)
@@ -542,10 +664,9 @@ function buildPosition(
   } else if (isZeroDec(pair.quantity)) {
     avgCost = notMeasured('no_transaction_history', valueMinor)
   } else {
+    const perUnit = divDec(minorToDec(pair.costMinor.value, 'INR'), pair.quantity)
     avgCost = measured(
-      qtyFigure(divDec(minorToDec(pair.costMinor.value, 'INR'), pair.quantity), {
-        precision: priceDecimals(instrument.assetClass),
-      }),
+      qtyFigure(perUnit, { precision: priceDecimals(instrument.assetClass, perUnit) }),
       pair.costMinor.coverage,
     )
   }
@@ -575,7 +696,9 @@ function buildPosition(
   const age = pair.priceAge
   const lastPrice: Measured<Figure> = read.ok
     ? measured(
-        qtyFigure(read.value.close, { precision: priceDecimals(instrument.assetClass) }),
+        qtyFigure(read.value.close, {
+          precision: priceDecimals(instrument.assetClass, read.value.close),
+        }),
         fullCoverage(valueMinor),
       )
     : notMeasured('no_price', valueMinor)
@@ -1118,9 +1241,15 @@ function buildInstrumentViews(
               acquiredOn: lot.acquiredOn,
               accountLabel: account?.label ?? lot.accountId,
               quantity: lot.quantity,
+              // Native, and stated as native. `symbol: false` would hand this to a column whose
+              // header says rupees; the lot's own currency and its own symbol travel with it.
               cost: lot.costKnown
-                ? measured<Figure>(moneyFigure(lot.costMinor, { symbol: false }), fullCoverage(lot.costMinor))
+                ? measured<Figure>(
+                    moneyFigure(lot.costMinor, {}, lot.currency),
+                    fullCoverage(lot.costMinor),
+                  )
                 : notMeasured<Figure>('no_transaction_history', ZERO_MINOR),
+              currency: lot.currency,
               origin: lot.origin,
               stamp:
                 account === undefined
@@ -1137,6 +1266,7 @@ function buildInstrumentViews(
         .map((txn) => {
           const account = accounts.get(txn.accountId)
           const amountMinor = txn.amountMinor === null ? null : minor(txn.amountMinor)
+          const txnCurrency = formattableCurrency(txn.currency)
           return {
             id: txn.id,
             occurredOn: txn.occurredAt.slice(0, 10),
@@ -1147,10 +1277,16 @@ function buildInstrumentViews(
             amount:
               amountMinor === null
                 ? notMeasured<Figure>('no_price', ZERO_MINOR)
-                : measured<Figure>(
-                    moneyFigure(amountMinor, { symbol: false }),
-                    fullCoverage(amountMinor),
-                  ),
+                : txnCurrency === null
+                  ? // An amount in a unit this build cannot format is counted by nothing and
+                    // printed by nothing. Rendering it bare would put a crypto quantity under a
+                    // rupee heading, which is the failure this branch exists to refuse.
+                    notMeasured<Figure>('no_fx_rate', ZERO_MINOR)
+                  : measured<Figure>(
+                      moneyFigure(amountMinor, {}, txnCurrency),
+                      fullCoverage(amountMinor),
+                    ),
+            currency: displayCurrency(txn.currency),
             stamp:
               account === undefined
                 ? derivedStamp('txn', 'A transaction whose account is no longer present.')
@@ -1169,7 +1305,9 @@ function buildInstrumentViews(
         capability,
         lastPrice: read.ok
           ? measured<Figure>(
-              qtyFigure(read.value.close, { precision: priceDecimals(instrument.assetClass) }),
+              qtyFigure(read.value.close, {
+                precision: priceDecimals(instrument.assetClass, read.value.close),
+              }),
               fullCoverage(valueMinor),
             )
           : notMeasured<Figure>('no_price', valueMinor),
@@ -1434,6 +1572,7 @@ function build(rows: PortfolioRows, asOf: IsoInstant): PortfolioData {
     ledgerBackedMinor: coverage.measuredMinor,
     snapshotOnlyMinor: snapshotOnly,
     ledgerAccounts,
+    unpricedCount: coverage.breakdown.unpricedCount,
     segments,
     classes,
     positions,
@@ -1477,6 +1616,14 @@ function build(rows: PortfolioRows, asOf: IsoInstant): PortfolioData {
     coverageOpportunity:
       isZeroMinor(snapshotOnly) || isZeroMinor(netWorth)
         ? null
-        : `Importing a transaction history for the snapshot accounts would move ${rupees(snapshotOnly)} across the calibration line and raise coverage to 100.0%.`,
+        : // "100.0%" is only true of a portfolio that is priced end to end. With an unpriced
+          // holding in it, moving the snapshot value across the line leaves the unpriced part
+          // outside every figure on the screen, so the sentence names what it would actually
+          // reach instead of promising completeness.
+          `Importing a transaction history for the snapshot accounts would move ${rupees(snapshotOnly)} across the calibration line and raise coverage to ${
+            coverage.breakdown.unpricedCount === 0
+              ? '100.0%'
+              : `the whole of the value Misal can price — ${coverage.breakdown.unpricedCount.toString()} ${coverage.breakdown.unpricedCount === 1 ? 'holding has' : 'holdings have'} no stored price and ${coverage.breakdown.unpricedCount === 1 ? 'is' : 'are'} in no figure on this screen`
+          }.`,
   }
 }

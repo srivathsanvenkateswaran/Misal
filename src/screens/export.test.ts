@@ -19,7 +19,7 @@ import {
 import { flatten } from '../data/export'
 import { buildPortfolioView } from './view-model'
 import type { PortfolioData } from './view-model'
-import { AS_OF, portfolioRows } from './testing/fixtures'
+import { AS_OF, portfolioRows, usdLedgerRows } from './testing/fixtures'
 
 /**
  * Built once. `buildPortfolioView` values the portfolio at twelve month ends as well as today, so
@@ -33,6 +33,17 @@ function data(): PortfolioData {
     built = view.data
   }
   return built
+}
+
+/** The same, over the account that reports in dollars. Built once for the same reason. */
+let builtUsd: PortfolioData | null = null
+function usdData(): PortfolioData {
+  if (builtUsd === null) {
+    const view = buildPortfolioView(usdLedgerRows(), AS_OF)
+    if (!view.ok) throw new Error(view.message)
+    builtUsd = view.data
+  }
+  return builtUsd
 }
 
 function csvRows(text: string): readonly (readonly string[])[] {
@@ -73,8 +84,13 @@ describe('the exported column lists', () => {
       'type',
       'quantity',
       'price',
-      'amount_inr_minor',
-      'amount_inr',
+      // Not `amount_inr_*`. The transactions table exports the stored amount unconverted, so the
+      // unit belongs in a column of its own rather than in the column name — where it was both
+      // wrong for every non-rupee row and unrecoverable, since the row's currency was not exported
+      // at all.
+      'currency',
+      'amount_minor',
+      'amount',
     ])
   })
 
@@ -154,6 +170,50 @@ describe('transactions', () => {
     const flat = flatten(transactionsTable(data()))
     const quantity = flat.headers.indexOf('quantity')
     expect(flat.rows.map((row) => row[quantity])).toContain('-300.0000')
+  })
+
+  it('writes a dollar amount under a currency column, not under a rupee column name', () => {
+    /*
+     * The worst version of the defect, because the unit was in the column *name*: a dollar vest
+     * was written as `amount_inr_minor` / `amount_inr`, the header note asserted "the stored
+     * integer in paise", and the table carried no currency column at all — so the error was not
+     * recoverable from the file by whoever received it.
+     */
+    const flat = flatten(transactionsTable(usdData()))
+    expect(flat.headers).not.toContain('amount_inr_minor')
+    expect(flat.headers).not.toContain('amount_inr')
+
+    const account = flat.headers.indexOf('account')
+    const date = flat.headers.indexOf('date')
+    const currency = flat.headers.indexOf('currency')
+    const amountMinor = flat.headers.indexOf('amount_minor')
+    const amount = flat.headers.indexOf('amount')
+    const price = flat.headers.indexOf('price')
+
+    // 12 units at $310.
+    const vest = flat.rows.find(
+      (row) => row[account]?.startsWith('E*TRADE') === true && row[date] === '2024-11-14',
+    )
+    expect(vest?.[currency]).toBe('USD')
+    // Cents, and the currency column beside it is what makes the integer mean anything.
+    expect(vest?.[amountMinor]).toBe('372000')
+    expect(vest?.[amount]).toBe('3720')
+    expect(vest?.[price]).toBe('310.0000')
+
+    // Rupee rows are unaffected, and now say which they are.
+    const rupee = flat.rows.find((row) => row[account] === 'Zerodha Kite')
+    expect(rupee?.[currency]).toBe('INR')
+  })
+
+  it('states the convention it actually follows, per table', () => {
+    const parsed = JSON.parse(buildExport(usdData(), 'json').contents) as {
+      misal_export: Record<string, string>
+    }
+    expect(parsed.misal_export.money).toContain('<name>_minor')
+    expect(parsed.misal_export.money).toContain('in its own currency')
+    // The old note asserted paise of every amount column in the file, which the transactions
+    // table has never been able to honour.
+    expect(parsed.misal_export.money).not.toMatch(/^Amounts appear twice: <name>_inr_minor/u)
   })
 })
 

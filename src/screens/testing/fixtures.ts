@@ -17,6 +17,7 @@
 import type {
   AccountRow,
   AliasRow,
+  FxRateRow,
   InstrumentRow,
   PortfolioRows,
   PositionRow,
@@ -445,6 +446,27 @@ export function nearlyFullCoverageRows(): PortfolioRows {
   })
 }
 
+/**
+ * Ledger accounts, plus one snapshot account whose every holding is unpriced.
+ *
+ * The reviewers' reproduction, and the state the shipped corpus could not reach: drop the gold
+ * account and the only snapshot holding left is the dollar one, which has no stored rate. It is in
+ * neither `measuredMinor` nor `valuedMinor` — an unpriced position has no rupee value to put in
+ * either — so `unmeasuredMinor` comes out of the subtraction as exactly zero and the calibration
+ * split is a clean 100/0 over the part that could be priced.
+ *
+ * Note which direction the failure runs. This is *worse* data than `portfolioRows()`, and without
+ * the unpriced count on the bar it reads better: 100.0%, no hatch, no bracket, and an Accounts foot
+ * saying nothing is withheld — under a row badged "Holdings only · 1 not priced".
+ */
+export function unpricedSnapshotRows(): PortfolioRows {
+  return portfolioRows({
+    accounts: ACCOUNTS.filter((account) => account.id !== 'a-gold'),
+    positions: POSITIONS.filter((row) => row.accountId === 'a-etrade'),
+    unresolved: [],
+  })
+}
+
 /** Every account supplies full history. 100% coverage — which is still displayed. */
 export function allLedgerRows(): PortfolioRows {
   return portfolioRows({
@@ -452,5 +474,168 @@ export function allLedgerRows(): PortfolioRows {
     positions: [],
     fxRates: [],
   unresolved: [],
+  })
+}
+
+// ---------------------------------------------------------------------------
+// A dollar account with a transaction history — lots, trades, and stored rates.
+//
+// The only USD account in this corpus was snapshot-only with no transactions at all, so nothing
+// here ever produced a native-currency *lot* or a native-currency *amount*. Those two rows are
+// exactly where `moneyFigure`'s INR default was being taken silently, and their absence is why the
+// defect survived three reviews: a dollar vest rendered as ₹, exported as `amount_inr_minor`, and
+// no fixture in the corpus could tell.
+//
+// The account this models is the one the product exists to consolidate: an RSU broker reporting in
+// dollars, with per-row `fx_rate` absent because the statement does not carry one.
+// ---------------------------------------------------------------------------
+
+interface UsdTrade {
+  readonly id: string
+  readonly date: string
+  readonly units: bigint
+  readonly price: string
+}
+
+const CAT_TRADES: readonly UsdTrade[] = [
+  { id: 'v1', date: '2024-11-14', units: 12n, price: '310.0000' },
+  { id: 'v2', date: '2025-06-03', units: 10n, price: '340.0000' },
+  { id: 'v3', date: '2026-02-19', units: 12n, price: '360.0000' },
+]
+
+/** Cents: units × price, in exact integer maths on the stored digits. */
+function cents(price: string, units: bigint): string {
+  return ((BigInt(price.replace('.', '')) * units) / 100n).toString()
+}
+
+/**
+ * Dollar-denominated buys. `amountMinor` is **cents**, and `currency` says so — the two travel
+ * together or the integer is meaningless.
+ */
+export function usdTxns(): readonly TxnRow[] {
+  return CAT_TRADES.map((trade, index) => ({
+    id: `t-cat-${trade.id}`,
+    accountId: 'a-etrade',
+    instrumentId: 'i-cat',
+    type: 'buy',
+    occurredAt: `${trade.date}T09:30:00-05:00`,
+    occurredTz: 'America/New_York',
+    quantity: `${trade.units.toString()}.0000`,
+    price: trade.price,
+    amountMinor: cents(trade.price, trade.units),
+    ...NO_FEES,
+    currency: 'USD',
+    // No per-row rate: the stored daily table is the only source, which is what a real statement
+    // leaves behind.
+    fxRate: null,
+    sourceDocumentId: 'd-etr-1',
+    naturalKey: `etrade:cat:${trade.id}`,
+    occurrence: index,
+    authority: 'primary',
+    createdAt: '2026-08-12T10:44:00+05:30',
+  }))
+}
+
+export const USD_INR: readonly FxRateRow[] = [
+  { base: 'USD', quote: 'INR', asOf: '2024-11-14', rate: '84.2500', source: 'manual' },
+  { base: 'USD', quote: 'INR', asOf: '2025-06-03', rate: '85.1000', source: 'manual' },
+  { base: 'USD', quote: 'INR', asOf: '2026-02-19', rate: '86.4000', source: 'manual' },
+  { base: 'USD', quote: 'INR', asOf: '2026-08-11', rate: '87.5000', source: 'manual' },
+]
+
+/**
+ * The E*TRADE account promoted to a ledger, with the dollar rates its transactions need.
+ *
+ * Its lots carry `currency: 'USD'` and `costMinor` in cents; its transactions carry amounts in
+ * cents. Every rupee figure on the same screen — net worth, the FIFO cost tile, the calibration
+ * bar — is converted at the stored rate, so this fixture is the one place the corpus holds both
+ * kinds of number at once and can be made to state which is which.
+ */
+export function usdLedgerRows(over: Partial<PortfolioRows> = {}): PortfolioRows {
+  return portfolioRows({
+    accounts: ACCOUNTS.map((account) =>
+      account.id === 'a-etrade' ? { ...account, capability: 'ledger' as const } : account,
+    ),
+    transactions: [...TRANSACTIONS, ...usdTxns()],
+    positions: POSITIONS.filter((row) => row.accountId !== 'a-etrade'),
+    fxRates: USD_INR,
+    ...over,
+  })
+}
+
+/**
+ * One refresh, and no price history — the state of every install younger than twelve months.
+ *
+ * Nothing calls `fetchHistory`, so a fresh machine stores exactly one price row per instrument and
+ * it is dated today. Every month-end column before this one then folds holdings it cannot price:
+ * the transactions are all there, the units are all there, and the priced value is zero.
+ *
+ * The shipped corpus hides this — it carries a hand-written month-end price series that no real
+ * install would have — which is why eleven columns reading "no history" over a portfolio with 28
+ * transactions going back to 2024-09-07 was nobody's fixture.
+ */
+export function freshInstallRows(over: Partial<PortfolioRows> = {}): PortfolioRows {
+  return portfolioRows({
+    prices: PRICES.filter((price) => price.asOf >= '2026-08-11'),
+    ...over,
+  })
+}
+
+/**
+ * A sub-paisa crypto price, with a ledger behind it.
+ *
+ * SHIB is in the shipped seed catalogue and trades near $0.00001. Nothing in this corpus priced
+ * anything below a paisa, so "two decimals for a quote" was never asked a question it could get
+ * wrong — and it gets it wrong the same way every time: `0.00` beside a correct, non-zero Value.
+ */
+export const SUB_PAISA_INSTRUMENT: InstrumentRow = {
+  id: 'i-shib',
+  assetClass: 'crypto',
+  taxRegime: 's115bbh_vda',
+  displayName: 'Shiba Inu',
+  isin: null,
+  currency: 'INR',
+  precision: 8,
+  fmv31Jan2018: null,
+}
+
+export function subPaisaRows(over: Partial<PortfolioRows> = {}): PortfolioRows {
+  return portfolioRows({
+    instruments: [...INSTRUMENTS, SUB_PAISA_INSTRUMENT],
+    transactions: [
+      ...TRANSACTIONS,
+      {
+        id: 't-shib-1',
+        accountId: 'a-kite',
+        instrumentId: 'i-shib',
+        type: 'buy',
+        occurredAt: '2026-03-11T09:30:00+05:30',
+        occurredTz: 'Asia/Kolkata',
+        quantity: '120000000.00000000',
+        price: '0.00081500',
+        // 120,000,000 × ₹0.000815 = ₹97,800 → 97,80,000 paise.
+        amountMinor: '9780000',
+        ...NO_FEES,
+        currency: 'INR',
+        fxRate: null,
+        sourceDocumentId: 'd-kite-1',
+        naturalKey: 'kite:shib:1',
+        occurrence: 0,
+        authority: 'primary',
+        createdAt: '2026-08-12T09:12:00+05:30',
+      },
+    ],
+    prices: [
+      ...PRICES,
+      {
+        instrumentId: 'i-shib',
+        asOf: '2026-08-11',
+        close: '0.00092400',
+        currency: 'INR',
+        source: 'coingecko',
+        fetchedAt: '2026-08-12T10:52:00+05:30',
+      },
+    ],
+    ...over,
   })
 }

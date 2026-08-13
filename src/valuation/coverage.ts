@@ -46,6 +46,11 @@ export interface MetricCoverage {
 export interface CoverageReport {
   readonly asOf: IsoInstant
   readonly breakdown: ValueBreakdown
+  /**
+   * Coverage of the *priced* value, and never `100.00` while `breakdown.unpricedCount` is non-zero.
+   * See `pricedCoveragePct`: an unpriced holding is in neither side of this fraction, so without
+   * the cap the figure reads as completeness over a portfolio that was not measured whole.
+   */
   readonly historyCoveragePct: Dec | null
   readonly measuredMinor: Minor
   /** By subtraction from the same total the bar draws, so the two segments sum to the whole bar. */
@@ -84,6 +89,33 @@ export function historyCoveragePct(measuredMinor: Minor, valuedMinor: Minor): De
   return basisPointsToDec(basisPoints)
 }
 
+/**
+ * The same percentage, capped below 100% while any position is unpriced.
+ *
+ * This is the header's third rule, which until now nothing implemented. An unpriced position is in
+ * neither `measuredMinor` nor `valuedMinor` — there is no rupee figure to put in either — so it
+ * cancels out of the fraction entirely and a portfolio whose every ledger holding is priced reports
+ * `100.00` however much of it could not be priced at all. Worse, the figure *improves* as the data
+ * degrades: an FX rate ageing past its bound drops a holding out of both sides and rounds the
+ * coverage up.
+ *
+ * 100.00 is the one value this product documents as meaning complete, so it is reserved for
+ * portfolios that are complete. The cap reuses `99.99`, which this module already treats as "short
+ * of whole by less than it can print" rather than inventing a second convention for the same idea.
+ * The count itself is on `breakdown.unpricedCount`, and every display of this figure is expected to
+ * carry it: a capped percentage says "not complete", not "how much is missing", because how much is
+ * missing is exactly what an unpriced holding does not state.
+ */
+export function pricedCoveragePct(
+  measuredMinor: Minor,
+  valuedMinor: Minor,
+  unpricedCount: number,
+): Dec | null {
+  const pct = historyCoveragePct(measuredMinor, valuedMinor)
+  if (pct === null || unpricedCount === 0) return pct
+  return pct === '100.00' ? dec('99.99') : pct
+}
+
 export interface MetricInput {
   readonly metric: MetricName
   readonly included: readonly { readonly valueMinor: Minor }[]
@@ -118,7 +150,11 @@ export function coverageReport(input: CoverageInput): CoverageReport {
   return {
     asOf: input.asOf,
     breakdown: input.breakdown,
-    historyCoveragePct: historyCoveragePct(input.measuredMinor, input.breakdown.valuedMinor),
+    historyCoveragePct: pricedCoveragePct(
+      input.measuredMinor,
+      input.breakdown.valuedMinor,
+      input.breakdown.unpricedCount,
+    ),
     measuredMinor: input.measuredMinor,
     unmeasuredMinor: subMinor(input.breakdown.valuedMinor, input.measuredMinor),
     perMetric: input.perMetric,

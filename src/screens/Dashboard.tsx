@@ -175,6 +175,7 @@ export function Dashboard({ data }: { readonly data: PortfolioData }): ReactNode
           snapshotOnly={data.snapshotOnlyMinor}
           accountsLedger={data.ledgerAccounts}
           accountsTotal={data.accounts.length}
+          unpriced={data.unpricedCount}
         />
 
         <ReadoutGrid

@@ -13,9 +13,11 @@
  *
  * Two honesty rules carry over from the screens unchanged:
  *
- *   - Money and quantities are the exact stored strings. Money appears twice: `<name>_inr_minor`
- *     is the stored paise integer and `<name>_inr` is the exact rupee decimal derived from it by
- *     `minorToDec`, which divides by a power of ten and never rounds.
+ *   - Money and quantities are the exact stored strings. Money appears twice: `<name>_minor` is
+ *     the stored integer in the smallest unit of *its own* currency and `<name>` is the exact
+ *     decimal derived from it by `minorToDec`, which divides by a power of ten and never rounds.
+ *     The `_inr` suffix is reserved for figures Misal has itself converted to rupees, and a table
+ *     carrying an unconverted amount carries the currency column that names its unit.
  *   - A metric that could not be measured is an empty cell plus a reason, never a zero. A `0` in a
  *     spreadsheet reads as "no gain", and the file outlives the context that would have explained
  *     it.
@@ -171,8 +173,20 @@ const TXN_COLUMNS: readonly ExportColumn<TxnExportRow>[] = [
     cell: (row) => (row.txn.price === null ? unmeasuredCell('no_price') : cell(row.txn.price)),
     withReason: true,
   },
-  { id: 'amount_inr_minor', cell: (row) => figureCell(row.txn.amount), withReason: true },
-  { id: 'amount_inr', cell: (row) => majorCell(row.txn.amount), withReason: true },
+  /*
+   * `currency`, then the amount in it.
+   *
+   * These two columns were `amount_inr_minor` and `amount_inr`, and the transactions table had no
+   * currency column at all — so a dollar vest or a USDT-quoted fill was written under a rupee
+   * column name with nothing anywhere in the file to contradict it. That is worse than the same
+   * mistake on screen: the unit was *in the column name*, the header note asserted paise, and the
+   * row's own currency was not exported, so the error was not recoverable from the file by anyone
+   * who received it. The `_inr` suffix is retired here and the currency travels beside the figure;
+   * `price` is in the same currency and is covered by the same column.
+   */
+  { id: 'currency', cell: (row) => cell(row.txn.currency) },
+  { id: 'amount_minor', cell: (row) => figureCell(row.txn.amount), withReason: true },
+  { id: 'amount', cell: (row) => majorCell(row.txn.amount), withReason: true },
 ]
 
 export function transactionsTable(data: PortfolioData): ExportTable<TxnExportRow> {
@@ -214,7 +228,8 @@ export const EXPORT_CHOICES: readonly ExportChoice[] = [
     format: 'csv',
     description:
       'Every transaction Misal holds for an instrument currently held, oldest first per ' +
-      'instrument. Fees are not exported: they reach this layer already folded together.',
+      'instrument. Amounts are in the row’s own currency, never converted. Fees are not ' +
+      'exported: they reach this layer already folded together.',
   },
   {
     id: 'json',
@@ -228,9 +243,14 @@ export const EXPORT_CHOICES: readonly ExportChoice[] = [
 
 /** What the header block says about the two conventions a reader has to know. */
 const MONEY_NOTE =
-  'Amounts appear twice: <name>_inr_minor is the stored integer in paise and <name>_inr is the ' +
-  'exact rupee decimal derived from it. Neither is rounded. Every value is a string; a spreadsheet ' +
-  'may turn it into a float when it opens the file, which Misal cannot prevent and has not done.'
+  'Amounts appear twice: <name>_minor is the stored integer in the smallest unit of its currency ' +
+  'and <name> is the exact decimal derived from it. Neither is rounded. A column named ' +
+  '<name>_inr_minor / <name>_inr is in rupees and paise because Misal converted it — that is the ' +
+  'holdings table, where value, cost and unrealised P&L are all converted to INR at the stored ' +
+  'rate. The transactions table is NOT converted: each row is in its own currency, given in the ' +
+  'currency column beside the amount, and price is quoted in that same currency. Every value is a ' +
+  'string; a spreadsheet may turn it into a float when it opens the file, which Misal cannot ' +
+  'prevent and has not done.'
 
 const NOT_MEASURED_NOTE =
   'A metric Misal could not measure is empty, and the matching <name>_not_measured column states ' +
