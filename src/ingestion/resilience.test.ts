@@ -6,7 +6,12 @@ import { nsdlEcasPlugin } from './pdf/nsdl-ecas'
 import { csvDescriptorPlugin } from './csv/csv-plugin'
 import { builtinDescriptor, readFixtureBytes } from './testing/fixtures'
 import { fakePdfBytes, fakePdfSource } from './testing/fake-pdf'
-import { camsDetailedPages, camsSummaryPages, nsdlEcasPages } from './testing/corpus'
+import {
+  camsDetailedPages,
+  camsSummaryPages,
+  nsdlEcasPages,
+  nsdlEcasTwoDematPages,
+} from './testing/corpus'
 import { recordGolden } from './golden'
 import { reconstructDocument } from './pdf/layout'
 import type { RawPdfPage } from './types'
@@ -56,6 +61,7 @@ const PDF_FIXTURES: Record<string, () => RawPdfPage[]> = {
   'cams detailed': camsDetailedPages,
   'cams summary': camsSummaryPages,
   'nsdl ecas': nsdlEcasPages,
+  'nsdl ecas, two demat accounts': nsdlEcasTwoDematPages,
 }
 
 describe('a damaged statement never takes the import with it', () => {
@@ -116,6 +122,7 @@ describe('format drift', () => {
     { name: 'cams detailed', plugin: camsKfinCasPlugin, pages: camsDetailedPages },
     { name: 'cams summary', plugin: camsKfinCasPlugin, pages: camsSummaryPages },
     { name: 'nsdl ecas', plugin: nsdlEcasPlugin, pages: nsdlEcasPages },
+    { name: 'nsdl ecas, two demat accounts', plugin: nsdlEcasPlugin, pages: nsdlEcasTwoDematPages },
   ]
 
   for (const { name, plugin, pages } of plugins) {

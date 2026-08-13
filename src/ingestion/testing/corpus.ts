@@ -240,7 +240,7 @@ export function nsdlEcasPages(overrides: CorpusSpellings = {}): RawPdfPage[] {
         { text: 'Folio No', x: 505 },
       ],
       [
-        { text: 'Demat Account', x: 40 },
+        { text: 'NSDL Demat Account', x: 40 },
         { text: 'EXAMPLE SECURITIES', x: 150 },
         { text: 'IN300394', x: 380 },
         { text: '12345678', x: 440 },
@@ -252,6 +252,10 @@ export function nsdlEcasPages(overrides: CorpusSpellings = {}): RawPdfPage[] {
         { text: '', x: 440 },
         { text: '12345678 / 0', x: 505 },
       ],
+      // The holdings table is introduced by the account it belongs to, which is how a real eCAS
+      // delimits one DP's holdings from the next DP's. A fixture that omits it can only be parsed
+      // by guessing, and guessing is what this corpus exists to catch.
+      ...dematHeaderRows('NSDL', 'EXAMPLE SECURITIES', 'IN300394', '12345678'),
       [
         { text: 'ISIN / Stock Symbol', x: 40 },
         { text: 'Company Name', x: 170 },
@@ -289,6 +293,206 @@ export function nsdlEcasPages(overrides: CorpusSpellings = {}): RawPdfPage[] {
     footer: ['Page 1 of 1', 'About NSDL'],
   }
   return buildPages([page])
+}
+
+// ---------------------------------------------------------------------------
+// Two demat accounts under one PAN
+// ---------------------------------------------------------------------------
+
+// Wider numeric columns than the single-account fixture's, because a real company name — "TATA
+// CONSULTANCY SERVICES" — is long enough to bleed into a face-value column laid out for
+// "INFOSYS LIMITED", and a name that lands in the wrong band reads back as an empty one.
+const DEMAT_TABLE_HEADER: FixtureRow = [
+  { text: 'ISIN / Stock Symbol', x: 40 },
+  { text: 'Company Name', x: 170 },
+  right('Face Value in ₹', 330),
+  right('No. of Shares', 410),
+  right('Market Price in ₹', 505),
+  right('Value in ₹', 560),
+]
+
+function holdingRow(
+  identifier: string,
+  name: string,
+  faceValue: string,
+  shares: string,
+  price: string,
+  value: string,
+): FixtureRow {
+  return [
+    { text: identifier, x: 40 },
+    { text: name, x: 170 },
+    right(faceValue, 330),
+    right(shares, 410),
+    right(price, 505),
+    right(value, 560),
+  ]
+}
+
+/**
+ * The per-account header block that introduces one demat account's holdings.
+ *
+ * The shape is the one an NSDL eCAS actually prints, and it is not the one it is tempting to
+ * assume. The depository is carried by the account-type line itself — `NSDL Demat Account` or
+ * `CDSL Demat Account` — rather than by a `Depository :` label; the participant's name is an
+ * **unlabelled** cell below it, because `DP Name :` is the CDSL-issued CAS's label and not this
+ * document's; and a CDSL account inside an NSDL CAS still prints `DP ID`/`Client ID` rather than a
+ * 16-digit BO ID, differing only in that its DP ID is all digits.
+ *
+ * The block is emitted on every page of the account's holdings, which is the arrangement that is
+ * safe under both structural readings: a parser that carries the account across a page break reads
+ * it correctly, and so does one that demands the account be restated per page.
+ */
+function dematHeaderRows(depository: 'NSDL' | 'CDSL', dpName: string, dpId: string, clientId: string): FixtureRow[] {
+  return [
+    `${depository} Demat Account`,
+    dpName,
+    [
+      { text: `DP ID : ${dpId}`, x: 40 },
+      { text: `Client ID : ${clientId}`, x: 220 },
+    ],
+    'ACCOUNT HOLDER',
+    'A N INVESTOR (PAN: AAAAA0000A)',
+  ]
+}
+
+/**
+ * An NSDL eCAS listing **two** demat accounts under one PAN, with one ISIN genuinely held in both.
+ *
+ * This is the fixture the single-account one could not be. Every demat holding used to be
+ * attributed to `accounts.values().find(a => a.key.startsWith('demat:'))` — the first account the
+ * roster declared — and with one account in the file that is indistinguishable from correct. With
+ * two, INFOSYS is held in both, so the two rows collide on `position`'s
+ * `UNIQUE (account_id, instrument_id, as_of)` and one silently restates the other. Eight shares
+ * become twelve, with no error and no warning.
+ *
+ * The second account is deliberately at a different DP: one PAN with a broker account and a bank
+ * demat account is entirely ordinary, and it is why the DP name cannot be assumed constant.
+ */
+export function nsdlEcasTwoDematPages(overrides: CorpusSpellings = {}): RawPdfPage[] {
+  const amc = spellings({ hdfc: AMC_SPELLINGS.hdfc[1], ...overrides })
+  const running = 'NSDL Consolidated Account Statement'
+
+  const roster: FixturePage = {
+    rows: [
+      running,
+      'National Securities Depository Limited',
+      'Statement for the period from 01-Mar-2025 to 31-Mar-2025',
+      'PAN: AAAAA0000A',
+      'Your Demat Account and Mutual Fund Folios',
+      [
+        { text: 'Account Type', x: 40 },
+        { text: 'DP Name', x: 150 },
+        { text: 'DP ID', x: 380 },
+        { text: 'Client ID', x: 440 },
+        { text: 'Folio No', x: 505 },
+      ],
+      [
+        { text: 'NSDL Demat Account', x: 40 },
+        { text: 'EXAMPLE SECURITIES', x: 150 },
+        { text: 'IN300394', x: 380 },
+        { text: '12345678', x: 440 },
+      ],
+      // The second account is at a *CDSL* participant, which an NSDL CAS carries as a matter of
+      // course. It is not printed as a 16-digit BO ID: an NSDL CAS states it in its own
+      // DP ID / Client ID form, and the only difference is that the DP ID is all digits.
+      [
+        { text: 'CDSL Demat Account', x: 40 },
+        { text: 'SECOND EXAMPLE BANK', x: 150 },
+        { text: '12081600', x: 380 },
+        { text: '87654321', x: 440 },
+      ],
+      [
+        { text: 'Mutual Fund Folio', x: 40 },
+        { text: amc.hdfc, x: 150 },
+        { text: '', x: 380 },
+        { text: '', x: 440 },
+        { text: '12345678 / 0', x: 505 },
+      ],
+    ],
+    footer: ['Page 1 of 4', 'About NSDL'],
+  }
+
+  const first: FixturePage = {
+    rows: [
+      running,
+      ...dematHeaderRows('NSDL', 'EXAMPLE SECURITIES', 'IN300394', '12345678'),
+      DEMAT_TABLE_HEADER,
+      holdingRow('INE009A01021 INFY.NSE', 'INFOSYS LIMITED', '5.00', '8.000', '1,610.75', '12,886.00'),
+      holdingRow(
+        'INE467B01029 TCS.NSE',
+        'TATA CONSULTANCY SERVICES',
+        '1.00',
+        '3.000',
+        '3,450.00',
+        '10,350.00',
+      ),
+    ],
+    footer: ['Page 2 of 4', 'About NSDL'],
+  }
+
+  const second: FixturePage = {
+    rows: [
+      running,
+      ...dematHeaderRows('CDSL', 'SECOND EXAMPLE BANK', '12081600', '87654321'),
+      DEMAT_TABLE_HEADER,
+      // The same ISIN as the first account, in a different quantity. This row is the whole point
+      // of the fixture: it is the one that used to be lost.
+      holdingRow('INE009A01021 INFY.NSE', 'INFOSYS LIMITED', '5.00', '12.000', '1,610.75', '19,329.00'),
+      holdingRow(
+        'INE467B01029 TCS.NSE',
+        'TATA CONSULTANCY SERVICES',
+        '1.00',
+        '7.000',
+        '3,450.00',
+        '24,150.00',
+      ),
+    ],
+    footer: ['Page 3 of 4', 'About NSDL'],
+  }
+
+  const folios: FixturePage = {
+    rows: [
+      running,
+      'Mutual Fund Folios (F)',
+      [
+        { text: 'Folio No', x: 40 },
+        { text: 'Scheme Name', x: 130 },
+        { text: 'ISIN', x: 300 },
+        right('Closing Balance', 420),
+        right('NAV', 470),
+        right('Value', 545),
+      ],
+      [
+        { text: '12345678 / 0', x: 40 },
+        { text: 'HDFC Flexi Cap Fund - Growth', x: 130 },
+        { text: amc.hdfcIsin, x: 300 },
+        right('147.300', 420),
+        right('60.0000', 470),
+        right('8,838.00', 545),
+      ],
+    ],
+    footer: ['Page 4 of 4', 'About NSDL'],
+  }
+
+  return buildPages([roster, first, second, folios])
+}
+
+/**
+ * The same statement with the **first** account's header block unreadable.
+ *
+ * A holdings table that has had no account header before it belongs to nobody the document named,
+ * and the only two honest answers are to fail those rows or route them to review. Attaching them
+ * to whichever account came first is the defect this branch removes, so the fixture exists to
+ * prove the parser refuses to do it.
+ */
+export function nsdlEcasOrphanHoldingPages(): RawPdfPage[] {
+  const pages = nsdlEcasTwoDematPages()
+  return pages.map((page) =>
+    page.pageNumber === 2
+      ? { ...page, items: page.items.filter((item) => !/^(DP Name|DP ID|Client ID) : /.test(item.text)) }
+      : page,
+  )
 }
 
 /** A photographed statement: a text layer with almost nothing in it. */
