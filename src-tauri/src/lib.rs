@@ -1,6 +1,7 @@
 pub mod db;
 pub mod error;
 pub mod exchange_guard;
+pub mod export;
 pub mod http;
 pub mod ingest;
 pub mod queries;
@@ -72,6 +73,7 @@ pub fn run() {
             queries::list_unresolved,
             queries::get_settings,
             http::fetch_market_data,
+            export::save_export_file,
             refresh::save_prices,
             refresh::save_fx_rates,
             refresh::record_price_refresh,
