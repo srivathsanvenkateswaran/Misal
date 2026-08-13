@@ -82,3 +82,20 @@ jobs:
             exit 1
           fi
           echo "clean"
+
+      - name: Reject non-text source files
+        run: |
+          # A source file containing a NUL byte is treated as binary by grep, ripgrep and most
+          # review tooling, which silently skip it. src/valuation/fold.ts - the FIFO engine -
+          # spent this project's entire history invisible to every grep run against it, because
+          # two separator bytes in a hash input were written literally instead of as \u0000.
+          # Same value, same behaviour, and unreviewable.
+          bad=$(git ls-files 'src/**' 'src-tauri/src/**' | while read -r f; do
+            if LC_ALL=C grep -qP '\x00' "$f" 2>/dev/null; then echo "$f"; fi
+          done)
+          if [ -n "$bad" ]; then
+            echo "::error::Source files contain NUL bytes and are unreadable to grep:"
+            echo "$bad"
+            exit 1
+          fi
+          echo "all source files are text"

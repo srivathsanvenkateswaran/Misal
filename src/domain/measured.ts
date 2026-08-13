@@ -22,6 +22,14 @@ export type NotMeasuredReason =
   | 'no_fx_rate'
   | 'no_convergence'
   | 'unknown_tax_regime'
+  /**
+   * Section 55(2)(ac) grandfathering is blocked because no 31-January-2018 fair market value is
+   * stored for the instrument. Distinct from `unknown_tax_regime`, which it used to borrow: the
+   * regime is known, the rule is known, and one specific price is missing. Telling the user their
+   * tax treatment is unknown sends them to reclassify an instrument that is already classified,
+   * while the figure that would actually unblock the metric goes unasked for.
+   */
+  | 'no_grandfathering_fmv'
   | 'unresolved_instrument'
 
 /** Human-readable text for each reason. The UI must never invent its own wording. */
@@ -31,6 +39,7 @@ export const REASON_TEXT: Record<NotMeasuredReason, string> = {
   no_fx_rate: 'no exchange rate for this date',
   no_convergence: 'could not be calculated',
   unknown_tax_regime: 'tax treatment unknown',
+  no_grandfathering_fmv: 'no 31 January 2018 market value on record',
   unresolved_instrument: 'instrument not yet identified',
 }
 

@@ -119,13 +119,17 @@ function unavailable(
 }
 
 /**
- * `NotMeasuredReason` is a fixed vocabulary in `@domain/measured` and has no member for a blocked
- * grandfathering FMV, so that case maps onto `unknown_tax_regime` — the closest honest label, since
- * what is unknown is the tax cost of the asset. The precise cause is carried on the bucket.
+ * The user-facing reason for a withheld disposal.
+ *
+ * A blocked grandfathering FMV has its own member rather than borrowing `unknown_tax_regime`. The
+ * two send the user to different places: one asks them to classify the scheme, the other to supply
+ * the 31-January-2018 price. Reporting the second as the first names a problem they do not have and
+ * hides the one fixable input that would restore the figure.
  */
 function reasonFor(code: WarningCode) {
   if (code === 'MISSING_ACQUISITION_COST') return 'no_transaction_history' as const
   if (code === 'NO_PRICE') return 'no_price' as const
+  if (code === 'GRANDFATHER_FMV_UNAVAILABLE') return 'no_grandfathering_fmv' as const
   return 'unknown_tax_regime' as const
 }
 

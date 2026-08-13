@@ -28,10 +28,11 @@ import {
   minorToDec,
   mulDec,
   negMinor,
+  powDec,
   subDec,
   subMinor,
 } from '@domain/numeric'
-import { decFromCount, powDec } from './arithmetic'
+import { decFromCount } from './arithmetic'
 import { daysBetween, localDate } from './calendar'
 import type { IsoDate, PairRef, TxnRow } from './types'
 

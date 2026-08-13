@@ -18,9 +18,10 @@ import {
   dec,
   maxDec,
   mulDec,
+  mulDivMinor,
   subDec,
 } from '@domain/numeric'
-import { commonScale, mulDivMinor, scaleToInteger } from './arithmetic'
+import { commonScale, scaleToInteger } from './arithmetic'
 import { instrument, instrumentMap, resetIds, txn } from './__fixtures__/build'
 import { type FoldInput, type LotLedger, buildLots, lotIdOf, openCostMinor } from './fold'
 import { grandfatheredUnitCost } from './grandfather'

@@ -7,8 +7,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { addMinor, divDec, minorToDec } from '@domain/numeric'
-import { roundDec } from './arithmetic'
+import { addMinor, divDec, minorToDec, roundDec } from '@domain/numeric'
 import { instrument, instrumentMap, resetIds, snapshot, txn } from './__fixtures__/build'
 import { type FoldInput, TYPE_RANK, buildLots, openCostMinor, sortTxns } from './fold'
 import { derivePortfolioPositions, derivePositions } from './positions'
@@ -382,6 +381,112 @@ describe('corporate actions recorded per account', () => {
     expect(second.reason?.code).toBe('CORPORATE_ACTION_MISSING_IN_ACCOUNT')
     expect(second.quantitySuspect).toBe(true)
     expect(derived.value.find((p) => p.accountId === 'acc-1')!.measurement).toBe('measured')
+  })
+
+  it('recognises the same split dated a day apart in two accounts, downgrading neither', () => {
+    resetIds()
+    const instruments = instrumentMap(instrument())
+    // One market-wide 5-for-1. The demat statement prints the ex-date, the other broker prints the
+    // credit date. Keying on the date alone made each account look like it was missing the other's
+    // action, so *both* lost cost basis, P&L and XIRR over a bookkeeping difference of one day.
+    const derived = derivePortfolioPositions([
+      {
+        accountId: 'acc-1',
+        capability: 'ledger',
+        txns: [
+          txn({ type: 'buy', date: '2021-01-04', quantity: '10', amount: '100000' }),
+          txn({ type: 'split', date: '2022-09-15', quantity: '5' }),
+        ],
+        snapshots: [],
+        instruments,
+        asOf: AS_OF,
+      },
+      {
+        accountId: 'acc-2',
+        capability: 'ledger',
+        txns: [
+          txn({ type: 'buy', date: '2021-02-04', quantity: '20', amount: '200000', accountId: 'acc-2' }),
+          txn({ type: 'split', date: '2022-09-16', quantity: '5', accountId: 'acc-2' }),
+        ],
+        snapshots: [],
+        instruments,
+        asOf: AS_OF,
+      },
+    ])
+    if (!derived.ok) throw new Error('unexpected error')
+    expect(derived.value.map((p) => p.measurement)).toEqual(['measured', 'measured'])
+    expect(derived.warnings.map((w) => w.code)).not.toContain('CORPORATE_ACTION_MISSING_IN_ACCOUNT')
+    // Both accounts still applied their own split, so the quantities are the post-split figures.
+    expect(derived.value.find((p) => p.accountId === 'acc-1')!.quantity).toBe('50')
+    expect(derived.value.find((p) => p.accountId === 'acc-2')!.quantity).toBe('100')
+  })
+
+  it('still downgrades when the two accounts recorded different ratios a day apart', () => {
+    resetIds()
+    const instruments = instrumentMap(instrument())
+    // Same instrument, one week apart, but 5-for-1 against 2-for-1. One of them is wrong, and the
+    // date window must not be allowed to launder that into agreement.
+    const derived = derivePortfolioPositions([
+      {
+        accountId: 'acc-1',
+        capability: 'ledger',
+        txns: [
+          txn({ type: 'buy', date: '2021-01-04', quantity: '10', amount: '100000' }),
+          txn({ type: 'split', date: '2022-09-15', quantity: '5' }),
+        ],
+        snapshots: [],
+        instruments,
+        asOf: AS_OF,
+      },
+      {
+        accountId: 'acc-2',
+        capability: 'ledger',
+        txns: [
+          txn({ type: 'buy', date: '2021-02-04', quantity: '20', amount: '200000', accountId: 'acc-2' }),
+          txn({ type: 'split', date: '2022-09-16', quantity: '2', accountId: 'acc-2' }),
+        ],
+        snapshots: [],
+        instruments,
+        asOf: AS_OF,
+      },
+    ])
+    if (!derived.ok) throw new Error('unexpected error')
+    expect(derived.value.map((p) => p.measurement)).toEqual(['not_measured', 'not_measured'])
+  })
+
+  it('does not treat two genuinely separate actions as one another', () => {
+    resetIds()
+    const instruments = instrumentMap(instrument())
+    // Both accounts recorded a 5-for-1, but eight months apart: acc-2 has its own action and is
+    // still missing acc-1's, which the window is deliberately too narrow to cover.
+    const derived = derivePortfolioPositions([
+      {
+        accountId: 'acc-1',
+        capability: 'ledger',
+        txns: [
+          txn({ type: 'buy', date: '2021-01-04', quantity: '10', amount: '100000' }),
+          txn({ type: 'split', date: '2022-01-10', quantity: '5' }),
+        ],
+        snapshots: [],
+        instruments,
+        asOf: AS_OF,
+      },
+      {
+        accountId: 'acc-2',
+        capability: 'ledger',
+        txns: [
+          txn({ type: 'buy', date: '2021-02-04', quantity: '20', amount: '200000', accountId: 'acc-2' }),
+          txn({ type: 'split', date: '2022-09-15', quantity: '5', accountId: 'acc-2' }),
+        ],
+        snapshots: [],
+        instruments,
+        asOf: AS_OF,
+      },
+    ])
+    if (!derived.ok) throw new Error('unexpected error')
+    const second = derived.value.find((p) => p.accountId === 'acc-2')!
+    expect(second.measurement).toBe('not_measured')
+    expect(second.reason?.code).toBe('CORPORATE_ACTION_MISSING_IN_ACCOUNT')
   })
 
   it('leaves an account alone when it held nothing across the ex-date', () => {

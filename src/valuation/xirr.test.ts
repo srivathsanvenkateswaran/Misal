@@ -6,8 +6,17 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { type Dec, addDec, compareDec, dec, divDec, mulDec, subDec } from '@domain/numeric'
-import { powDec, roundDec } from './arithmetic'
+import {
+  type Dec,
+  addDec,
+  compareDec,
+  dec,
+  divDec,
+  mulDec,
+  powDec,
+  roundDec,
+  subDec,
+} from '@domain/numeric'
 import { resetIds, txn } from './__fixtures__/build'
 import { type Cashflow, buildCashflows, classifySigns, xirr } from './xirr'
 

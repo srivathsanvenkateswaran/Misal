@@ -29,6 +29,7 @@ const HEADLINE: Record<NotMeasuredReason, string> = {
   no_fx_rate: 'Not converted',
   no_convergence: 'Not measured',
   unknown_tax_regime: 'Not measured',
+  no_grandfathering_fmv: 'Not measured',
   unresolved_instrument: 'Not counted',
 }
 
