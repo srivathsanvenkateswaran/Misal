@@ -287,6 +287,69 @@ describe('snapshot accounts', () => {
   })
 })
 
+describe('snapshot selection across mixed UTC offsets', () => {
+  // AS_OF is '2026-08-12T18:30:00+05:30', i.e. 13:00Z.
+
+  it('picks the chronologically latest row when text order says the opposite', () => {
+    resetIds()
+    // 05:30Z, from an Indian statement.
+    const earlier = snapshot('inst-1', '10', '2026-08-12T11:00:00+05:30', 'acc-2')
+    // 06:00Z, half an hour *later*, from a US broker export — but '02' sorts before '11', so
+    // string ordering picks `earlier` as the more recent row and reports a stale quantity.
+    const later = snapshot('inst-1', '25', '2026-08-12T02:00:00-04:00', 'acc-2')
+    expect(later.asOf < earlier.asOf).toBe(true)
+
+    const derived = derivePositions({
+      accountId: 'acc-2',
+      capability: 'snapshot',
+      txns: [],
+      snapshots: [earlier, later],
+      instruments: instrumentMap(instrument()),
+      asOf: AS_OF,
+    })
+    if (!derived.ok) throw new Error('unexpected error')
+    expect(derived.value).toHaveLength(1)
+    expect(derived.value[0]!.quantity).toBe('25')
+  })
+
+  it('keeps a row that precedes the valuation instant but sorts after it as text', () => {
+    resetIds()
+    // 12:00Z — an hour before AS_OF — written in a zone eleven hours ahead, so as text it reads
+    // '2026-08-12T23:00...' and compares as being in the future. String ordering discarded it,
+    // which drops a real holding out of net worth entirely.
+    const row = snapshot('inst-1', '42', '2026-08-12T23:00:00+11:00', 'acc-2')
+    expect(row.asOf > AS_OF).toBe(true)
+
+    const derived = derivePositions({
+      accountId: 'acc-2',
+      capability: 'snapshot',
+      txns: [],
+      snapshots: [row],
+      instruments: instrumentMap(instrument()),
+      asOf: AS_OF,
+    })
+    if (!derived.ok) throw new Error('unexpected error')
+    expect(derived.value).toHaveLength(1)
+    expect(derived.value[0]!.quantity).toBe('42')
+  })
+
+  it('still excludes a row that is genuinely after the valuation instant', () => {
+    resetIds()
+    // 14:00Z, an hour after AS_OF, however it is written.
+    const future = snapshot('inst-1', '99', '2026-08-12T10:00:00-04:00', 'acc-2')
+    const derived = derivePositions({
+      accountId: 'acc-2',
+      capability: 'snapshot',
+      txns: [],
+      snapshots: [future],
+      instruments: instrumentMap(instrument()),
+      asOf: AS_OF,
+    })
+    if (!derived.ok) throw new Error('unexpected error')
+    expect(derived.value).toEqual([])
+  })
+})
+
 describe('corporate actions recorded per account', () => {
   it('downgrades an account that held across an ex-date without the action row', () => {
     resetIds()

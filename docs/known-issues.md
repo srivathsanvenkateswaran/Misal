@@ -65,7 +65,28 @@ normalisation of a printed name.
 
 ## Valuation engine
 
-### `PriceService.priceAt` returns the nearest preceding price, not an exact match
+### ~~`PriceService.priceAt` returns the nearest preceding price, not an exact match~~ — FIXED
+
+Fixed by making the not-measured branch the only place a stale price can be reached, following
+`Measured`. A date selector is now answered exactly or not at all: when the table holds no row on
+the requested date, `priceAt` returns `{ ok: false }` with a `PRICE_NOT_ON_DATE` error carrying
+`requested`, `staleByDays`, and the preceding row as `lastKnown`. Because the failing branch has no
+`value` field, reading `value.close` for a day that has no price is a compile error rather than a
+silently stale figure on screen.
+
+`'latest'` is deliberately unchanged — "the most recent row" is exactly what that selector asks
+for, and its freshness is already reported by `priceAge`.
+
+One caller genuinely wants last-known-price semantics: `xirrForScope`'s `priceOn`, because a
+cashflow is dated by the day it happened and most such days have no published close. It now names
+`lastKnown` explicitly, so the carry-forward is a visible decision at the one site that needs it
+instead of a default everyone inherits.
+
+The original description is kept below, because the shape of the failure is worth recognising
+again: a result type that is *technically* honest — the record did state its own `asOf` — but whose
+easiest reading is the wrong one.
+
+### `PriceService.priceAt` returns the nearest preceding price (historical)
 
 A caller asking for a price on a date with no row receives an older row instead. The returned
 record states its own `asOf`, so a careful caller can detect this, but a caller that reads only
@@ -74,20 +95,24 @@ record states its own `asOf`, so a careful caller can detect this, but a caller 
 **Consequence:** a holding could be valued at a price from days earlier without the UI marking it
 stale. Directly undermines the staleness indicator the design promises.
 
-**Fix direction:** either return `Measured` with a not-measured branch for a missing date, or make
-staleness explicit in the return type so it cannot be ignored.
+### ~~Instant comparisons are lexicographic on ISO strings~~ — FIXED
 
-### Instant comparisons are lexicographic on ISO strings
+Fixed by `compareInstants` in `src/valuation/calendar.ts`, which normalises to epoch milliseconds
+before ordering, and is now used by the snapshot selection in `src/valuation/positions.ts`.
 
-Snapshot selection compares timestamps as strings. That is correct only while every value carries
-the same UTC offset. The schema permits an explicit offset per row, and the ingestion layer
-preserves the source timezone.
+Normalising at comparison time rather than enforcing a `Z` suffix at the storage boundary was the
+deliberate choice: `occurred_at` keeps the source's offset on purpose — a statement's local trade
+date must not be re-derived from UTC, which is the same distinction the `natural_key` entry above
+settled — so the offsets have to survive in storage and the ordering has to cope with them.
 
-**Consequence:** rows written with different offsets sort wrongly, so the wrong snapshot can be
-chosen as "latest".
+Two failure modes were fixed, not one. The known-wrong-winner case is the obvious one; the second
+was worse and unstated: a row written at a large positive offset sorts *after* the valuation
+instant as text while genuinely preceding it, so it was filtered out entirely and the holding
+dropped out of net worth rather than merely being valued from the wrong row.
 
-**Fix direction:** normalise to epoch milliseconds before comparing, or enforce a `Z` suffix at the
-storage boundary.
+**Still lexicographic, and correct to be:** comparisons on `IsoDate` (`fx.ts`, `price/*.ts`,
+`xirr.ts`). Those are `YYYY-MM-DD` with no offset to disagree about, where string order *is*
+chronological order.
 
 ### Cross-account corporate-action check keys on ex-date alone
 
@@ -105,6 +130,10 @@ concentrated.
 
 **Consequence:** a second subsystem needing them will either duplicate them or import across a
 boundary that should not exist.
+
+**Still open.** Deliberately left alone while fixing the two price/time defects above: the move
+lands in `src/domain/numeric.ts`, and doing it from a branch scoped to `src/valuation/` would
+conflict with concurrent work there. It needs its own branch that owns both directories.
 
 ### `NotMeasuredReason` has no member for a blocked grandfathering FMV
 

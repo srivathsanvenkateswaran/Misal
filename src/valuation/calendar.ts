@@ -38,6 +38,36 @@ export function localDate(occurredAt: IsoInstant, tz: string | null): IsoDate {
   return requireIsoDate(dt.setZone(tz ?? DEFAULT_TZ))
 }
 
+/**
+ * An instant as milliseconds since the epoch.
+ *
+ * Another count, in the sense of the module header: it is only ever compared, never added to a
+ * value, and `toMillis()` on a parsed ISO instant is an exact integer for every timestamp this
+ * application can hold. No float reaches an ordering decision.
+ */
+export function instantToMillis(instant: IsoInstant): number {
+  const dt = DateTime.fromISO(instant, { setZone: true })
+  if (!dt.isValid) throw new ValuationAssertionError(`Not an ISO instant: ${instant}`)
+  return dt.toMillis()
+}
+
+/**
+ * Chronological order for two instants. Negative when `a` precedes `b`.
+ *
+ * Comparing `IsoInstant` values as strings is correct only while every value carries the same UTC
+ * offset, and nothing guarantees that: the schema permits an explicit offset per row and ingestion
+ * preserves the source's timezone, so a portfolio assembled from an Indian statement and a US
+ * broker export holds both. '2026-08-12T18:00:00-04:00' sorts *before*
+ * '2026-08-12T23:00:00+05:30' as text while being four and a half hours after it on the clock, so
+ * string order picks the wrong row as "latest" — silently, with a plausible number as the result.
+ * Normalising to epoch milliseconds is the only comparison that survives mixed offsets.
+ */
+export function compareInstants(a: IsoInstant, b: IsoInstant): -1 | 0 | 1 {
+  const left = instantToMillis(a)
+  const right = instantToMillis(b)
+  return left < right ? -1 : left > right ? 1 : 0
+}
+
 /** Whole days from `from` to `to`. Negative when `to` precedes `from`. */
 export function daysBetween(from: IsoDate, to: IsoDate): number {
   const days = parseDate(to).diff(parseDate(from), 'days').days

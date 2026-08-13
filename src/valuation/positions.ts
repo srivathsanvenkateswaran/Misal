@@ -11,7 +11,7 @@
 
 import { type Dec, absDec, addDec, compareDec, dec, divDec, isZeroDec, subDec } from '@domain/numeric'
 import { tenPowNegative } from './arithmetic'
-import { instantToDate } from './calendar'
+import { compareInstants, instantToDate } from './calendar'
 import {
   type FoldInput,
   type LotLedger,
@@ -68,15 +68,28 @@ const SNAPSHOT_REASON: MeasurementReason = {
   userFixable: false,
 }
 
+/**
+ * The most recent snapshot row per instrument, as at `asOf`.
+ *
+ * Ordered with `compareInstants` rather than `>` on the raw strings. `position.as_of` keeps the
+ * offset of the source that wrote it, so two statements from different timezones sort wrongly as
+ * text: the older row can win the "latest" contest, and a row that genuinely precedes `asOf` can
+ * be filtered out as if it were in the future — which drops a real holding out of net worth.
+ *
+ * Rows at the same instant keep first-seen order, so the caller's input order remains the
+ * tie-break rather than the accident of how each offset was written.
+ */
 function latestSnapshots(
   snapshots: readonly PositionRow[],
   asOf: IsoInstant,
 ): ReadonlyMap<string, PositionRow> {
   const latest = new Map<string, PositionRow>()
   for (const row of snapshots) {
-    if (row.asOf > asOf) continue
+    if (compareInstants(row.asOf, asOf) > 0) continue
     const current = latest.get(row.instrumentId)
-    if (current === undefined || row.asOf > current.asOf) latest.set(row.instrumentId, row)
+    if (current === undefined || compareInstants(row.asOf, current.asOf) > 0) {
+      latest.set(row.instrumentId, row)
+    }
   }
   return latest
 }

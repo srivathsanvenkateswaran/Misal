@@ -78,15 +78,57 @@ describe('reads', () => {
     if (!unsupported.ok) expect(unsupported.error.code).toBe('NO_PRICE_SOURCE')
   })
 
-  it('returns the most recent row at or before the requested date', () => {
+  it('answers a date it has a row for', () => {
+    const store = new InMemoryPriceStore()
+    store.put(point('fund', '110.0000', '2026-08-10', 'amfi'))
+    const service = new PriceService({ store, instruments, now: () => NOW })
+    const read = service.priceAt('fund', '2026-08-10')
+    if (!read.ok) throw new Error('expected a price')
+    expect(read.value.close).toBe('110.0000')
+    expect(read.value.asOf).toBe('2026-08-10')
+  })
+
+  it('refuses a date it has no row for, rather than answering with an older price', () => {
     const store = new InMemoryPriceStore()
     store.put(point('fund', '100.0000', '2026-08-03', 'amfi'))
     store.put(point('fund', '110.0000', '2026-08-10', 'amfi'))
     const service = new PriceService({ store, instruments, now: () => NOW })
+
     const read = service.priceAt('fund', '2026-08-07')
+
+    // This is the assertion the old behaviour fails: it returned `{ ok: true }` carrying the
+    // 3 August close, so a caller reading `value.close` rendered a four-day-old figure as the
+    // 7th's price with nothing on screen to say so.
+    expect(read.ok).toBe(false)
+    if (read.ok) throw new Error('expected a refusal, not a stale price')
+    if (read.error.code !== 'PRICE_NOT_ON_DATE') throw new Error(`got ${read.error.code}`)
+    expect(read.error.requested).toBe('2026-08-07')
+    expect(read.error.staleByDays).toBe(4)
+    // The older row is still reachable — but only by naming it, which is the whole point.
+    expect(read.error.lastKnown.asOf).toBe('2026-08-03')
+    expect(read.error.lastKnown.close).toBe('100.0000')
+  })
+
+  it('still reports a currency mismatch ahead of a missing date', () => {
+    // Order matters: a price in the wrong currency is unusable even as a carried-forward figure,
+    // so it must not be handed back as `lastKnown` for a caller to opt into.
+    const store = new InMemoryPriceStore()
+    store.put({ ...point('fund', '100.0000', '2026-08-03', 'amfi'), currency: 'USD' })
+    const service = new PriceService({ store, instruments, now: () => NOW })
+    const read = service.priceAt('fund', '2026-08-07')
+    if (read.ok) throw new Error('expected a refusal')
+    expect(read.error.code).toBe('PRICE_CURRENCY_MISMATCH')
+  })
+
+  it('leaves "latest" alone, because that is what the caller asked for', () => {
+    const store = new InMemoryPriceStore()
+    store.put(point('fund', '100.0000', '2026-06-01', 'amfi'))
+    const service = new PriceService({ store, instruments, now: () => NOW })
+    const read = service.priceAt('fund', 'latest')
     if (!read.ok) throw new Error('expected a price')
-    expect(read.value.close).toBe('100.0000')
-    expect(read.value.asOf).toBe('2026-08-03')
+    // Ancient, and legitimately returned — its staleness is `priceAge`'s job to report, not a
+    // reason to withhold the only price there is.
+    expect(read.value.asOf).toBe('2026-06-01')
   })
 
   it('rejects a price in the wrong currency rather than valuing with it', () => {
