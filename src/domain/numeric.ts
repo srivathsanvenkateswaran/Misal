@@ -128,6 +128,24 @@ export function isNegativeMinor(a: Minor): boolean {
   return BigInt(a) < 0n
 }
 
+/**
+ * `value * numerator / denominator` in exact integer arithmetic, truncating toward zero.
+ *
+ * Pro-rata allocation of an integer amount — a lot's cost split across a partial disposal, a fee
+ * apportioned across slices. The multiplication happens before the division and both operands are
+ * bigint, so no intermediate value is ever rounded.
+ *
+ * Callers obtain the residual by subtraction from the original, never by a second call: that is
+ * what makes `Σ allocated + residual === original` hold exactly for any sequence of partial
+ * allocations.
+ */
+export function mulDivMinor(value: Minor, numerator: bigint, denominator: bigint): Minor {
+  if (denominator === 0n) {
+    throw new NumericError('mulDivMinor: zero denominator')
+  }
+  return minor((BigInt(value) * numerator) / denominator)
+}
+
 // ---------------------------------------------------------------------------
 // Dec arithmetic, via decimal.js.
 // ---------------------------------------------------------------------------
@@ -187,6 +205,29 @@ export function maxDec(a: Dec, b: Dec): Dec {
 
 export function minDec(a: Dec, b: Dec): Dec {
   return compareDec(a, b) <= 0 ? a : b
+}
+
+/**
+ * `base ** exponent`, with a fractional exponent, at the configured 40-digit precision.
+ *
+ * A general numeric operation rather than a valuation one: XIRR discounting reaches for it first,
+ * but so does any compounding or index calculation, and a second subsystem needing it must find it
+ * here rather than copy it. `fromDecimal` prints in normal notation, so a result far outside the
+ * exponential window still comes back as a canonical `Dec` instead of `1e-45`.
+ */
+export function powDec(base: Dec, exponent: Dec): Dec {
+  return fromDecimal(toDecimal(base).pow(toDecimal(exponent)))
+}
+
+/**
+ * Half-up rounding to a fixed number of decimal places.
+ *
+ * The only rounding in this module besides `decToMinor`, and like it, deliberate: a caller asking
+ * for two places has decided how many places the value is allowed to carry. It is not a display
+ * formatter — it returns a `Dec`, so a rounded figure remains a number and never becomes text.
+ */
+export function roundDec(value: Dec, places: number): Dec {
+  return fromDecimal(toDecimal(value).toDecimalPlaces(places, Decimal.ROUND_HALF_UP))
 }
 
 // ---------------------------------------------------------------------------

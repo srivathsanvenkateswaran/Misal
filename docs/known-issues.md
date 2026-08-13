@@ -474,38 +474,95 @@ dropped out of net worth rather than merely being valued from the wrong row.
 `xirr.ts`). Those are `YYYY-MM-DD` with no offset to disagree about, where string order *is*
 chronological order.
 
-### Cross-account corporate-action check keys on ex-date alone
+### ~~Cross-account corporate-action check keys on ex-date alone~~ — FIXED
 
-If two accounts record the same split a day apart, each appears to the other to be missing it, and
-both get downgraded.
+Fixed by matching on the action's identity rather than on its exact date. `derivePortfolioPositions`
+in `src/valuation/positions.ts` now treats another account's action as already recorded when the
+kind matches, the multiplier matches where both carry one, and the two dates are within
+`ACTION_MATCH_WINDOW_DAYS` (seven) of each other.
 
-**Consequence:** false `not_measured` results that hide otherwise-valid metrics.
+The window exists because one market-wide split has one ex-date but not one printed date:
+registrars, brokers and depositories variously print the ex-date, the record date, the credit date
+or the date the entry was posted, and a day or two between two statements is ordinary. A week
+absorbs that and is far narrower than the gap between two genuine actions on the same instrument.
 
-### Missing arithmetic helpers live in the wrong layer
+The symmetry is what made the original so damaging: neither account could see the other's action, so
+*both* were downgraded, and the more places a user holds the same stock the more certain it was to
+fire. The failing case is now a regression test, asserting both accounts stay `measured`.
 
-`powDec`, `roundDec` and `mulDivMinor` were needed by the valuation engine and were added to
-`src/valuation/arithmetic.ts`. They are general numeric operations and belong in
-`src/domain/numeric.ts`, where the float ban already exempts the module and the tests are
-concentrated.
+**Not weakened.** The multiplier must agree, so an account recording 5-for-1 against another's
+2-for-1 is still a real disagreement and both are still downgraded; an account with no action row at
+all still matches nothing and is still downgraded; and two genuine 5-for-1 splits eight months apart
+are still two events, so the account missing one is still downgraded. All three are tested.
 
-**Consequence:** a second subsystem needing them will either duplicate them or import across a
-boundary that should not exist.
+Dates in the warning are also deduplicated now: three other accounts recording one split is one
+missing action, and printing the date three times read as three separate problems.
 
-**Still open.** Deliberately left alone while fixing the two price/time defects above: the move
-lands in `src/domain/numeric.ts`, and doing it from a branch scoped to `src/valuation/` would
-conflict with concurrent work there. It needs its own branch that owns both directories.
+### ~~Missing arithmetic helpers live in the wrong layer~~ — FIXED
 
-### `NotMeasuredReason` has no member for a blocked grandfathering FMV
+`powDec`, `roundDec` and `mulDivMinor` have moved from `src/valuation/arithmetic.ts` to
+`src/domain/numeric.ts`, with their tests, and every importer now takes them from `@domain/numeric`.
 
-Currently borrows `unknown_tax_regime`, which reports the wrong reason to the user.
+Two behaviours changed with the move, both deliberate. They throw `NumericError` rather than
+`ValuationAssertionError`, which is correct once they are no longer part of the valuation engine.
+And `powDec` returns through `fromDecimal`, whose `toFixed()` already prints in normal notation, so
+the hand-written exponential expansion these functions used is no longer on their path — the
+existing assertion that `0.1 ** 45` comes back as a canonical decimal string rather than `1e-45`
+moved across unchanged and still passes.
 
-### `BONUS_UNITS_MISMATCH` is unreachable
+What stays in `src/valuation/arithmetic.ts` is what is genuinely the engine's: `scaleToInteger`,
+`commonScale`, `decimalPlaces`, `truncDec`, `decFromCount`, `tenPow` and `tenPowNegative`.
 
-Nothing in the schema stores a bonus ratio, so units credited cannot be cross-checked against an
-expected figure. The check exists but can never fire.
+### ~~`NotMeasuredReason` has no member for a blocked grandfathering FMV~~ — FIXED
 
-**Fix direction:** either store the ratio during ingestion or delete the dead branch. Leaving an
-unreachable validation implies a guarantee that does not exist.
+`no_grandfathering_fmv` is now a member of `NotMeasuredReason`, reading "no 31 January 2018 market
+value on record", and `reasonFor` in `src/valuation/tax.ts` maps `GRANDFATHER_FMV_UNAVAILABLE` onto
+it instead of onto `unknown_tax_regime`.
+
+The two send the user to different places, which is the whole point: `unknown_tax_regime` asks them
+to classify a scheme, and for a blocked FMV the scheme is already classified — it is listed Indian
+equity under section 112A, the rule is known, and one specific historical price is missing. Reporting
+it as an unknown regime named a problem the user did not have and never asked for the single input
+that would restore the figure.
+
+**Crosses a directory boundary by one line.** `HEADLINE` in `src/ui/measured/Metric.tsx` is a
+`Record<NotMeasuredReason, string>`, so adding a member to the union is a compile error until that
+record gains the key. The addition there is the one required key and nothing else.
+
+### ~~`BONUS_UNITS_MISMATCH` is unreachable~~ — FIXED by deletion
+
+Deleted. The code is gone from the warning vocabulary in `src/valuation/types.ts`, and
+`src/valuation/types.test.ts` asserts it stays gone.
+
+It was deleted rather than made reachable because it cannot be made reachable from data that is
+present. A `bonus` transaction row carries the units credited and nothing else — `TxnRow.quantity`
+is documented as exactly that — and a cross-check needs a second, independently sourced figure to
+compare it against. Deriving the expected units from the holding on the record date and a ratio is
+only as good as the ratio, and the ratio is what is missing; deriving it from the holding alone
+would be checking the number against itself.
+
+**What storing the ratio would take**, if it is ever wanted:
+
+1. A migration adding the declared ratio to the transaction row — the natural shape is two integer
+   columns, `bonus_ratio_new` and `bonus_ratio_held` (a 1:2 issue is `1` and `2`), rather than one
+   decimal, so that 1:3 does not become `0.333…` and lose exactness. Owned by whoever owns
+   migrations; nothing in this subsystem can add it.
+2. Ingestion filling them, which means finding the ratio in each source's narration text and
+   parsing it — a text-extraction change with its own redacted-fixture corpus, per adapter. A row
+   whose ratio could not be read must stay null rather than be guessed, so the check has to be
+   per-row optional and cannot become a portfolio-wide guarantee.
+3. `natural_key` deciding whether the ratio participates. It should not: the same allotment
+   re-imported from a statement that omits the ratio must not become a second transaction.
+4. Only then a check in the fold: expected units are the holding on the record date times
+   `new / held`, and the record date is a fifth thing nothing currently stores — the transaction
+   date is the credit date, which is not the same day.
+
+Until all of that exists, an unreachable check is worse than none, because the interface shows the
+absence of the warning as the check having passed.
+
+`docs/specs/2026-08-12-valuation-engine.md` still describes the check, conditioned on the source
+"letting us derive a ratio". No source does, and the spec is left as written because it is the
+record of the branch that produced it; this entry is where the two diverge.
 
 ### Twelve Data rate limiting is incomplete
 

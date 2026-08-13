@@ -4,6 +4,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
+import { REASON_TEXT } from '@domain/measured'
 import { instrument, instrumentMap, resetIds, txn } from './__fixtures__/build'
 import { daysBetween, financialYear, isLongTerm } from './calendar'
 import { type FoldInput, buildLots } from './fold'
@@ -94,6 +95,43 @@ describe('unknown tax regime', () => {
     )
     expect(disposals[0]!.bucket).toEqual({ kind: 'ltcg', regime: 'other_mf_unlisted' })
     expect(disposals[0]!.gain.measured && disposals[0]!.gain.value).toBe('500000')
+  })
+})
+
+describe('blocked grandfathering', () => {
+  it('names the missing 31-Jan-2018 value rather than blaming the tax regime', () => {
+    resetIds()
+    // The regime is known — listed Indian equity, section 112A, grandfather-eligible — and the lot
+    // predates the cutoff. Exactly one input is missing, and it is one the user can supply.
+    const equity = instrument()
+    const disposals = disposalsFor(
+      [
+        txn({ type: 'buy', date: '2015-06-10', quantity: '100', amount: '1000000' }),
+        txn({ type: 'sell', date: '2026-01-10', quantity: '100', amount: '5000000' }),
+      ],
+      equity,
+    )
+    expect(disposals[0]!.bucket).toEqual({ kind: 'unavailable', reason: 'GRANDFATHER_FMV_UNAVAILABLE' })
+    expect(disposals[0]!.gain.measured).toBe(false)
+    if (disposals[0]!.gain.measured) return
+    expect(disposals[0]!.gain.reason).toBe('no_grandfathering_fmv')
+    expect(disposals[0]!.deemedCost.measured).toBe(false)
+    expect(REASON_TEXT[disposals[0]!.gain.reason]).toBe('no 31 January 2018 market value on record')
+  })
+
+  it('measures the same disposal once the fair market value is on record', () => {
+    resetIds()
+    const equity = instrument({ fmv: '250.00' })
+    const disposals = disposalsFor(
+      [
+        txn({ type: 'buy', date: '2015-06-10', quantity: '100', amount: '1000000' }),
+        txn({ type: 'sell', date: '2026-01-10', quantity: '100', amount: '5000000' }),
+      ],
+      equity,
+    )
+    expect(disposals[0]!.grandfathered).toBe(true)
+    // Deemed cost is ₹250 a share against an actual ₹100, so the gain is ₹250 rather than ₹400.
+    expect(disposals[0]!.gain.measured && disposals[0]!.gain.value).toBe('2500000')
   })
 })
 

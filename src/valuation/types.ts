@@ -133,35 +133,47 @@ export interface UnresolvedInstrumentRow {
 // Diagnostics
 // ---------------------------------------------------------------------------
 
-/** Stable, user-visible codes. Every one maps to a UI string; none produces a substituted zero. */
-export type WarningCode =
-  | 'NO_PRICE'
-  | 'NO_PRICE_SOURCE'
-  | 'PRICE_CURRENCY_MISMATCH'
-  | 'PRICE_STALE'
-  | 'PRICE_VERY_STALE'
-  | 'NO_FX_RATE'
-  | 'NO_FX_SOURCE'
-  | 'FX_RATE_IMPUTED'
-  | 'FX_DIRECTION_INVALID'
-  | 'MISSING_FX'
-  | 'MISSING_ACQUISITION_COST'
-  | 'NEGATIVE_INVENTORY'
-  | 'FOLD_SNAPSHOT_MISMATCH'
-  | 'CORPORATE_ACTION_MISSING_IN_ACCOUNT'
-  | 'BONUS_UNITS_MISMATCH'
-  | 'GRANDFATHER_FMV_UNAVAILABLE'
-  | 'UNKNOWN_TAX_REGIME'
-  | 'XIRR_NOT_CONVERGED'
-  | 'XIRR_NO_SIGN_CHANGE'
-  | 'XIRR_MULTIPLE_ROOTS'
-  | 'XIRR_UNSTABLE'
-  | 'SCOPE_NOT_MEASURED'
-  | 'TRADING_CALENDAR_STALE'
-  | 'PLAN_RESTRICTED'
-  | 'RATE_LIMITED'
-  | 'SNAPSHOT_ACCOUNT'
-  | 'INVALID_SPLIT_RATIO'
+/**
+ * Stable, user-visible codes. Every one maps to a UI string; none produces a substituted zero.
+ *
+ * A runtime list rather than a bare union so the vocabulary can be asserted against, which is how
+ * `BONUS_UNITS_MISMATCH` came off it: it promised that units credited by a bonus issue were checked
+ * against the ratio the issue was declared at, and nothing in the schema stores that ratio — a
+ * `bonus` row carries only the units credited, so there was no expected figure to compare with and
+ * the check could never fire. An unreachable validation is worse than no validation, because it
+ * reads on the page as a guarantee that has been made. See `docs/known-issues.md` for what storing
+ * the ratio would take.
+ */
+export const WARNING_CODES = [
+  'NO_PRICE',
+  'NO_PRICE_SOURCE',
+  'PRICE_CURRENCY_MISMATCH',
+  'PRICE_STALE',
+  'PRICE_VERY_STALE',
+  'NO_FX_RATE',
+  'NO_FX_SOURCE',
+  'FX_RATE_IMPUTED',
+  'FX_DIRECTION_INVALID',
+  'MISSING_FX',
+  'MISSING_ACQUISITION_COST',
+  'NEGATIVE_INVENTORY',
+  'FOLD_SNAPSHOT_MISMATCH',
+  'CORPORATE_ACTION_MISSING_IN_ACCOUNT',
+  'GRANDFATHER_FMV_UNAVAILABLE',
+  'UNKNOWN_TAX_REGIME',
+  'XIRR_NOT_CONVERGED',
+  'XIRR_NO_SIGN_CHANGE',
+  'XIRR_MULTIPLE_ROOTS',
+  'XIRR_UNSTABLE',
+  'SCOPE_NOT_MEASURED',
+  'TRADING_CALENDAR_STALE',
+  'PLAN_RESTRICTED',
+  'RATE_LIMITED',
+  'SNAPSHOT_ACCOUNT',
+  'INVALID_SPLIT_RATIO',
+] as const
+
+export type WarningCode = (typeof WARNING_CODES)[number]
 
 export interface RowRef {
   readonly txnId?: string

@@ -1,19 +1,22 @@
 /**
- * The two arithmetic operations the valuation engine needs and `@domain/numeric` does not export:
- * fractional exponentiation (XIRR discounting) and truncating integer allocation of minor units
- * (FIFO lot splitting).
+ * The scaling and counting helpers the valuation engine needs on top of `@domain/numeric`.
  *
- * This is the only module in the subsystem that touches `decimal.js` directly. Everything above it
- * works in `Dec` and `Minor`. Keeping the dependency in one small, heavily tested file is the same
- * containment `@domain/numeric` applies one level down, and it means an audit for floating point
- * has exactly two files to read rather than twenty.
+ * What remains here is deliberately narrow: turning a decimal quantity into the integer form the
+ * FIFO allocation works in, and building the `Dec` constants the engine's day counts and display
+ * tolerances need. The general numeric operations that used to live here — `powDec`, `roundDec`
+ * and `mulDivMinor` — are in `@domain/numeric`, where the float ban exempts the module and the
+ * numeric tests are concentrated; a second subsystem needing them must not have to reach across
+ * into the valuation engine to find them.
+ *
+ * This is still the only module in the subsystem that touches `decimal.js` directly. Everything
+ * above it works in `Dec` and `Minor`.
  *
  * No value here is ever converted to `number`: `Decimal` results come back through `dec()`, so a
  * result that is not a canonical decimal string throws instead of silently degrading.
  */
 
 import Decimal from 'decimal.js'
-import { type Dec, type Minor, dec, minor } from '@domain/numeric'
+import { type Dec, dec } from '@domain/numeric'
 import { ValuationAssertionError } from './types'
 
 /**
@@ -60,20 +63,6 @@ function fromDec(value: Dec): Decimal {
   return new Decimal(value)
 }
 
-/** `base ** exponent`, with a fractional exponent, at the configured 40-digit precision. */
-export function powDec(base: Dec, exponent: Dec): Dec {
-  const result = fromDec(base).pow(fromDec(exponent))
-  if (!result.isFinite()) {
-    throw new ValuationAssertionError(`pow(${base}, ${exponent}) is not finite`)
-  }
-  return toDec(result)
-}
-
-/** Half-up rounding to a fixed number of decimal places. For display and for test assertions. */
-export function roundDec(value: Dec, places: number): Dec {
-  return toDec(fromDec(value).toDecimalPlaces(places, Decimal.ROUND_HALF_UP))
-}
-
 /** Truncation toward zero at a fixed number of decimal places. */
 export function truncDec(value: Dec, places: number): Dec {
   return toDec(fromDec(value).toDecimalPlaces(places, Decimal.ROUND_DOWN))
@@ -113,20 +102,6 @@ export function commonScale(...values: Dec[]): number {
     if (dp > k) k = dp
   }
   return k > MAX_SCALE ? MAX_SCALE : k
-}
-
-/**
- * `value * numerator / denominator` in exact integer arithmetic, truncating toward zero.
- *
- * This is the spec's lot-cost allocation. The residual is always obtained by subtraction from the
- * original, never by a second multiplication, which is what makes
- * `Σ consumed + residual === original` hold exactly for any sequence of partial disposals.
- */
-export function mulDivMinor(value: Minor, numerator: bigint, denominator: bigint): Minor {
-  if (denominator === 0n) {
-    throw new ValuationAssertionError('mulDivMinor: zero denominator')
-  }
-  return minor((BigInt(value) * numerator) / denominator)
 }
 
 /** A `Dec` from an integer count (days, iterations). Never used for money or quantities. */

@@ -11,8 +11,9 @@
 
 import { type Dec, absDec, addDec, compareDec, dec, divDec, isZeroDec, subDec } from '@domain/numeric'
 import { tenPowNegative } from './arithmetic'
-import { compareInstants, instantToDate } from './calendar'
+import { compareInstants, daysBetween, instantToDate } from './calendar'
 import {
+  type CorporateActionRef,
   type FoldInput,
   type LotLedger,
   buildLots,
@@ -250,6 +251,46 @@ export function derivePositions(input: FoldInput): Result<readonly DerivedPositi
 interface ActionRecord {
   readonly accountId: string
   readonly date: IsoDate
+  readonly kind: CorporateActionRef['kind']
+  readonly multiplier: Dec | null
+}
+
+/**
+ * How far apart two accounts may date the same corporate action and still be recognised as having
+ * recorded the same event.
+ *
+ * One market-wide split has one ex-date, but two statements need not agree on it: registrars,
+ * brokers and depositories variously print the ex-date, the record date, the credit date or the
+ * date the entry was posted, and a day or two between them is ordinary rather than exceptional. A
+ * week is wide enough to absorb that spread and far narrower than the gap between two genuine
+ * actions on the same instrument.
+ */
+export const ACTION_MATCH_WINDOW_DAYS = 7
+
+/** Whole days between two dates, unsigned. `Math.abs` is banned; this is the same thing. */
+function daysApart(a: IsoDate, b: IsoDate): number {
+  const difference = daysBetween(a, b)
+  return difference < 0 ? -difference : difference
+}
+
+/**
+ * Whether an action this account recorded is the same event as one another account recorded.
+ *
+ * Identity, not date equality. Matching on the ex-date alone meant two accounts recording the same
+ * split a day apart each appeared to the other to be missing it, and *both* were downgraded to
+ * not-measured — hiding metrics that were valid in both accounts, and doing so most readily for the
+ * user who holds the same stock in two places, which is exactly who this check exists to serve.
+ *
+ * The kind and the multiplier must agree, so this cannot swallow a real discrepancy: an account
+ * that recorded a 2-for-1 while another recorded a 5-for-1 still has one of them wrong, and an
+ * account with no action row at all still matches nothing and is still downgraded.
+ */
+function isSameAction(own: CorporateActionRef, other: ActionRecord): boolean {
+  if (own.kind !== other.kind) return false
+  if (own.multiplier !== null && other.multiplier !== null) {
+    if (compareDec(own.multiplier, other.multiplier) !== 0) return false
+  }
+  return daysApart(own.date, other.date) <= ACTION_MATCH_WINDOW_DAYS
 }
 
 /**
@@ -278,7 +319,12 @@ export function derivePortfolioPositions(
     if (position.ledger === null) continue
     for (const action of position.ledger.corporateActions) {
       const list = actionsByInstrument.get(position.instrumentId)
-      const record: ActionRecord = { accountId: position.accountId, date: action.date }
+      const record: ActionRecord = {
+        accountId: position.accountId,
+        date: action.date,
+        kind: action.kind,
+        multiplier: action.multiplier,
+      }
       if (list === undefined) actionsByInstrument.set(position.instrumentId, [record])
       else list.push(record)
     }
@@ -291,11 +337,13 @@ export function derivePortfolioPositions(
     const missing = actions.filter(
       (action) =>
         action.accountId !== position.accountId &&
-        !ledger.corporateActions.some((own) => own.date === action.date) &&
+        !ledger.corporateActions.some((own) => isSameAction(own, action)) &&
         !isZeroDec(quantityOn(ledger, action.date)),
     )
     if (missing.length === 0) return position
-    const dates = missing.map((m) => m.date).join(', ')
+    // Deduplicated: three other accounts recording one split is still one missing action, and
+    // listing the date three times reads as three separate problems.
+    const dates = [...new Set(missing.map((m) => m.date))].sort().join(', ')
     warnings.push({
       code: 'CORPORATE_ACTION_MISSING_IN_ACCOUNT',
       message: `A corporate action on ${dates} is recorded for this instrument in another account but not in this one, and this account held units across that date. Its quantity is out by the action's ratio.`,
