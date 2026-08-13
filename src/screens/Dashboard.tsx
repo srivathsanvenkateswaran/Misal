@@ -229,7 +229,11 @@ export function Dashboard({ data }: { readonly data: PortfolioData }): ReactNode
             tone
             sub={[
               {
-                label: 'on measured cost',
+                // Not "on measured cost": the tile above states a *larger* set of measured costs,
+                // because a holding with no current value keeps its cost and loses its P&L. This
+                // percentage is the return of the holdings in the figure beside it, over their own
+                // cost, and the label names that population rather than the tile's.
+                label: 'on cost of valued holdings',
                 value: readout.unrealisedPct,
                 metric: 'unrealised-pct',
                 tone: true,

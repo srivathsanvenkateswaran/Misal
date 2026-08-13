@@ -147,6 +147,16 @@ export interface CoverageMetricView {
   readonly key: string
   readonly label: string
   readonly amount: Measured<Figure>
+  /**
+   * The same rupees `amount` prints, as an integer, so a caller writing the sentence "covers X of Y
+   * (Z%)" takes all three from one object.
+   *
+   * It exists because the Holdings foot did not: it took the rupees from the ledger/snapshot
+   * *capability* split and the percentage from this metric, which are different populations. A
+   * ledger pair whose cost cannot be converted is in the first and not the second, and the foot
+   * then stated ₹19.13 lakh at 36.8% of ₹21.53 lakh — a fraction that is 88.85%.
+   */
+  readonly coveredMinor: Minor
   readonly pct: Dec
   readonly exact: boolean
 }
@@ -775,6 +785,15 @@ function buildPosition(
 // Readout
 // ---------------------------------------------------------------------------
 
+/**
+ * Σ cost over every pair whose cost is measured — the Invested tile, and a **larger** set than the
+ * P&L tile beside it.
+ *
+ * `costInInr` converts each lot at its own acquisition-date rate and needs no current price at all,
+ * so a holding that drops out of net worth — no price row, no current rate — keeps a measured cost
+ * and loses its P&L. Nothing else in this file may divide one of these figures by the other; see
+ * `sumPnlCost`.
+ */
 function sumMeasuredCost(pairs: readonly PairValue[]): Minor {
   return addMinor(...pairs.map((pair) => (pair.costMinor.measured ? pair.costMinor.value : ZERO_MINOR)))
 }
@@ -783,6 +802,62 @@ function sumMeasuredPnl(pairs: readonly PairValue[]): Minor {
   return addMinor(
     ...pairs.map((pair) => (pair.unrealised.measured ? pair.unrealised.value.pnlMinor : ZERO_MINOR)),
   )
+}
+
+/**
+ * Σ cost over the pairs the P&L figure is summed over — its own denominator, not the tile's.
+ *
+ * `UnrealisedPnL.costMinor` is the same rupee cost `sumMeasuredCost` counts, carried on the pair
+ * that produced the P&L, so this is the cost of exactly the holdings in the numerator and the two
+ * cannot drift. Dividing by `sumMeasuredCost` instead understated the return of a portfolio holding
+ * one unpriced position by 2.4× on the fixture corpus, with no indicator moving: the coverage badge
+ * beside each figure is weighted by market value, which is zero for precisely the pairs that
+ * diverge, so both cells showed the same percentage of the same total.
+ */
+function sumPnlCost(pairs: readonly PairValue[]): Minor {
+  return addMinor(
+    ...pairs.map((pair) => (pair.unrealised.measured ? pair.unrealised.value.costMinor : ZERO_MINOR)),
+  )
+}
+
+/**
+ * What the Invested tile counts, what it leaves out, and what it counts that no P&L figure does.
+ *
+ * Three separate statements, because they have three separate remedies. Snapshot value is excluded
+ * for want of a transaction history, which an import fixes. Ledger value excluded from the cost
+ * metric is a *ledger* account whose cost could not be converted — an acquisition-date exchange
+ * rate the backfill has not reached — and naming it "snapshot holdings" sent the user to import a
+ * statement they already have. And the unpriced cost inside the tile is the gap between this
+ * figure's population and the P&L figure's, which nothing on the screen otherwise discloses.
+ */
+function costNoteFor(
+  costMetric: MetricCoverage,
+  snapshotAccountIds: readonly string[],
+  unpricedCostMinor: Minor,
+): string {
+  const snapshotIds = new Set(snapshotAccountIds)
+  const excludedSnapshotMinor = addMinor(
+    ...costMetric.excludedPairs
+      .filter((pair) => snapshotIds.has(pair.accountId))
+      .map((pair) => pair.valueMinor),
+  )
+  const excludedLedgerMinor = subMinor(costMetric.excludedValueMinor, excludedSnapshotMinor)
+
+  const parts = ['Ledger accounts only']
+  if (!isZeroMinor(excludedSnapshotMinor)) {
+    parts.push(`excludes ${rupees(excludedSnapshotMinor)} of snapshot holdings`)
+  }
+  if (!isZeroMinor(excludedLedgerMinor)) {
+    parts.push(
+      `excludes ${rupees(excludedLedgerMinor)} of ledger holdings whose cost could not be measured`,
+    )
+  }
+  if (!isZeroMinor(unpricedCostMinor)) {
+    parts.push(
+      `includes ${rupees(unpricedCostMinor)} of cost for holdings with no current value, which no P&L figure counts`,
+    )
+  }
+  return parts.join(' · ')
 }
 
 function buildReadout(
@@ -805,6 +880,10 @@ function buildReadout(
 
   const costMinor = sumMeasuredCost(snapshot.pairs)
   const pnlMinor = sumMeasuredPnl(snapshot.pairs)
+  // The P&L figure's own cost, over the P&L figure's own holdings. The difference between the two
+  // is cost the tile states and no return can be computed against.
+  const pnlCostMinor = sumPnlCost(snapshot.pairs)
+  const unpricedCostMinor = subMinor(costMinor, pnlCostMinor)
   const anyCost = !isZeroMinor(costMetric.coveredMinor)
   const anyPnl = !isZeroMinor(unrealisedMetric.coveredMinor)
 
@@ -817,9 +896,9 @@ function buildReadout(
     : notMeasured('no_transaction_history', netWorth)
 
   const unrealisedPct: Measured<Figure> =
-    anyPnl && !isZeroMinor(costMinor)
+    anyPnl && !isZeroMinor(pnlCostMinor)
       ? measured(
-          pctFigure(shareOf(pnlMinor, costMinor), { signed: true }),
+          pctFigure(shareOf(pnlMinor, pnlCostMinor), { signed: true }),
           coverageFrom(unrealisedMetric, snapshotAccountIds),
         )
       : notMeasured('no_transaction_history', netWorth)
@@ -865,7 +944,7 @@ function buildReadout(
     dayChangePct: notMeasured('no_price', netWorth),
     costBasis,
     costNote: anyCost
-      ? `Ledger accounts only · excludes ${rupees(subMinor(netWorth, costMetric.coveredMinor))} of snapshot holdings`
+      ? costNoteFor(costMetric, snapshotAccountIds, unpricedCostMinor)
       : 'No account supplies the transaction history a cost basis needs.',
     unrealised,
     unrealisedPct,
@@ -1518,6 +1597,7 @@ function build(rows: PortfolioRows, asOf: IsoInstant): PortfolioData {
       key: 'net-worth',
       label: 'Net worth',
       amount: measured(moneyFigure(netWorth), fullCoverage(netWorth)),
+      coveredMinor: netWorth,
       pct: isZeroMinor(netWorth) ? ZERO_DEC : dec('100.00'),
       exact: true,
     },
@@ -1525,6 +1605,7 @@ function build(rows: PortfolioRows, asOf: IsoInstant): PortfolioData {
       key: 'day-change',
       label: 'Day change',
       amount: notMeasured('no_price', netWorth),
+      coveredMinor: ZERO_MINOR,
       pct: ZERO_DEC,
       exact: false,
     },
@@ -1535,6 +1616,7 @@ function build(rows: PortfolioRows, asOf: IsoInstant): PortfolioData {
         moneyFigure(costMetric.coveredMinor),
         coverageFrom(costMetric, snapshotAccountIds),
       ),
+      coveredMinor: costMetric.coveredMinor,
       pct: costMetric.pct ?? ZERO_DEC,
       exact: isZeroMinor(costMetric.excludedValueMinor),
     },
@@ -1545,6 +1627,7 @@ function build(rows: PortfolioRows, asOf: IsoInstant): PortfolioData {
         moneyFigure(xirrMetric.coveredMinor),
         coverageFrom(xirrMetric, snapshotAccountIds),
       ),
+      coveredMinor: xirrMetric.coveredMinor,
       pct: xirrMetric.pct ?? ZERO_DEC,
       exact: isZeroMinor(xirrMetric.excludedValueMinor),
     },
@@ -1555,6 +1638,7 @@ function build(rows: PortfolioRows, asOf: IsoInstant): PortfolioData {
         moneyFigure(snapshot.realisedCoverage.coveredMinor),
         coverageFrom(snapshot.realisedCoverage, snapshotAccountIds),
       ),
+      coveredMinor: snapshot.realisedCoverage.coveredMinor,
       pct: snapshot.realisedCoverage.pct ?? ZERO_DEC,
       exact: isZeroMinor(snapshot.realisedCoverage.excludedValueMinor),
     },

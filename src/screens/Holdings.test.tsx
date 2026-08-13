@@ -11,7 +11,7 @@ import { assertHonest } from '@ui/testing/assert-honest'
 import { Holdings } from './Holdings'
 import { buildPortfolioView } from './view-model'
 import type { PortfolioData } from './view-model'
-import { AS_OF, nearlyFullCoverageRows, portfolioRows } from './testing/fixtures'
+import { AS_OF, latestFxOnlyRows, nearlyFullCoverageRows, portfolioRows } from './testing/fixtures'
 
 function data(rows = portfolioRows()): PortfolioData {
   const view = buildPortfolioView(rows, AS_OF)
@@ -110,6 +110,24 @@ describe('Holdings', () => {
     expect(
       screen.getByText(/Cost, unrealised P&L and the total above cover ₹7,93,871 of ₹10,33,869/u),
     ).toBeInTheDocument()
+    assertHonest(container)
+  })
+
+  it('takes the foot’s rupees and its percentage from the same population', () => {
+    /*
+     * Today's dollar rate stored and the acquisition dates' absent — the state of every install
+     * before `backfillFxHistory` finishes. Caterpillar is then inside net worth and inside the
+     * ledger/snapshot capability split, and outside the cost metric, because its lots cannot be
+     * converted.
+     *
+     * The foot took its rupees from the first and its percentage from the second and read
+     * "₹19,13,066 of ₹21,53,064 (36.8%)" — a fraction of 88.85%, overstating what the cost column
+     * covers by ₹11.19 lakh. Both figures now come from the cost metric, so the sentence divides.
+     */
+    const { container } = render(<Holdings data={data(latestFxOnlyRows())} group="asset_class" />)
+    const foot = screen.getByText(/Cost, unrealised P&L and the total above cover/u)
+    expect(foot.textContent).toContain('cover ₹7,93,871 of ₹21,53,064 (36.8%)')
+    expect(foot.textContent).not.toContain('₹19,13,066')
     assertHonest(container)
   })
 

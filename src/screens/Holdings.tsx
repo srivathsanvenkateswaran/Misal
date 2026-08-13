@@ -347,7 +347,15 @@ export function Holdings({
             zero, and it is not a loss.{' '}
             {costCoverage === undefined
               ? null
-              : `Cost, unrealised P&L and the total above cover ${formatMoney(money(data.ledgerBackedMinor))} of ${formatMoney(money(data.netWorthMinor))} (${coverageText(costCoverage.pct)}%).`}
+              : /*
+                 * Both figures come from the cost metric. They used to come from two different
+                 * populations — the rupees from the ledger/snapshot *capability* split and the
+                 * percentage from the cost metric's own inclusion rule — and a ledger holding whose
+                 * cost cannot be converted is in the first and not the second. The sentence then
+                 * said ₹19,13,066 of ₹21,53,064 at 36.8%, a ratio of 88.85%, overstating what the
+                 * cost column covers by ₹11.19 lakh.
+                 */
+                `Cost, unrealised P&L and the total above cover ${formatMoney(money(costCoverage.coveredMinor))} of ${formatMoney(money(data.netWorthMinor))} (${coverageText(costCoverage.pct)}%).`}
           </>
         }
       />
