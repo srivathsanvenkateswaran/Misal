@@ -10,6 +10,7 @@ import {
   camsDetailedPages,
   camsSummaryPages,
   nsdlEcasPages,
+  nsdlEcasTwoDematPages,
   scannedPages,
 } from './testing/corpus'
 import { buildPages } from './testing/pdf-builder'
@@ -171,6 +172,41 @@ describe('account identity across providers', () => {
     const hdfc = store.snapshot().accounts.find((a) => a.identityKey?.includes('hdfc'))
     expect(hdfc?.capability).toBe('ledger')
     expect(store.snapshot().accounts.filter((a) => a.identityKey?.includes('hdfc'))).toHaveLength(1)
+  })
+
+  /**
+   * The demat attribution bug, at the layer where it destroyed data.
+   *
+   * `position` carries `UNIQUE (account_id, instrument_id, as_of)`. While every holding in the file
+   * was attributed to the first demat account the roster declared, one ISIN genuinely held in two
+   * accounts produced two rows on one key — and the second silently restated the first. Eight
+   * shares became twelve, the second account looked empty, and nothing anywhere said so.
+   */
+  it('keeps the units of one ISIN held in two demat accounts', async () => {
+    seedCatalogue()
+    const outcome = completed(
+      await runImport(
+        { bytes: fakePdfBytes('nsdl-two'), originalName: 'ecas.pdf' },
+        deps(nsdlEcasTwoDematPages()),
+      ),
+    )
+    expect(outcome.issues.filter((i) => i.severity === 'error')).toEqual([])
+
+    const accounts = store.snapshot().accounts
+    const first = accounts.find((a) => a.identityKey === 'demat:IN300394-12345678')
+    const second = accounts.find((a) => a.identityKey === 'demat:12081600-87654321')
+    expect(first).toBeDefined()
+    expect(second).toBeDefined()
+
+    const infy = store.snapshot().positions.filter((p) => p.instrumentId === 'i-infy')
+    expect(infy).toHaveLength(2)
+    expect(
+      infy.map((p) => `${p.accountId === first?.id ? 'first' : 'second'} ${p.quantity}`).sort(),
+    ).toEqual(['first 8.000', 'second 12.000'])
+
+    // The database constraint the old behaviour violated, asserted here rather than trusted.
+    const keys = store.snapshot().positions.map((p) => `${p.accountId}|${p.instrumentId}|${p.asOf}`)
+    expect(new Set(keys).size).toBe(keys.length)
   })
 
   it('restates a position rather than duplicating it, and says so', async () => {

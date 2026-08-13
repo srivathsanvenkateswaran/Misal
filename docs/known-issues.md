@@ -100,7 +100,74 @@ fixtures happen to agree.
 **Fix direction:** a canonical AMC table keyed on registrar codes, rather than string
 normalisation of a printed name.
 
-### Every NSDL demat holding is attributed to the first demat account in the file
+### ~~Every NSDL demat holding is attributed to the first demat account in the file~~ — FIXED
+
+Resolved by a per-account section cursor in `src/ingestion/pdf/nsdl-ecas.ts`. Each holding is now
+attributed to the demat account whose header block it is printed under, holdings are held until the
+whole document has been read, and a holding that no header claims **fails its row** with
+`E_MISSING_REQUIRED_FIELD` rather than being attached to whichever account came first.
+
+The layout was researched rather than assumed, and three of the obvious assumptions were wrong:
+
+- There is **no `Depository :` label**. The depository is carried by the account-type line itself,
+  literally `NSDL Demat Account` or `CDSL Demat Account`, matched anchored at both ends because the
+  phrase "demat account" also appears in the numbered notes at the back of the statement and an
+  unanchored match opens phantom sections there.
+- **`DP Name :` is the CDSL-issued CAS's label, not this document's.** In an NSDL eCAS the
+  participant's name is an *unlabelled* cell between the account-type line and the identifiers, so
+  it is read positionally. The label is still accepted, because accepting it costs nothing.
+- **A CDSL account inside an NSDL CAS is not printed as a 16-digit BO ID.** It is stated in NSDL's
+  own `DP ID` / `Client ID` form and differs only in that the DP ID is eight digits rather than `IN`
+  plus six. The previous roster reader required `IN`, so it dropped CDSL accounts entirely — the
+  same class of loss one column along, and fixed here too. The 16-digit form is still accepted, for
+  the CDSL-issued CAS.
+
+Section context deliberately survives a page break, because one account's holdings run over several
+pages under a repeated *column* header with no repeated account header. It is reset only by the
+next account header, by the roster anchor, or by `Mutual Fund Folios (F)` — never by a totals row,
+because `Sub Total` / `Total` / `Grand Total` are optional and a section that lacks one would
+swallow the next account's rows.
+
+Fixtures: `nsdlEcasTwoDematPages` in `src/ingestion/testing/corpus.ts` declares an NSDL account and
+a CDSL account under one PAN, **with the same ISIN genuinely held in both** — the case that lost
+units — and `nsdlEcasOrphanHoldingPages` removes one header block to exercise the refusal.
+`src/ingestion/pipeline.test.ts` asserts at the store that both holdings of that ISIN survive and
+that no two positions share `(account, instrument, as_of)`; that test finds only one row against the
+old parser.
+
+The two other places the same flaw could live were checked. The **MF folio path** never had it: a
+folio number is printed on its own row and joined back to the roster, which is why that section was
+correct all along. The **transaction path** does not have it because it does not exist — this parser
+reads no transactions at all today, though the spec describes an 8-column demat ledger grouped under
+`ISIN : <isin>` anchor rows. Whoever implements it inherits the same requirement: a ledger row is
+attributed to the account section it sits in, or it fails.
+
+Three residuals, all deliberate:
+
+- **A one-account statement that prints no header at all is still attributed.** Where the document
+  declares exactly one demat account *and* no account header was read anywhere in it, there is only
+  one account a holding can belong to. That is a deduction, not a guess, and it is narrowed by the
+  "anywhere in it" clause: once the file has been seen printing account headers, a holdings block
+  without one is a hole in the parse and its rows fail.
+- **A damaged header between two accounts still merges them.** Because context carries across page
+  breaks, a second account's header that fails to parse leaves the first account in scope and its
+  holdings land there. Only a header that fails *before any* account has been seen is detectable.
+  Closing this needs a signal the research could not confirm — whether the header repeats on every
+  continuation page. If it does, requiring one per page turns this from a silent merge into a
+  visible failure.
+- **The roster's column geometry is unverified.** `readRoster` reads `DP ID` and `Client ID` as two
+  x-bands, which is what the corpus fixture and the ingestion spec describe. The strongest external
+  source available — a mature open-source parser written against real files — instead shows them as
+  one inline `DP Id : … Client Id : …` run inside the participant-name cell, with no folio column on
+  a demat row and a *count* where the fixture puts a folio number. Neither could be checked against
+  a real statement, so nothing was changed on the strength of it. The fix above is insulated from
+  the answer: account headers on the detail pages register their own accounts, so demat attribution
+  survives a roster that does not parse. What would not survive is the MF folio path, which joins on
+  the roster's fund-house column.
+
+The original description is kept below, because the failure mode is worth recognising again.
+
+### Every NSDL demat holding is attributed to the first demat account in the file (historical)
 
 Found while fixing the AMC identity key, and it is the same failure class one layer along.
 `readDematHolding` in `src/ingestion/pdf/nsdl-ecas.ts` picks its account with
