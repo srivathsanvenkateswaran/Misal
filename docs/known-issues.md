@@ -880,6 +880,95 @@ view-model assembles the indicator, because that file was outside this branch's 
 engine-level caller that reads `coverage.stalePriceCount` directly still sees the price-only
 figure.
 
+### ~~A sale's negative amount was used verbatim as gross consideration~~ — FIXED
+
+The fold normalised the sign of a disposal's **quantity** and not the sign of the **amount on the
+same row**. `magnitude` in `src/valuation/fold.ts` carries a comment saying exactly why the quantity
+needs it — "ingestion adapters disagree about whether a sale is recorded as -10 or 10" — and the
+money one line below it was read as printed.
+
+A CAMS/KFintech CAS prints a redemption as units `(150.000)` and amount `(10,000.00)`.
+`canonicalDecimal` makes both negative, `normalizeTransaction` passes the amount through with its
+sign — `src/ingestion/pdf/cams-kfin-cas.test.ts` pins `amountMinor === '-1000000'` as *correct* —
+and `src/data/portfolio.ts` maps it straight through. So a negative gross for a sale is a
+legitimate state of the store produced by the primary parser, not a corruption.
+
+**Consequence, measured:** 300 units bought for ₹18,000 and 150 redeemed for ₹10,000 produced
+`grossConsiderationMinor: '-1000000'` against `costMinor: '900000'`, and therefore
+`gain: { measured: true, value: '-1900000' }` — a realised long-term **loss of ₹19,000 where the
+truth is a ₹1,000 gain**, flagged `measured` with full coverage. The same row reached
+`buildCashflows`, where ₹10,000 leaving the investment was booked as ₹10,000 entering it, and XIRR
+came back **−29.76% on a portfolio that was up**. Nothing in the honesty machinery could see any of
+it: a signed number is not a missing one, so no metric was withheld and no reason was shown. Open
+lots, quantities and net worth were never affected — only realised P&L and returns.
+
+Fixed by applying `magnitude`'s reasoning to the money. `magnitudeMinor` in
+`src/valuation/arithmetic.ts` is the single statement of the rule, and every amount now goes through
+it: `grossOf`, `unitConsiderationOf`, `purchaseCost`, the transfer-expense apportionment and the
+income accumulators in `fold.ts`, and every branch of `buildCashflows` in `xirr.ts` (which also
+takes `absDec` of the quantity in the two branches that price a transfer). Direction comes from
+`txn.type` throughout, which is where it belongs and where it already was for quantities.
+
+**The actual defect was the missing fixture.** Every `sell` in the engine's tests was written with a
+positive amount, so the engine had never been exercised against the sign convention its own primary
+parser produces — which is why this survived a fold with property tests, a golden worked example and
+1,245 passing tests. `casRedemption` in `src/valuation/__fixtures__/build.ts` now builds a sale the
+way a CAS records one, negating both columns itself so a test cannot accidentally write the
+convention it is meant to be testing against, and the reviewers' scenario is a test in
+`fold.test.ts` and another in `xirr.test.ts`.
+
+### ~~Realised gains were computed in the transaction's currency and summed as paise~~ — FIXED
+
+`gainMinor = gross − transferExpenses − deemedCost` in `src/valuation/tax.ts`, where all three were
+minor units of `consumption.currency` — copied from `txn.currency` by the fold. `tax.ts` imported no
+FX service, `Disposal` and `RegimeSummary` carried no currency, `summariseRealised` accumulated with
+`addMinor`, and the screens sum every regime and render the total as INR.
+
+`us_equity` maps to `foreign_equity` automatically, so **no user classification was needed for this
+to fire**: it fired for anyone holding a US share who sold any of it.
+
+**Consequence, measured:** 20 AAPL bought at $100 and 10 sold at $200 gave `ltcgMinor === '100000'`
+inside a snapshot whose net worth is INR paise, so the dashboard printed **₹1,000 where the truth is
+about ₹87,000** — understated roughly eighty-sevenfold, and netted against genuine rupee gains in
+the same sum. Fully `measured`, full coverage, no reason shown. The neighbouring paths convert
+deliberately — `costInInr` uses each lot's acquisition-date rate, `xirr.ts` converts every cashflow
+— so this was an omission rather than a convention.
+
+Fixed by converting at the point of computation. `classifyDisposal` now takes an `FxService` (not
+optional: a caller who forgets gets a compile error) and resolves the disposal-date rate *first*,
+before the regime, the cost or anything else it might report, because without a rate no figure it
+returns can be stated at all — not even the gross consideration a withheld disposal carries for
+coverage. Gross, transfer expenses and cost are converted individually and the subtraction happens
+in INR, so `gain === gross − expenses − deemed cost` holds exactly in the units reported. The
+grandfathering comparison stays in the native currency, where the 31-January-2018 FMV lives; only
+the resulting deemed cost is converted. `Disposal` states `currency: 'INR'` and the `fxRate` that
+made it so, and `RealisedGains` states its own currency too.
+
+**A missing rate withholds the disposal.** It returns `NO_FX_RATE` / `no_fx_rate` with every money
+field at zero rather than emitting the raw-currency number as a consolation figure — an unconverted
+`200000` would be read as ₹2,000 by everything downstream.
+
+**What remains, stated so it is not mistaken for settled.** Both legs of a realised gain are now
+converted at the *disposal-date* rate, so the realised figure carries no currency return between
+acquisition and disposal — while unrealised P&L, through `costInInr`, deliberately does carry one by
+converting cost at each lot's acquisition-date rate. The two are answering different questions (one
+is a reporting bucket for a tax schedule, the other is economic P&L on an open holding) and the
+single-rate form is the one an Indian return wants, but the asymmetry is real and undocumented
+anywhere else. Related: `LotConsumption.currency` is the *disposal's* currency and is used to
+interpret the lot's cost as well, so a lot acquired in one currency and sold on a row recorded in
+another would be converted through the wrong one. No importer produces that today; making it
+impossible means carrying the lot's own currency into `LotConsumption`.
+
+`dividendIncomeMinor`, `interestIncomeMinor` and `tdsCreditMinor` accumulated identically and were
+latent only because nothing displays them yet; they had the same treatment. `IncomeTotals` in
+`fold.ts` now carries the income rows themselves (`events`, with each row's date, currency and
+stored rate) because a total has already thrown away what a conversion needs, and its scalar fields
+are documented as transaction-currency and not to be summed across pairs. `valuePortfolio` converts
+each row at its own date — preferring the rate on the row, as `xirr.ts` and `costInInr` do — and the
+three figures are now `Measured<Minor>`, so one unconvertible row withholds the total instead of
+contributing to it. Withholding the whole figure rather than the unconvertible part is deliberate: a
+partial sum labelled "dividend income" reads as the total.
+
 ## Interface
 
 ### ~~A single missing period was drawn as a continuous line~~ — FIXED

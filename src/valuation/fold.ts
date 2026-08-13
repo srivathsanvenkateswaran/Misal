@@ -34,7 +34,7 @@ import {
   subMinor,
   valueOf,
 } from '@domain/numeric'
-import { commonScale, scaleToInteger } from './arithmetic'
+import { commonScale, magnitudeMinor, scaleToInteger } from './arithmetic'
 import { localDate } from './calendar'
 import {
   type AccountCapability,
@@ -112,11 +112,37 @@ export interface LotConsumption {
   readonly lotOrigin: LotOrigin
 }
 
+export type IncomeKind = 'dividend' | 'interest' | 'fee' | 'tds'
+
+/**
+ * One income row, kept whole so that a caller can convert it.
+ *
+ * The totals below are sums over rows that may be in different currencies, so they are only ever
+ * meaningful *within* one pair and one currency. Anything that adds income across pairs — the
+ * portfolio layer does — must convert first, and conversion needs the date and the currency of each
+ * row, which a total has thrown away. `fxRate` is the rate stored on the row itself, used in
+ * preference to the daily table exactly as `xirr.ts` and `costInInr` use it.
+ */
+export interface IncomeEvent {
+  readonly txnId: string
+  readonly kind: IncomeKind
+  readonly date: IsoDate
+  /** A magnitude. Direction is the kind's, not the row's sign. */
+  readonly amountMinor: Minor
+  readonly currency: CurrencyCode
+  readonly fxRate: Dec | null
+}
+
 export interface IncomeTotals {
+  /**
+   * In the transaction currency of the rows that produced them. Never sum these across pairs — see
+   * `events`, which carries what a conversion needs.
+   */
   readonly dividendMinor: Minor
   readonly interestMinor: Minor
   readonly feeMinor: Minor
   readonly tdsMinor: Minor
+  readonly events: readonly IncomeEvent[]
 }
 
 export interface CorporateActionRef {
@@ -224,18 +250,23 @@ function fifoOrder(lots: readonly MutableLot[]): MutableLot[] {
  * Direction comes from the transaction type, not from the sign on the row: ingestion adapters
  * disagree about whether a sale is recorded as -10 or 10, and inferring direction from the sign
  * would make the fold depend on which broker's CSV happened to produce the row.
+ *
+ * The identical rule governs the *money* on the same row — see `magnitudeMinor` in `arithmetic.ts`,
+ * which every amount below goes through. Applying this reasoning to one column of a CAMS redemption
+ * and not the other is what booked a ₹1,000 gain as a ₹19,000 loss.
  */
 function magnitude(quantity: Dec): Dec {
   return absDec(quantity)
 }
 
 function purchaseCost(txn: TxnRow): { costMinor: Minor; known: boolean } {
+  const fees = magnitudeMinor(txn.feesMinor)
   if (txn.amountMinor !== null) {
-    return { costMinor: addMinor(txn.amountMinor, txn.feesMinor), known: true }
+    return { costMinor: addMinor(magnitudeMinor(txn.amountMinor), fees), known: true }
   }
   if (txn.price !== null) {
     const gross = valueOf(magnitude(txn.quantity), txn.price, txn.currency)
-    return { costMinor: addMinor(gross, txn.feesMinor), known: true }
+    return { costMinor: addMinor(gross, fees), known: true }
   }
   // Cost is genuinely unknown. Zero is stored so the field has a value; `known: false` is what
   // every downstream consumer reads, and no code path is allowed to spend this zero as a cost.
@@ -245,18 +276,29 @@ function purchaseCost(txn: TxnRow): { costMinor: Minor; known: boolean } {
 /**
  * Consideration per unit for a disposal: the recorded price, or the recorded amount divided by the
  * quantity. Needed per unit because grandfathering compares FMV against consideration per unit.
+ *
+ * The amount is taken as a magnitude, and `quantity` arrives as one, so a redemption printed in
+ * brackets by a CAS cannot produce a negative price per unit — which grandfathering would then
+ * compare against a positive FMV.
  */
 function unitConsiderationOf(txn: TxnRow, quantity: Dec): Dec | null {
   if (txn.price !== null) return txn.price
   if (txn.amountMinor !== null && !isZeroDec(quantity)) {
-    return divDec(minorToDec(txn.amountMinor, txn.currency), quantity)
+    return divDec(minorToDec(magnitudeMinor(txn.amountMinor), txn.currency), quantity)
   }
   return null
 }
 
-/** Total gross consideration of a disposal, when the row records one. */
+/**
+ * Total gross consideration of a disposal, when the row records one.
+ *
+ * A magnitude, never the row's own sign. The store legitimately holds a negative amount for a sale
+ * — `normalizeTransaction` passes a CAS redemption's `(10,000.00)` through as `-1000000` and the
+ * parser tests pin that as correct — and "money received" is the disposal's direction, which
+ * `txn.type` has already settled.
+ */
 function grossOf(txn: TxnRow, quantity: Dec): Minor | null {
-  if (txn.amountMinor !== null) return txn.amountMinor
+  if (txn.amountMinor !== null) return magnitudeMinor(txn.amountMinor)
   if (txn.price !== null) return valueOf(quantity, txn.price, txn.currency)
   return null
 }
@@ -325,6 +367,7 @@ class LedgerBuilder {
   readonly warnings: Warning[] = []
   readonly corporateActions: CorporateActionRef[] = []
   readonly provenance = new Set<string>()
+  readonly incomeEvents: IncomeEvent[] = []
   quantity: Dec = ZERO_DEC
   dividendMinor: Minor = ZERO_MINOR
   interestMinor: Minor = ZERO_MINOR
@@ -366,6 +409,23 @@ function openLot(
   builder.quantity = addDec(builder.quantity, quantity)
 }
 
+function recordIncome(
+  builder: LedgerBuilder,
+  txn: TxnRow,
+  date: IsoDate,
+  kind: IncomeKind,
+  amountMinor: Minor,
+): void {
+  builder.incomeEvents.push({
+    txnId: txn.id,
+    kind,
+    date,
+    amountMinor,
+    currency: txn.currency,
+    fxRate: txn.fxRate,
+  })
+}
+
 function recordDisposal(
   builder: LedgerBuilder,
   txn: TxnRow,
@@ -376,7 +436,7 @@ function recordDisposal(
   const { slices, shortfall } = consumeFifo(builder.lots, quantity)
   const gross = grossOf(txn, quantity)
   const grossShares = gross === null ? null : apportion(gross, slices)
-  const feeShares = apportion(txn.feesMinor, slices)
+  const feeShares = apportion(magnitudeMinor(txn.feesMinor), slices)
   const unitConsideration = unitConsiderationOf(txn, quantity)
 
   slices.forEach((slice, index) => {
@@ -507,18 +567,32 @@ function buildPairLedger(
       case 'transfer_out':
         recordDisposal(builder, txn, date, 'transfer_out', qty)
         break
-      case 'dividend':
-        builder.dividendMinor = addMinor(builder.dividendMinor, txn.amountMinor ?? ZERO_MINOR)
+      // Every income amount is taken as a magnitude for the same reason a disposal's is: a fee or a
+      // TDS deduction printed in brackets is still money out, and the kind already says which way.
+      case 'dividend': {
+        const amount = magnitudeMinor(txn.amountMinor ?? ZERO_MINOR)
+        builder.dividendMinor = addMinor(builder.dividendMinor, amount)
+        recordIncome(builder, txn, date, 'dividend', amount)
         break
-      case 'interest':
-        builder.interestMinor = addMinor(builder.interestMinor, txn.amountMinor ?? ZERO_MINOR)
+      }
+      case 'interest': {
+        const amount = magnitudeMinor(txn.amountMinor ?? ZERO_MINOR)
+        builder.interestMinor = addMinor(builder.interestMinor, amount)
+        recordIncome(builder, txn, date, 'interest', amount)
         break
-      case 'fee':
-        builder.feeMinor = addMinor(builder.feeMinor, txn.amountMinor ?? txn.feesMinor)
+      }
+      case 'fee': {
+        const amount = magnitudeMinor(txn.amountMinor ?? txn.feesMinor)
+        builder.feeMinor = addMinor(builder.feeMinor, amount)
+        recordIncome(builder, txn, date, 'fee', amount)
         break
-      case 'tds':
-        builder.tdsMinor = addMinor(builder.tdsMinor, txn.amountMinor ?? ZERO_MINOR)
+      }
+      case 'tds': {
+        const amount = magnitudeMinor(txn.amountMinor ?? ZERO_MINOR)
+        builder.tdsMinor = addMinor(builder.tdsMinor, amount)
+        recordIncome(builder, txn, date, 'tds', amount)
         break
+      }
     }
     const last = quantityHistory[quantityHistory.length - 1]
     if (last !== undefined && last.date === date) {
@@ -561,6 +635,7 @@ function buildPairLedger(
       interestMinor: builder.interestMinor,
       feeMinor: builder.feeMinor,
       tdsMinor: builder.tdsMinor,
+      events: builder.incomeEvents,
     },
     corporateActions: builder.corporateActions,
     quantityHistory,

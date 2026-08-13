@@ -32,7 +32,7 @@ import {
   subDec,
   subMinor,
 } from '@domain/numeric'
-import { decFromCount } from './arithmetic'
+import { decFromCount, magnitudeMinor } from './arithmetic'
 import { daysBetween, localDate } from './calendar'
 import type { IsoDate, PairRef, TxnRow } from './types'
 
@@ -92,6 +92,11 @@ function toInrMinor(amountMinor: Minor, currency: CurrencyCode, fxRate: Dec): Mi
  * user who vested RSUs at ₹68/USD in 2019 and holds them at ₹88/USD today has earned a real
  * currency return; converting the whole series at today's rate erases it, and converting at the
  * average rate invents one.
+ *
+ * Every amount is read as a magnitude and signed by `txn.type`, never by the sign the row arrived
+ * with. A CAMS/KFintech CAS prints a redemption's amount in brackets and the store holds it as a
+ * negative; taking it verbatim booked ₹10,000 leaving the investment as ₹10,000 entering it and
+ * returned −29.76% for a portfolio that was up. See `magnitudeMinor`.
  */
 export function buildCashflows(input: XirrInput): XirrResult<readonly Cashflow[]> {
   const flows: Cashflow[] = []
@@ -101,7 +106,9 @@ export function buildCashflows(input: XirrInput): XirrResult<readonly Cashflow[]
 
   for (const txn of input.txns) {
     const date = localDate(txn.occurredAt, txn.occurredTz)
-    const gross = txn.amountMinor
+    const gross = txn.amountMinor === null ? null : magnitudeMinor(txn.amountMinor)
+    const fees = magnitudeMinor(txn.feesMinor)
+    const quantity = absDec(txn.quantity)
     let amountMinor: Minor
     switch (txn.type) {
       case 'buy':
@@ -109,21 +116,21 @@ export function buildCashflows(input: XirrInput): XirrResult<readonly Cashflow[]
           missingCost.push(txn.id)
           continue
         }
-        amountMinor = negMinor(addMinor(gross, txn.feesMinor))
+        amountMinor = negMinor(addMinor(gross, fees))
         break
       case 'sell':
         if (gross === null) {
           missingPrice.push(txn.instrumentId)
           continue
         }
-        amountMinor = subMinor(gross, txn.feesMinor)
+        amountMinor = subMinor(gross, fees)
         break
       case 'dividend':
       case 'interest':
         amountMinor = gross ?? ZERO_MINOR
         break
       case 'fee':
-        amountMinor = negMinor(gross ?? txn.feesMinor)
+        amountMinor = negMinor(gross ?? fees)
         break
       case 'tds':
         // The cash left the account, so it is a cashflow; it is still not an expense of transfer
@@ -132,7 +139,7 @@ export function buildCashflows(input: XirrInput): XirrResult<readonly Cashflow[]
         break
       case 'transfer_in': {
         if (gross !== null) {
-          amountMinor = negMinor(addMinor(gross, txn.feesMinor))
+          amountMinor = negMinor(addMinor(gross, fees))
           break
         }
         if (txn.price === null) {
@@ -140,24 +147,21 @@ export function buildCashflows(input: XirrInput): XirrResult<readonly Cashflow[]
           continue
         }
         amountMinor = negMinor(
-          addMinor(decToMinor(mulDec(txn.quantity, txn.price), txn.currency), txn.feesMinor),
+          addMinor(decToMinor(mulDec(quantity, txn.price), txn.currency), fees),
         )
         break
       }
       case 'transfer_out': {
         const unitPrice = txn.price ?? input.priceOn?.(txn.instrumentId, date) ?? null
         if (gross !== null) {
-          amountMinor = subMinor(gross, txn.feesMinor)
+          amountMinor = subMinor(gross, fees)
           break
         }
         if (unitPrice === null) {
           missingPrice.push(txn.instrumentId)
           continue
         }
-        amountMinor = subMinor(
-          decToMinor(mulDec(txn.quantity, unitPrice), txn.currency),
-          txn.feesMinor,
-        )
+        amountMinor = subMinor(decToMinor(mulDec(quantity, unitPrice), txn.currency), fees)
         break
       }
       case 'split':

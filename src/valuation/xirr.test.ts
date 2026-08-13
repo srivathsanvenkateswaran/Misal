@@ -17,7 +17,7 @@ import {
   roundDec,
   subDec,
 } from '@domain/numeric'
-import { resetIds, txn } from './__fixtures__/build'
+import { casRedemption, resetIds, txn } from './__fixtures__/build'
 import { type Cashflow, buildCashflows, classifySigns, xirr } from './xirr'
 
 function flow(date: string, amountMinor: string): Cashflow {
@@ -125,6 +125,29 @@ describe('cashflow construction', () => {
     expect(withoutTable.ok).toBe(false)
     if (withoutTable.ok) return
     expect(withoutTable.error.code).toBe('MISSING_FX')
+  })
+
+  it('books a CAS redemption as money returned, whichever sign the statement printed', () => {
+    resetIds()
+    // The reviewers' scenario: ₹18,000 in for 300 units, 150 redeemed for ₹10,000, 150 still held
+    // and worth ₹12,000. The investor is up ₹4,000. The redemption is the CAS's own sign
+    // convention — units (150.000), amount (10,000.00) — which the store keeps as negatives.
+    const built = buildCashflows({
+      txns: [
+        txn({ type: 'buy', date: '2024-04-01', quantity: '300', amount: '1800000' }),
+        casRedemption({ date: '2025-04-01', quantity: '150', amount: '1000000' }),
+      ],
+      terminal: { date: '2026-08-12', amountMinor: '1200000' as Cashflow['amountMinor'] },
+      fxOn: () => null,
+    })
+    if (!built.ok) throw new Error(`unexpected ${built.error.code}`)
+    // Taken verbatim, ₹10,000 leaving the investment was booked as ₹10,000 entering it.
+    expect(built.value.map((f) => f.amountMinor)).toEqual(['-1800000', '1000000', '1200000'])
+
+    const result = xirr(built.value)
+    if (!result.ok) throw new Error(`expected a rate, got ${result.error.code}`)
+    // Was −29.76% on a portfolio that is up. The sign of the answer is the whole assertion.
+    expect(compareDec(result.value.rate, dec('0'))).toBe(1)
   })
 
   it('blocks the scope when a transfer_in has no acquisition cost', () => {
