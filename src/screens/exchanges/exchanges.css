@@ -1,0 +1,295 @@
+/* ============================================================
+   Screen 07 — exchanges.
+   Built on the tokens and chrome primitives in @ui/base.css. This
+   file adds only what this screen has and no other does: the
+   disclosure block, the credential form, the progress readout and
+   the coverage table's monospaced quantities.
+   ============================================================ */
+
+.exch-screen {
+  padding: 16px;
+}
+
+.exch-panel {
+  margin-bottom: 14px;
+}
+
+.exch-panel-alert {
+  border-left: 3px solid var(--st-crit);
+}
+
+/* ---------------------------------------------- choosing an exchange */
+
+.exch-providers {
+  border: 0;
+  margin: 0 0 12px;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.exch-provider {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  font-size: var(--fs-base);
+}
+
+.exch-provider-name {
+  display: block;
+  font-weight: 600;
+}
+
+/* ----------------------------------------------------- the disclosure
+
+   Never collapsible, and never below the fields. A warning that has to
+   be opened is a warning the person in a hurry does not read, and the
+   CoinDCX one is the reason this screen has a spec at all. */
+
+.exch-disclosure {
+  border: 1px solid var(--rule);
+  border-left-width: 3px;
+  background: var(--surface-2);
+  padding: 11px 13px;
+  margin: 0 0 14px;
+}
+
+.exch-disclosure-warn {
+  border-left-color: var(--st-warn);
+}
+
+.exch-disclosure-crit {
+  border-left-color: var(--st-crit);
+}
+
+.exch-disclosure-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.exch-disclosure-headline {
+  font-size: var(--fs-lead);
+  line-height: 19px;
+}
+
+.exch-disclosure p {
+  font-size: var(--fs-base);
+  line-height: 17px;
+  color: var(--ink-2);
+  margin: 0 0 8px;
+}
+
+.exch-steps {
+  margin: 0;
+  padding-left: 18px;
+  font-size: var(--fs-body);
+  color: var(--ink-3);
+}
+
+.exch-steps li {
+  margin-bottom: 3px;
+}
+
+/* ------------------------------------------------------- the key form */
+
+.exch-connect {
+  display: flex;
+  flex-direction: column;
+}
+
+.exch-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+  max-width: 520px;
+}
+
+.exch-field input {
+  font-family: var(--mono);
+  font-size: var(--fs-base);
+  padding: 6px 8px;
+  background: var(--surface);
+  color: var(--ink-1);
+  border: 1px solid var(--rule-2);
+}
+
+.exch-ack {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: var(--fs-base);
+  line-height: 17px;
+  border-top: 1px solid var(--rule);
+  padding-top: 11px;
+  margin-bottom: 12px;
+  max-width: 720px;
+}
+
+.exch-ack .conf {
+  display: block;
+  margin-top: 3px;
+}
+
+.exch-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.exch-note {
+  font-size: var(--fs-body);
+  line-height: 16px;
+  color: var(--ink-2);
+  background: var(--surface-2);
+  border-left: 3px solid var(--st-good);
+  padding: 8px 11px;
+  margin: 6px 0 0;
+}
+
+.exch-note-bad {
+  border-left-color: var(--st-crit);
+}
+
+/* --------------------------------------------------------- progress */
+
+.exch-progress-phase {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0 0 8px;
+  font-size: var(--fs-base);
+}
+
+.exch-progress-detail {
+  font-family: var(--mono);
+  font-size: var(--fs-body);
+  color: var(--ink-3);
+}
+
+.exch-bar {
+  display: block;
+  width: 100%;
+  height: 8px;
+  margin-bottom: 10px;
+}
+
+.exch-progress-facts,
+.exch-counts,
+.exch-scope-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 26px;
+  margin: 0 0 10px;
+}
+
+.exch-progress-facts dt,
+.exch-counts dt,
+.exch-scope-flags dt {
+  font-size: var(--fs-label);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.exch-progress-facts dd,
+.exch-counts dd,
+.exch-scope-flags dd {
+  margin: 2px 0 0;
+  font-size: var(--fs-base);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ----------------------------------------------------- the report */
+
+.exch-report-head {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.exch-scope,
+.exch-coverage,
+.exch-gapnotes,
+.exch-issues,
+.exch-blindspot {
+  border-top: 1px solid var(--rule);
+  padding-top: 10px;
+  margin-top: 10px;
+}
+
+.exch-scope p,
+.exch-coverage p,
+.exch-blindspot p {
+  font-size: var(--fs-base);
+  line-height: 17px;
+  color: var(--ink-2);
+  margin: 5px 0 8px;
+}
+
+.exch-blindspot {
+  border-left: 3px solid var(--st-serious);
+  border-top: 0;
+  background: var(--surface-2);
+  padding: 10px 13px;
+}
+
+.exch-gapnotes ul,
+.exch-issues ul,
+.exch-blocking,
+.exch-advisory {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: var(--fs-body);
+  line-height: 16px;
+  color: var(--ink-2);
+}
+
+.exch-gapnotes li,
+.exch-issues li,
+.exch-blocking li,
+.exch-advisory li {
+  margin-bottom: 5px;
+}
+
+/* A quantity carries up to eighteen decimals and is printed digit for
+   digit. Monospaced so the tails line up and a difference is legible
+   as a difference rather than as a wall. */
+.exch-qty {
+  font-family: var(--mono);
+  font-size: var(--fs-body);
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------- connected accounts */
+
+.exch-connections th[scope='row'] {
+  font-weight: 600;
+}
+
+.exch-row-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.exch-confirm {
+  border-left: 3px solid var(--st-crit);
+  background: var(--surface-2);
+  padding: 10px 13px;
+  margin-top: 12px;
+}
+
+.exch-confirm p {
+  font-size: var(--fs-base);
+  line-height: 17px;
+  color: var(--ink-2);
+  margin: 5px 0 9px;
+}
