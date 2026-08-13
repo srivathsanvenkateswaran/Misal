@@ -8,6 +8,7 @@
 
 svg.cal,
 svg.nwchart,
+svg.navchart,
 svg.concchart {
   width: 100%;
   height: auto;
@@ -92,6 +93,90 @@ svg text {
   stroke: var(--ink-4);
   stroke-width: 1;
   stroke-dasharray: 2 3;
+}
+
+/* ============================ price history ============================
+   The line carries the instrument's asset-class hue, and the rug beneath
+   the axis is ink rather than hue: a transaction is not an asset class.
+   Purchases point up in --ink-3, disposals down in the heavier --ink-1,
+   so direction survives greyscale as both position and weight. */
+.line-s1 {
+  stroke: var(--s1);
+}
+.line-s2 {
+  stroke: var(--s2);
+}
+.line-s3 {
+  stroke: var(--s3);
+}
+.line-s4 {
+  stroke: var(--s4);
+}
+.line-s5 {
+  stroke: var(--s5);
+}
+.line-other {
+  stroke: var(--other);
+}
+
+.line-s1,
+.line-s2,
+.line-s3,
+.line-s4,
+.line-s5,
+.line-other {
+  fill: none;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.dot-s1 {
+  fill: var(--s1);
+}
+.dot-s2 {
+  fill: var(--s2);
+}
+.dot-s3 {
+  fill: var(--s3);
+}
+.dot-s4 {
+  fill: var(--s4);
+}
+.dot-s5 {
+  fill: var(--s5);
+}
+.dot-other {
+  fill: var(--other);
+}
+
+.dot-s1,
+.dot-s2,
+.dot-s3,
+.dot-s4,
+.dot-s5,
+.dot-other {
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+
+.rug-buy {
+  stroke: var(--ink-3);
+  stroke-width: 1;
+}
+.rug-sell {
+  stroke: var(--ink-1);
+  stroke-width: 2;
+}
+.rug-lab {
+  font-size: var(--fs-stamp);
+  letter-spacing: 0.14em;
+  fill: var(--ink-4);
+}
+.rug-lab2 {
+  font-size: var(--fs-stamp);
+  letter-spacing: 0.14em;
+  fill: var(--ink-3);
 }
 
 /* Ruler drawn but nothing measured: the empty state of the instrument. */

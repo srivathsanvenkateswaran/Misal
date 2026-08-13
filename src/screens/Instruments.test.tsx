@@ -101,6 +101,31 @@ describe('InstrumentDetail — a snapshot-backed instrument', () => {
   })
 })
 
+describe('InstrumentDetail — the price history', () => {
+  it('draws the stored prices and marks every unit-moving transaction beneath the axis', () => {
+    const { container } = render(<InstrumentDetail data={data()} instrumentId="i-ppfc" />)
+
+    expect(screen.getByText('NAV history')).toBeInTheDocument()
+    expect(container.querySelector('.navchart .line-s2')).not.toBeNull()
+    // 24 purchases and one redemption are stored for this scheme.
+    expect(container.querySelectorAll('[data-rug="buy"]')).toHaveLength(24)
+    expect(container.querySelectorAll('[data-rug="sell"]')).toHaveLength(1)
+
+    assertHonest(container)
+  })
+
+  it('hatches the rug of a snapshot holding rather than leaving it empty', () => {
+    const { container } = render(<InstrumentDetail data={data()} instrumentId="i-gold" />)
+
+    expect(screen.getByText('Price history')).toBeInTheDocument()
+    expect(container.querySelectorAll('[data-rug="buy"]')).toHaveLength(0)
+    expect(container.querySelector('.navchart [data-hatch]')).not.toBeNull()
+    expect(screen.getByText(/NO TRANSACTION HISTORY/u)).toBeInTheDocument()
+
+    assertHonest(container)
+  })
+})
+
 describe('InstrumentDetail — an unknown identifier', () => {
   it('is a stated not-found with a way back, not a blank screen', () => {
     const { container } = render(<InstrumentDetail data={data()} instrumentId="i-nope" />)
