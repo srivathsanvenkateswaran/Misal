@@ -17,6 +17,7 @@ import type { TransportRequest } from '@adapters/http'
 import type { Invoker } from './import'
 import {
   connectExchangeAccount,
+  createExchangeTransport,
   syncExchangeAccount,
   TauriSyncStore,
   type ExchangeAccount,
@@ -81,8 +82,22 @@ function fakeCore(exchange: 'binance' | 'coindcx', fixtures: readonly string[]) 
         return undefined
 
       // -- transport ------------------------------------------------------
-      case 'exchange_send':
-        return transport.send(arg<TransportRequest>('request'))
+      case 'exchange_send': {
+        const request = arg<TransportRequest>('request')
+        // The core reads the account's exchange from its own tables before it touches a stored
+        // credential, and refuses a request that names a different one - a signed request carries
+        // the user's API key, and pinning the origin without pinning the credential would only
+        // decide which third party receives the secret. Mirrored here so no test in this file can
+        // pass while sending one exchange's key to another.
+        const owner = stored.get(request.accountId) as { account: ExchangeAccount } | undefined
+        if (owner !== undefined && owner.account.providerId !== request.adapterId) {
+          throw new Error(
+            `${request.adapterId} refused the request: account ${request.accountId} ` +
+              `belongs to ${owner.account.providerId}, not ${request.adapterId}`,
+          )
+        }
+        return transport.send(request)
+      }
 
       // -- store ----------------------------------------------------------
       case 'sync_find_instrument_by_alias':
@@ -271,6 +286,55 @@ describe('an exchange with no permission model', () => {
 // ---------------------------------------------------------------------------
 
 describe('the transport', () => {
+  /**
+   * The other half of "a request cannot choose its origin": it cannot choose its credential
+   * either.
+   *
+   * `adapterId` and `accountId` travel in one object, so an adapter that named someone else's
+   * account would have its request signed with that account's key and sent to its own host. With
+   * CoinDCX as `account-1`, that is a trade-and-withdrawal credential - the exchange issues no
+   * read-only keys - landing in Binance's request log. The core refuses it; this asserts the
+   * refusal survives the seam rather than being swallowed into a generic failure.
+   */
+  it('cannot aim one exchange at another account credential', async () => {
+    const core = fakeCore('binance', ['time', 'api-restrictions-read-only'])
+    await connectExchangeAccount({
+      accountId: 'account-1',
+      providerId: 'binance',
+      credential: CREDENTIAL,
+      now: () => NOW,
+      call: core.call,
+    })
+
+    // Through the seam this module owns, so the refusal is read verbatim rather than after the
+    // adapter's http layer has folded it into a generic 'network' error.
+    await expect(
+      createExchangeTransport(core.call).send({
+        adapterId: 'coindcx',
+        accountId: 'account-1',
+        allowlist: [],
+        hostUrl: 'https://api.coindcx.com',
+        host: 'primary',
+        method: 'POST',
+        path: '/exchange/v1/users/balances',
+        query: '',
+        body: '{"timestamp":1786528800000}',
+        signing: 'coindcx-body',
+        userAgent: 'Misal/0.1 (test)',
+      }),
+    ).rejects.toThrow(/account account-1 belongs to binance/)
+
+    // And a whole sync driven at the wrong exchange gets nowhere.
+    const outcome = await syncExchangeAccount({
+      accountId: 'account-1',
+      providerId: 'coindcx',
+      now: () => NOW,
+      call: core.call,
+    })
+    expect(outcome.status).toBe('failed')
+    expect(core.store.transactions).toHaveLength(0)
+  })
+
   it('does not hand the core an allowlist or a host of its own choosing', async () => {
     // A guard a compromised webview can widen is not a guard. The core keeps its own copy of
     // both and ignores anything sent from here, so sending them would only imply they mattered.

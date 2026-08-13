@@ -30,6 +30,49 @@ the failure a real screen — "Misal needs access to its encryption key in your 
 where your database password is kept" — with a retry. That also makes the Linux passphrase fallback
 reachable, which today it is not, for the same reason.
 
+### ~~A signed request pinned its origin but not its credential~~ — FIXED
+
+`credential_for` in `src-tauri/src/sync.rs` selected the keychain reference with
+`SELECT keychain_key FROM credential_ref WHERE account_id = ?1` and never joined
+`account.provider_id`, while everything else about the request — adapter, signing scheme, method,
+path, host — was re-derived from the Rust-side tables precisely so the caller could not choose it.
+The account id and the adapter id arrive in one object from the frontend, and nothing made them
+agree.
+
+**Consequence:** with CoinDCX connected as `a1` and Binance as `a2`, a request of
+`{adapterId: 'binance', accountId: 'a1', path: '/api/v3/myTrades'}` passed every guard and opened
+TLS to `api.binance.com` carrying `X-MBX-APIKEY: <the CoinDCX key>`. CoinDCX issues no read-only
+keys, so that is a trade-and-withdrawal credential landing in a third party's request logs. Pinning
+the origin without pinning the credential only decides *which* third party receives the secret.
+
+Fixed by re-deriving the pairing from `account.provider_id` — the column `commit_credential` writes
+and nothing else does — before any stored credential is read, and by selecting the reference
+through a join on that column so there is no ordering of statements in which the key is read first
+and checked second. A mismatch is named in the error rather than looking like an absent row.
+
+Two further doors to the same confusion were closed in the same pass, both being the shape of the
+original: an account id from the caller paired with an exchange id that nothing checked it against.
+
+- `upsert_document` filed a page under any `(accountId, providerId)` pair it was handed.
+  `start_run` reads the provider back off that row to stamp the run, so every transaction under it
+  would have cited a provenance that was a fiction.
+- `commit_credential` upserted the account with `ON CONFLICT (id) DO UPDATE SET label`, which
+  leaves `provider_id` alone. Committing a Binance key onto an existing CoinDCX account id left the
+  row saying CoinDCX while `credential_ref` pointed at the Binance secret — the same confusion
+  arriving through the connect flow instead of the transport.
+
+**Standing lesson, and the reason this survived a guard module with tests:** every existing test
+here — `one_adapter_cannot_borrow_anothers_endpoint`,
+`the_signing_scheme_is_fixed_per_exchange` — uses a single fixture account, and a credential cannot
+be aimed at the wrong exchange when there is only one. The fixture, not the assertions, was the
+limit. The regression test now creates two accounts on two exchanges, and asserts on the *text* of
+the refusal: without the fix the borrowed lookup still fails, one step later and for an unrelated
+reason, so `is_err()` alone would have passed against the defect.
+
+Reachability, stated honestly: both fields come from one options object today, so exploiting this
+needed a compromised bundle or a contributed adapter. That is the same threat model
+`src/adapters/allowlist.ts` names as the reason the Rust allowlist is duplicated at all.
+
 ### App bundle shipped with no icon — FIXED
 
 `tauri.conf.json` had no `bundle.icon` array. The icons existed in `src-tauri/icons/` because

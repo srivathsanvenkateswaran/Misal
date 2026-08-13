@@ -67,6 +67,12 @@ export interface ExchangeAccount {
  * `allowlist` and `hostUrl` are dropped rather than forwarded. The core keeps its own copy of
  * both and ignores anything the frontend sends, because a guard a compromised webview can widen
  * is not a guard - so sending them would only imply they mattered.
+ *
+ * `adapterId` and `accountId` are both forwarded and both are checked *against each other* over
+ * there: the core reads the account's exchange from its own `account` table and refuses to sign
+ * with a credential belonging to a different one. Nothing here can make that pair agree - an
+ * adapter names its own id and receives the account id it was given - which is precisely why the
+ * check lives on the other side of the boundary.
  */
 export function createExchangeTransport(call: Invoker = tauriInvoke): Transport {
   return {
