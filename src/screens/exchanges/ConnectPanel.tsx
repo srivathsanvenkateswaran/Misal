@@ -35,6 +35,15 @@ export interface CredentialSubmission {
 
 export interface ConnectPanelProps {
   readonly providerId: ProviderId
+  /**
+   * The label of the account this key would replace, or `null` when this exchange is new.
+   *
+   * The panel says "replace" rather than "connect" in that case, and names the account, because
+   * the two actions differ in what happens to everything already synced and a user who thinks they
+   * are adding a second account is a user who will not understand where their balances went. There
+   * is no separate reconnect path: this panel is where a rotated key is pasted.
+   */
+  readonly replacing: string | null
   readonly onProvider: (providerId: ProviderId) => void
   readonly onSubmit: (submission: CredentialSubmission) => void
   readonly busy: boolean
@@ -100,9 +109,13 @@ export function ConnectPanel(props: ConnectPanelProps): ReactNode {
     })
   }
 
+  const replacing = props.replacing
+
   return (
     <Panel
-      title="Connect an exchange account"
+      title={
+        replacing === null ? 'Connect an exchange account' : `Replace the key for ${replacing}`
+      }
       meta="The key is staged in memory first"
       className="exch-panel"
       foot={
@@ -143,6 +156,16 @@ export function ConnectPanel(props: ConnectPanelProps): ReactNode {
           })}
         </fieldset>
 
+        {replacing !== null && (
+          <p className="exch-note" role="status">
+            Misal already holds a key for {disclosure.displayName}, on the account named{' '}
+            {replacing}. Pasting a key here <strong>replaces</strong> that one: the account keeps
+            the balances and trades it has already synced and carries on from where its last sync
+            reached, and the key it holds now is overwritten in the keychain. Misal tracks one
+            account per exchange, so this is a replacement rather than a second account.
+          </p>
+        )}
+
         <section
           className={`exch-disclosure exch-disclosure-${disclosure.tone}`}
           id={disclosureId}
@@ -172,13 +195,17 @@ export function ConnectPanel(props: ConnectPanelProps): ReactNode {
             type="text"
             value={label}
             disabled={props.busy}
-            placeholder={disclosure.displayName}
+            placeholder={replacing ?? disclosure.displayName}
             onChange={(event) => {
               setLabel(event.target.value)
             }}
           />
           <span className="conf">
-            Shown in the account list. Optional — it defaults to {disclosure.displayName}.
+            Shown in the account list. Optional — it{' '}
+            {replacing === null
+              ? `defaults to ${disclosure.displayName}`
+              : `leaves the name as ${replacing}`}
+            .
           </span>
         </label>
 
@@ -232,7 +259,11 @@ export function ConnectPanel(props: ConnectPanelProps): ReactNode {
 
         <div className="exch-actions">
           <button className="btn btn-strong" type="submit" disabled={props.busy}>
-            {props.busy ? 'Checking the key…' : 'Check this key and connect'}
+            {props.busy
+              ? 'Checking the key…'
+              : replacing === null
+                ? 'Check this key and connect'
+                : 'Check this key and replace'}
           </button>
           <span className="conf">
             Misal contacts {disclosure.displayName} and nothing else, over the endpoints listed in

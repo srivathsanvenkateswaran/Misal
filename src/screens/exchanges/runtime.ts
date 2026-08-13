@@ -18,9 +18,13 @@
 
 import { invoke } from '@tauri-apps/api/core'
 import { ADAPTER_IDS, type ProgressReporter, type ProviderId, type SyncOutcome } from '@adapters/index'
-import type { ConnectOutcome } from '@adapters/connect'
 import { listAccounts, listInstruments, listPositions } from '../../data/client'
-import { KeychainVault, connectExchangeAccount, syncExchangeAccount } from '../../data/sync'
+import {
+  KeychainVault,
+  connectExchangeAccount,
+  syncExchangeAccount,
+  type ConnectResult,
+} from '../../data/sync'
 
 /**
  * The command that removes a stored exchange credential.
@@ -54,6 +58,13 @@ export interface ConnectionView {
 }
 
 export interface ConnectRequest {
+  /**
+   * The account this key is for. The id of the account already connected to this exchange when
+   * there is one — a new key for an exchange Misal already knows is a *replacement*, and minting a
+   * fresh id for it would leave the old account's balances standing beside the new one's, each the
+   * newest row for its own instruments and both counted. The core has the final say; see
+   * `ConnectResult.accountId`.
+   */
   readonly accountId: string
   readonly providerId: ProviderId
   readonly label: string
@@ -65,14 +76,21 @@ export interface ExchangeRuntime {
   listConnections: () => Promise<readonly ConnectionView[]>
   /** id → display name, for the coverage table. Coverage rows carry instrument ids only. */
   instrumentNames: () => Promise<ReadonlyMap<string, string>>
-  connect: (request: ConnectRequest) => Promise<ConnectOutcome>
+  /** Answers with the account the credential was filed under, which is the one to sync. */
+  connect: (request: ConnectRequest) => Promise<ConnectResult>
   sync: (
     accountId: string,
     providerId: ProviderId,
     onProgress: ProgressReporter,
   ) => Promise<SyncOutcome>
   disconnect: (accountId: string) => Promise<void>
-  /** Injected so a test is deterministic and the screen never reaches for a generator directly. */
+  /**
+   * A id for an exchange Misal has never seen a key for. Injected so a test is deterministic and
+   * the screen never reaches for a generator directly.
+   *
+   * Only ever called on a *first* connect. A uuid cannot collide with an existing row, so calling
+   * it for a key that replaces another is precisely how one account becomes two.
+   */
   newAccountId: () => string
   now: () => Date
 }

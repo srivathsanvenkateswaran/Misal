@@ -196,8 +196,9 @@ export function SyncReportView(props: SyncReportViewProps): ReactNode {
           <p className="exch-note exch-note-bad" role="alert">
             This key can now withdraw funds. It could not when it was connected, so it was changed
             on the exchange since. Misal stopped rather than syncing, and has deleted nothing: the
-            balances and trades already stored are untouched. Disconnect this account, create a new
-            key with withdrawals disabled, and connect that one.
+            balances and trades already stored are untouched. Create a new key with withdrawals
+            disabled and paste it into the panel below — it replaces the key on this account, which
+            keeps everything already synced and carries on from where it stopped.
           </p>
         )}
 

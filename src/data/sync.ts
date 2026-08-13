@@ -30,9 +30,12 @@ import {
   type ScopeReport,
   type SyncOutcome,
 } from '@adapters/index'
+import { signed } from '@adapters/binance/signing'
 import { connectAccount, type ConnectOutcome, type CredentialVault } from '@adapters/connect'
-import type { GuardedResponse } from '@adapters/contract'
-import type { Transport, TransportRequest } from '@adapters/http'
+import type { AdapterContext, GuardedResponse } from '@adapters/contract'
+import { createGuardedHttp, type Transport, type TransportRequest } from '@adapters/http'
+import { parseLossless, textOrNull } from '@adapters/lossless-json'
+import { fixedClockOffset, MeasuredClockOffset } from '@adapters/time'
 import type {
   DocumentRef,
   PositionRow,
@@ -100,6 +103,34 @@ export function createExchangeTransport(call: Invoker = tauriInvoke): Transport 
 // ---------------------------------------------------------------------------
 
 /**
+ * Who an exchange account *is*, as opposed to which key currently opens it.
+ *
+ * An API key is a credential naming an account, not the account itself, and a user who rotates one
+ * - which Misal's own sync report tells them to do when a key gains withdrawal permission - still
+ * holds the same coins afterwards. Written into `account.identity_key`, whose unique index is what
+ * turns that sentence into something the database enforces rather than something the connect
+ * screen has to remember.
+ *
+ * `accountRef` is the exchange's own id for the account where the exchange will say. Binance will:
+ * `uid` on `GET /api/v3/account`, already on both allowlists and already documented there as being
+ * read for `permissions` and `uid`. CoinDCX will not, anywhere in its three allowlisted endpoints,
+ * so its accounts are keyed on the exchange alone - one CoinDCX account per database. That is a
+ * real limitation rather than an oversight and it is written down in docs/known-issues.md.
+ */
+export function exchangeIdentity(providerId: ProviderId, accountRef: string | null): string {
+  return accountRef === null ? `exchange:${providerId}` : `exchange:${providerId}:uid:${accountRef}`
+}
+
+/**
+ * Asks the exchange which account a staged key belongs to, or `null` if it will not say.
+ *
+ * Takes the staging handle rather than a credential: the probe has to run *before* the secret is
+ * written, so it signs the way the connect probe does, with a handle that the core can sign with
+ * and nothing can read back.
+ */
+export type IdentityProbe = (handle: string) => Promise<string | null>
+
+/**
  * The OS keychain, reached only through the core.
  *
  * `stage` is memory-only and `commit` is the sole path to disk, which is what makes "nothing was
@@ -109,10 +140,29 @@ export function createExchangeTransport(call: Invoker = tauriInvoke): Transport 
 export class KeychainVault implements CredentialVault {
   private readonly account: ExchangeAccount
   private readonly call: Invoker
+  private readonly identify: IdentityProbe | null
+  private filedUnder: string | null = null
 
-  constructor(account: ExchangeAccount, call: Invoker = tauriInvoke) {
+  constructor(
+    account: ExchangeAccount,
+    call: Invoker = tauriInvoke,
+    identify: IdentityProbe | null = null,
+  ) {
     this.account = account
     this.call = call
+    this.identify = identify
+  }
+
+  /**
+   * The account the core actually filed the credential under, once `commit` has run.
+   *
+   * Not always the id that was asked for: a key that replaces another lands on the account that
+   * already holds its balances, and syncing the id we proposed instead would sync nothing. Read
+   * through a field rather than returned, because `CredentialVault.commit` returns `void` and the
+   * connect flow that calls it belongs to the adapters, which know nothing about account rows.
+   */
+  get committedAccountId(): string | null {
+    return this.filedUnder
   }
 
   stage(credential: { apiKey: string; apiSecret: string }): Promise<string> {
@@ -126,16 +176,20 @@ export class KeychainVault implements CredentialVault {
    * Write the credential and record the account that owns it.
    *
    * The account row is created here rather than earlier so that a refused connect leaves nothing
-   * at all behind - not a secret, and not an empty account waiting to confuse the user.
+   * at all behind - not a secret, and not an empty account waiting to confuse the user. The
+   * identity is settled here for the same reason and in the same breath: it is the thing that
+   * decides *which* row, and asking afterwards would mean the row already existed.
    */
-  commit(handle: string, accountId: string): Promise<void> {
-    return this.call('exchange_commit_credential', {
+  async commit(handle: string, accountId: string): Promise<void> {
+    const accountRef = this.identify === null ? null : await this.identify(handle)
+    this.filedUnder = await this.call<string>('exchange_commit_credential', {
       handle,
       account: {
         id: accountId,
         providerId: this.account.providerId,
         label: this.account.label,
         baseCurrency: this.account.baseCurrency,
+        identityKey: exchangeIdentity(this.account.providerId, accountRef),
       },
     })
   }
@@ -332,6 +386,72 @@ export class TauriSyncStore implements SyncStore {
 // Connecting
 // ---------------------------------------------------------------------------
 
+/**
+ * Which Binance account a staged key belongs to, or `null` if Binance would not say this time.
+ *
+ * `GET /api/v3/account` is on the allowlist already - in both copies of it - and its comment there
+ * has always said it is read for `permissions` and `uid` and never for scope, because its
+ * `canTrade`/`canWithdraw` describe the *account* rather than the key. This reads it for the `uid`
+ * and nothing else. The scope decision is still made where it was, from
+ * `/sapi/v1/account/apiRestrictions`, by the adapter, before this ever runs.
+ *
+ * Every failure answers `null`. A rate limit, a network drop or a body shaped differently than
+ * expected must not cost the user a connect: without a uid the account is keyed on the exchange
+ * alone, which is weaker but still an identity, and the core refuses to overwrite a uid it already
+ * knows with that weaker one.
+ */
+export async function binanceAccountRef(options: {
+  readonly handle: string
+  readonly accountId: string
+  readonly call: Invoker
+  readonly now: () => Date
+}): Promise<string | null> {
+  try {
+    const { adapter, limiter } = createAdapter('binance')
+    const http = createGuardedHttp({
+      adapterId: adapter.id,
+      accountId: options.accountId,
+      allowlist: adapter.requestAllowlist,
+      hosts: adapter.hosts,
+      transport: createExchangeTransport(options.call),
+      limiter,
+      userAgent: USER_AGENT,
+      credentialHandle: options.handle,
+    })
+    const base: Omit<AdapterContext, 'clock'> = {
+      accountId: options.accountId,
+      http,
+      discoveredAssets: [],
+      log: () => undefined,
+      report: () => undefined,
+      now: options.now,
+    }
+
+    // Measured rather than assumed, exactly as the connect probe does it: a signed request with a
+    // drifted timestamp comes back as an auth failure, which here would silently mean "no uid".
+    const clock = new MeasuredClockOffset('0', async () => ({
+      serverMs: await adapter.serverTime({ ...base, clock: fixedClockOffset('0') }),
+      localMs: `${BigInt(options.now().getTime())}`,
+    }))
+    await clock.resync()
+
+    const response = await signed({ ...base, clock }, {
+      method: 'GET',
+      path: '/api/v3/account',
+      // The balances are read from getUserAsset during the sync; this call wants one field.
+      params: [['omitZeroBalances', 'true']],
+      weight: 20,
+    })
+    const uid = textOrNull(parseLossless(response.text), 'uid')
+    return uid === null || uid === '' ? null : uid
+  } catch {
+    return null
+  }
+}
+
+/** The connect outcome, plus the account the credential was actually filed under. */
+export type ConnectResult = ConnectOutcome & { readonly accountId: string }
+
 export interface ConnectExchangeOptions {
   readonly accountId: string
   readonly providerId: ProviderId
@@ -358,11 +478,17 @@ export interface ConnectExchangeOptions {
  *
  * The scope report is recorded alongside the credential so the account manager can show what the
  * key can do after a restart, rather than only in the session that connected it.
+ *
+ * `accountId` on the result is the account the credential was filed under, which is the one to
+ * sync. It differs from the one passed in whenever this key replaces another on an account that
+ * already exists - which is the ordinary case for a key rotation, and the case in which syncing
+ * the proposed id instead would leave the user looking at two of everything.
  */
 export async function connectExchangeAccount(
   options: ConnectExchangeOptions,
-): Promise<ConnectOutcome> {
+): Promise<ConnectResult> {
   const call = options.call ?? tauriInvoke
+  const now = options.now ?? (() => new Date())
   const { adapter, limiter } = createAdapter(options.providerId)
   const vault = new KeychainVault(
     {
@@ -372,6 +498,9 @@ export async function connectExchangeAccount(
       baseCurrency: adapter.baseCurrency,
     },
     call,
+    options.providerId === 'binance'
+      ? (handle) => binanceAccountRef({ handle, accountId: options.accountId, call, now })
+      : null,
   )
 
   const outcome = await connectAccount({
@@ -382,16 +511,21 @@ export async function connectExchangeAccount(
     transport: createExchangeTransport(call),
     limiter,
     userAgent: USER_AGENT,
-    now: options.now ?? (() => new Date()),
+    now,
     ...(options.acknowledgedRisk === undefined
       ? {}
       : { acknowledgedRisk: options.acknowledgedRisk }),
   })
 
   if (outcome.status === 'connected') {
-    await recordScope(call, options.accountId, outcome.scope, options.acknowledgedRisk === true)
+    // The core's answer, not ours. Recording the scope against the id we proposed would file it
+    // against an account that does not exist whenever this key replaced another.
+    const accountId = vault.committedAccountId ?? options.accountId
+    await recordScope(call, accountId, outcome.scope, options.acknowledgedRisk === true)
+    return { ...outcome, accountId }
   }
-  return outcome
+  // Nothing was stored, so nothing was filed anywhere: the id is the one that was asked for.
+  return { ...outcome, accountId: options.accountId }
 }
 
 function recordScope(
