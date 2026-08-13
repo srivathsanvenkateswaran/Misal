@@ -1501,6 +1501,61 @@ no longer promises "raise coverage to 100.0%" while something is unpriced.
 `unpricedSnapshotRows()` is the fixture; it is the reviewers' reproduction, and it is *worse* data
 than the shipped one, which is exactly why it read better.
 
+That fix put a different unsupported claim in the same branch. See the entry directly below, which
+is the **second** repair of this one sentence.
+
+### ~~The Accounts foot blamed pricing for a zero it had no evidence about~~ — FIXED (second repair)
+
+`capabilityFoot` in `src/screens/Accounts.tsx` read `coverageOpportunity === null` as proof that the
+snapshot accounts' holdings could not be priced, and printed "None of those holdings could be
+priced". `view-model.ts` nulls that field on `isZeroMinor(snapshotOnly) || isZeroMinor(netWorth)`,
+and pricing is only one of the ways that is true. Two others reach the same branch:
+
+- **A snapshot account with no position rows at all.** `upsert_exchange_account`
+  (`src-tauri/src/sync.rs`) inserts with a hardcoded `capability = 'snapshot'` when the credential is
+  committed — *before* any balances sync has run — and `queries.rs::list_accounts` lists every
+  non-archived account. So an exchange whose first sync has not started, or threw, or found nothing,
+  is on this screen holding nothing. This is the state of **every** newly connected exchange, for as
+  long as it takes the first sync to land.
+- **An account whose rows all price to zero**, e.g. a fully sold holding whose position row is
+  retained.
+
+**Consequence:** the screen named the user's account and stated a cause the same view-model
+contradicts in the same render — `unpricedCount` is 0, and the Dashboard calibration bar in the same
+session shows no unpriced note. For the freshly connected exchange the sentence is doubly wrong: it
+reports a pricing failure to a user whose account has simply not synced yet, which is a reason to go
+looking for a missing price feed instead of pressing sync.
+
+**This is the second false statement out of this one branch**, and that history is the reason for
+the shape of the fix. The first repair replaced "nothing on this screen is withheld" — a denial of an
+account listed three rows above it — with a claim about pricing that the branch does not license.
+Writing a third sentence was not the fix; splitting the branch on evidence the screen actually holds
+was. `AccountView` carries `unpriced` and `holdings` per account, so:
+
+- some snapshot account with `unpriced > 0` names the count, and only the count — "1 of its holdings
+  has no stored price" rather than "none of them could be priced", because a mixed account is
+  possible and the total is what the row above prints;
+- every snapshot account with `holdings === 0` says there are no holdings recorded yet, and stops
+  there. It deliberately does *not* explain that a connected account has none until its first sync
+  lands: that is true of the case this was found in and not knowably true of the account in front of
+  the user, and this branch has been repaired twice already for exactly that kind of inference;
+- otherwise the foot **names no cause at all**. It says only that the figure cannot be stated, which
+  is the one thing `coverageOpportunity === null` does prove.
+
+Two fixtures, because the corpus could not produce either state: `connectedNoHoldingsRows()` is a
+snapshot account row with zero positions — every account in `ACCOUNTS` had positions or transactions,
+and `allLedgerRows()` empties `positions` only for accounts that are `ledger` anyway — and
+`zeroQuantitySnapshotRows()` carries `ZERO_QUANTITY_POSITION`, the first zero-quantity row in the
+corpus.
+
+**Standing lesson, named by the reviewers and worth repeating:** the corpus has been catching up in
+*shape* faster than the suite has caught up in what it *asks* of each shape. `unpricedSnapshotRows()`
+was added by the first repair and drew exactly one assertion — on the sentence that turned out to be
+false in two other states reaching the same branch. That single assertion then defended the defect.
+Each of the three states now asserts on `holdings`, `unpriced`, `unpricedCount` and
+`coverageOpportunity` as well as on the sentence, so a fixture cannot again teach a test to expect
+one string and check nothing else.
+
 ### ~~Months with holdings but no stored prices were labelled "no history"~~ — FIXED
 
 `buildMonths` gapped on `isZeroMinor(netWorthMinor)` and pushed `{segments: null, unpricedCount: 0}`,

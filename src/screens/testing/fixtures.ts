@@ -639,3 +639,61 @@ export function subPaisaRows(over: Partial<PortfolioRows> = {}): PortfolioRows {
     ...over,
   })
 }
+
+// ---------------------------------------------------------------------------
+// Two snapshot accounts that hold nothing worth anything, for opposite reasons.
+//
+// Every account in `ACCOUNTS` has positions or transactions behind it, and `allLedgerRows()` empties
+// `positions` only for accounts that are `ledger` anyway. So a *snapshot* account contributing zero
+// value to net worth could only ever be reached one way in this corpus — an unpriced holding — and
+// any screen deciding something from that zero was reading one cause where there are three.
+// ---------------------------------------------------------------------------
+
+/**
+ * A snapshot account with an account row and no position rows at all.
+ *
+ * This is the state of every exchange the moment its key is committed: `upsert_exchange_account`
+ * inserts with a hardcoded `capability = 'snapshot'` at credential-commit time, before any balances
+ * sync has run, and `queries.rs::list_accounts` lists every non-archived account. A first sync that
+ * has not started, that threw, or that found nothing all leave the account exactly here — on screen,
+ * badged "Holdings only", with nothing under it.
+ *
+ * Nothing failed to price in this fixture, because there was nothing to price: `unpricedCount` is 0
+ * and the calibration bar carries no unpriced note.
+ */
+export function connectedNoHoldingsRows(over: Partial<PortfolioRows> = {}): PortfolioRows {
+  return portfolioRows({
+    // The ledger accounts keep their transactions, so net worth is non-zero and the only account
+    // contributing nothing is the snapshot one.
+    accounts: ACCOUNTS.filter((account) => account.id !== 'a-etrade'),
+    positions: [],
+    unresolved: [],
+    ...over,
+  })
+}
+
+/**
+ * A position row retained after the holding was fully sold: quantity `0`, priced normally.
+ *
+ * Nothing in `POSITIONS` is zero-quantity, so "the account holds rows, every row prices, and the
+ * value is nonetheless zero" was a state the corpus could not produce — and it is the third way a
+ * snapshot account contributes nothing.
+ */
+export const ZERO_QUANTITY_POSITION: PositionRow = {
+  id: 'p-gold-sold',
+  accountId: 'a-gold',
+  instrumentId: 'i-gold',
+  quantity: '0.0000',
+  asOf: '2026-08-10T00:00:00+05:30',
+  sourceDocumentId: 'd-grw-1',
+}
+
+/** Ledger accounts, plus one snapshot account whose single holding is a fully sold, priced row. */
+export function zeroQuantitySnapshotRows(over: Partial<PortfolioRows> = {}): PortfolioRows {
+  return portfolioRows({
+    accounts: ACCOUNTS.filter((account) => account.id !== 'a-etrade'),
+    positions: [ZERO_QUANTITY_POSITION],
+    unresolved: [],
+    ...over,
+  })
+}

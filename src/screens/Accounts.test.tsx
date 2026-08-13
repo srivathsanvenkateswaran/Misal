@@ -12,7 +12,14 @@ import { assertHonest } from '@ui/testing/assert-honest'
 import { Accounts } from './Accounts'
 import { buildPortfolioView } from './view-model'
 import type { PortfolioData } from './view-model'
-import { AS_OF, allLedgerRows, portfolioRows, unpricedSnapshotRows } from './testing/fixtures'
+import {
+  AS_OF,
+  allLedgerRows,
+  connectedNoHoldingsRows,
+  portfolioRows,
+  unpricedSnapshotRows,
+  zeroQuantitySnapshotRows,
+} from './testing/fixtures'
 
 function data(rows = portfolioRows()): PortfolioData {
   const view = buildPortfolioView(rows, AS_OF)
@@ -73,15 +80,80 @@ describe('Accounts', () => {
      * It is an account question, so it is asked of the accounts. The rupee figure only decides how
      * much can be promised.
      */
-    const { container } = render(<Accounts data={data(unpricedSnapshotRows())} />)
+    const view = data(unpricedSnapshotRows())
+    const { container } = render(<Accounts data={view} />)
     expect(
       screen.queryByText(/Every account supplies transaction history/u),
     ).toBeNull()
     expect(screen.getByText(/supplies holdings only/u)).toBeInTheDocument()
-    expect(screen.getByText(/None of those holdings could be priced/u)).toBeInTheDocument()
+    // The cause is stated only to the extent the screen holds evidence for it: the count of
+    // holdings with no stored price, which is the same number the row above prints.
+    expect(screen.getByText(/1 of its holdings has no stored price/u)).toBeInTheDocument()
+    expect(view.unpricedCount).toBe(1)
+    const snapshot = view.accounts.filter((account) => account.capability === 'snapshot')
+    expect(snapshot.map((account) => account.unpriced)).toEqual([1])
+    expect(snapshot.map((account) => account.holdings)).toEqual([1])
     // And the row it would have been denying is right there, saying the same thing.
     expect(screen.getAllByText('Holdings only').length).toBeGreaterThan(0)
     expect(screen.getByText(/1 not priced/u)).toBeInTheDocument()
+    assertHonest(container)
+  })
+
+  it('does not blame pricing for a snapshot account that has no holdings to price', () => {
+    /*
+     * `upsert_exchange_account` inserts `capability = 'snapshot'` when the credential is committed,
+     * before any balances sync runs, and `list_accounts` lists it immediately. So an exchange whose
+     * first sync has not landed — or threw, or found nothing — is on this screen holding nothing.
+     * `coverageOpportunity` is null there for the same reason it is null for an unpriced holding,
+     * and the foot used to read that one null as proof that pricing had failed.
+     */
+    const view = data(connectedNoHoldingsRows())
+    const { container } = render(<Accounts data={view} />)
+
+    const snapshot = view.accounts.filter((account) => account.capability === 'snapshot')
+    expect(snapshot).toHaveLength(1)
+    expect(snapshot[0]?.holdings).toBe(0)
+    expect(snapshot[0]?.unpriced).toBe(0)
+    // Nothing failed to price, and the view-model says so in the same session.
+    expect(view.unpricedCount).toBe(0)
+    expect(view.coverageOpportunity).toBeNull()
+
+    expect(screen.queryByText(/no stored price/u)).toBeNull()
+    expect(screen.queryByText(/could be priced/u)).toBeNull()
+    expect(screen.queryByText(/Every account supplies transaction history/u)).toBeNull()
+    expect(screen.getByText(/with no holding recorded yet/u)).toBeInTheDocument()
+    // The row itself carries the same statement, rather than a date it does not have.
+    expect(screen.getByText('No rows yet')).toBeInTheDocument()
+    expect(screen.getByText('No rows imported for this account yet')).toBeInTheDocument()
+    assertHonest(container)
+  })
+
+  it('claims no cause when holdings exist, all price, and the value is still zero', () => {
+    /*
+     * A fully sold holding whose row is retained. Every holding prices, so pricing has not failed;
+     * the account still contributes nothing, so there is no rupee figure to promise. The foot is
+     * allowed to say only that — naming a cause here would be the third false statement out of this
+     * one branch.
+     */
+    const view = data(zeroQuantitySnapshotRows())
+    const { container } = render(<Accounts data={view} />)
+
+    const snapshot = view.accounts.filter((account) => account.capability === 'snapshot')
+    expect(snapshot).toHaveLength(1)
+    expect(snapshot[0]?.holdings).toBe(1)
+    expect(snapshot[0]?.unpriced).toBe(0)
+    expect(snapshot[0]?.valueMinor).toBe('0')
+    expect(view.unpricedCount).toBe(0)
+    expect(view.coverageOpportunity).toBeNull()
+
+    expect(screen.queryByText(/no stored price/u)).toBeNull()
+    expect(screen.queryByText(/no holdings recorded yet/u)).toBeNull()
+    expect(screen.queryByText(/Every account supplies transaction history/u)).toBeNull()
+    expect(
+      screen.getByText(
+        /supplies holdings only\. How much a transaction history would move across the calibration line is not a figure Misal can state/u,
+      ),
+    ).toBeInTheDocument()
     assertHonest(container)
   })
 
