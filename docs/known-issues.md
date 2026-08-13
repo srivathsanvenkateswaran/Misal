@@ -8,27 +8,58 @@ forever.
 
 ## Blocking before v1 ships
 
-### Startup blocks on the keychain with no way to say so
+### ~~Startup blocks on the keychain with no way to say so~~ — FIXED
 
-`db::open()` is called from Tauri's `setup`, which runs before any UI exists. It calls
+`db::open()` was called from Tauri's `setup`, which runs before any UI exists. It calls
 `secrets::database_key()`, which on macOS can raise an authorization prompt — and on Linux blocks
 until a keyring daemon answers.
 
 Found by running the built app rather than by any test: every test injects a key directly and never
 touches the keychain, so the entire real startup path was unexercised.
 
-**Consequence:** the window appears, empty, and the application does nothing. No database is
-created, no error is shown, and the user is left looking at an unexplained system password box with
-no indication of what is asking or why. Denying it produces no visible outcome either. On a fresh
-machine this is the very first thing a new user experiences.
+**Consequence:** the window appeared, empty, and the application did nothing. No database was
+created, no error was shown, and the user was left looking at an unexplained system password box
+with no indication of what was asking or why. Denying it produced no visible outcome either. On a
+fresh machine this was the very first thing a new user experienced.
 
 Aggravated in development because each rebuild produces a new unsigned binary, which macOS treats
 as a different application, so approving one build does not carry to the next.
 
-**Fix direction:** do not open the store in `setup`. Let the window render, then open it, and give
-the failure a real screen — "Misal needs access to its encryption key in your keychain, which is
-where your database password is kept" — with a retry. That also makes the Linux passphrase fallback
-reachable, which today it is not, for the same reason.
+Fixed by taking the store out of `setup` entirely. `setup` now manages only in-memory state; the
+window renders, and `src/screens/startup/StartupGate.tsx` calls the new `startup_open_store`
+command from an effect. `AppState` is managed at that point rather than at launch, so no command
+can be served against a store that is not open, and a static mutex serialises the call against
+React's double-mount.
+
+The command never returns `Err`. `db::StartupOutcome` is a tagged union — `ready`,
+`keychain-denied`, `keychain-unavailable`, `wrong-key`, `malformed-key`, `failed` — because *which
+situation the user is in* is a decision, and it has to be made in Rust where the platform error
+still exists rather than reconstructed from a flattened string in TypeScript. `secrets::classify`
+makes that decision, reading the macOS `OSStatus` back out of the boxed platform error (`keyring`
+maps both `errSecUserCanceled` and `errSecAuthFailed` to an undifferentiated `PlatformFailure`) and
+matching Secret Service's "prompt was dismissed" against its D-Bus connection failures.
+
+Denial and absence are separate screens, because they are separate situations: a user who clicked
+Deny has a working keychain and a decision to revisit, and a user with no keyring daemon has
+nothing to approve and needs the passphrase fallback instead. The fallback is offered on those two
+outcomes only — after a *refusal* a passphrase would key a second, divergent database rather than
+open the existing one.
+
+**Standing lesson:** this shipped because the seam that mattered had no seam. `database_key` talked
+to `Entry` directly and `open` talked to `database_key` directly, so "the keychain says no" was
+unreachable from a test on any machine whose keychain says yes. Both now take their key source as
+a parameter (`database_key_with`, `open_startup_at`), and the refusal cases are ordinary unit
+tests: a denial creates no database file, an unreachable daemon is not reported as a denial, and a
+malformed stored key returns without `set` ever being called — the never-regenerate rule asserted
+rather than described.
+
+**What remains, and it is small:** the passphrase path is reachable and works, but nothing records
+that a given database is passphrase-keyed. A machine that later gains a keyring daemon will
+generate a fresh keychain entry, fail to open its own passphrase-keyed file, and land on the
+`wrong-key` screen (which does offer the passphrase, so it is recoverable — but the useless
+keychain entry is left behind). Deriving with Argon2id as the core-schema spec names is also still
+outstanding: SQLCipher's own PBKDF2-HMAC-SHA512 does the derivation today, which is a real KDF but
+not the one written down.
 
 ### ~~A signed request pinned its origin but not its credential~~ — FIXED
 

@@ -1,8 +1,9 @@
 //! Encrypted SQLite storage and forward-only migrations.
 
 use crate::error::{MisalError, Result};
-use crate::secrets;
+use crate::secrets::{self, KeychainFailure};
 use rusqlite::Connection;
+use serde::Serialize;
 use std::path::{Path, PathBuf};
 
 /// Migrations, applied in order. Forward-only; there is no down path.
@@ -47,7 +48,24 @@ pub fn database_path() -> Result<PathBuf> {
     Ok(dir.join("misal.db"))
 }
 
+/// What SQLCipher is keyed with.
+pub enum Key<'a> {
+    /// 64 hex characters — the 32-byte random key held in the OS keychain. The normal path.
+    Hex(&'a str),
+    /// A passphrase the user typed, for the case where no keychain will answer (the Linux
+    /// caveat in the core-schema spec).
+    ///
+    /// Handed to SQLCipher verbatim, which runs it through its own PBKDF2-HMAC-SHA512 key
+    /// derivation against the salt stored in the file's first page. Deliberately not derived
+    /// here: a key-derivation function written for this one call site would be the least
+    /// reviewed cryptography in the product. Never logged, never stored, never echoed back.
+    Passphrase(&'a str),
+}
+
 /// Open the encrypted database, applying any outstanding migrations.
+///
+/// Reads the key from the keychain, which can block on a system prompt — so this must not be
+/// called before a window exists. `open_for_startup` is the entry point the application uses.
 pub fn open() -> Result<Connection> {
     let path = database_path()?;
     let key = secrets::database_key()?;
@@ -59,11 +77,22 @@ pub fn open() -> Result<Connection> {
 /// Open an encrypted database at an explicit path. Separated from `open` so tests can drive it
 /// with a temporary file and a fixed key.
 pub fn open_at(path: &Path, key_hex: &str) -> Result<Connection> {
+    open_keyed(path, &Key::Hex(key_hex))
+}
+
+/// Open an encrypted database with either form of key material.
+pub fn open_keyed(path: &Path, key: &Key<'_>) -> Result<Connection> {
     let conn = Connection::open(path)?;
 
     // Must be the first statement executed. SQLCipher derives the page key from it, and any
     // prior statement would be attempted against an undecrypted file.
-    conn.pragma_update(None, "key", format!("x'{key_hex}'"))?;
+    //
+    // The value is bound through rusqlite's pragma escaping rather than concatenated, so a
+    // passphrase containing a quote is a passphrase and not a syntax error.
+    match key {
+        Key::Hex(key_hex) => conn.pragma_update(None, "key", format!("x'{key_hex}'"))?,
+        Key::Passphrase(passphrase) => conn.pragma_update(None, "key", *passphrase)?,
+    }
 
     // Fails immediately with "file is not a database" if the key is wrong, rather than
     // surfacing as corruption later.
@@ -77,6 +106,129 @@ pub fn open_at(path: &Path, key_hex: &str) -> Result<Connection> {
     )?;
 
     Ok(conn)
+}
+
+/// How opening the store turned out, in terms the startup screen can say out loud.
+///
+/// Every variant here is a *rendered* outcome rather than an error string: the frontend branches
+/// on `status` and chooses the words, because "keychain unavailable: Platform secure storage
+/// failure" is the message that left a user staring at an empty window with no idea what to do.
+///
+/// `detail` carries the platform's own sentence, for the user to quote in a bug report. A
+/// keychain error describes a read that produced nothing, so there is no secret in it to leak.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "status", rename_all = "kebab-case")]
+pub enum StartupOutcome {
+    /// Open and migrated. Every other command can now be served.
+    Ready,
+    /// The keychain was reached and refused. The key is still there; the answer was no.
+    KeychainDenied { detail: String },
+    /// Nothing answered — typically no keyring daemon. The passphrase fallback applies here and
+    /// only here: with no keychain there is no key to disagree with.
+    KeychainUnavailable { detail: String },
+    /// A database exists and the key we hold does not open it. Nothing is deleted, nothing is
+    /// re-keyed, and no fresh key is generated: the file is intact and the wrong key is the
+    /// problem.
+    WrongKey,
+    /// The stored key is not a key. Refusing to replace it, because a replacement would make an
+    /// existing database permanently unreadable.
+    MalformedKey,
+    /// Anything else — a filesystem failure, a migration that would not apply.
+    Failed { detail: String },
+}
+
+/// Open the store for startup, turning every failure into something the UI can explain.
+///
+/// Called from a command once the window is up, never from Tauri's `setup`. Reading the key can
+/// raise a system authorization prompt on macOS and can block indefinitely on Linux, and doing
+/// that before any UI exists is exactly the defect this function exists to remove: the user saw
+/// an empty window and a password box with nothing to say what was asking or why.
+///
+/// `passphrase` is the fallback path. It is `Some` only when the user has been told the keychain
+/// could not answer and has chosen to type one.
+pub fn open_for_startup(
+    passphrase: Option<&str>,
+) -> std::result::Result<Connection, StartupOutcome> {
+    let path = match database_path() {
+        Ok(path) => path,
+        Err(err) => {
+            return Err(StartupOutcome::Failed {
+                detail: err.to_string(),
+            })
+        }
+    };
+    open_startup_at(&path, passphrase, secrets::database_key)
+}
+
+/// The startup sequence with its key source injected, so a refusing keychain can be tested
+/// without one — the failure that shipped precisely because no test could reach it.
+fn open_startup_at<K>(
+    path: &Path,
+    passphrase: Option<&str>,
+    key_from_keychain: K,
+) -> std::result::Result<Connection, StartupOutcome>
+where
+    K: FnOnce() -> Result<String>,
+{
+    // The key is obtained before the file is touched. `Connection::open` creates the database on
+    // the spot, and a half-created file left behind by a denied prompt would be the next launch's
+    // corruption report.
+    let opened = match passphrase {
+        Some(passphrase) => open_keyed(path, &Key::Passphrase(passphrase)),
+        None => match key_from_keychain() {
+            Ok(key_hex) => open_keyed(path, &Key::Hex(&key_hex)),
+            Err(err) => return Err(from_key_error(&err)),
+        },
+    };
+
+    let conn = match opened {
+        Ok(conn) => conn,
+        Err(err) => return Err(from_open_error(&err)),
+    };
+
+    match migrate(&conn, path) {
+        Ok(()) => Ok(conn),
+        Err(err) => Err(StartupOutcome::Failed {
+            detail: err.to_string(),
+        }),
+    }
+}
+
+/// A key that could not be fetched, in the user's terms.
+fn from_key_error(error: &MisalError) -> StartupOutcome {
+    match error {
+        MisalError::MalformedKey => StartupOutcome::MalformedKey,
+        MisalError::Keychain(keychain) => match secrets::classify(keychain) {
+            KeychainFailure::Denied => StartupOutcome::KeychainDenied {
+                detail: keychain.to_string(),
+            },
+            KeychainFailure::Unavailable => StartupOutcome::KeychainUnavailable {
+                detail: keychain.to_string(),
+            },
+            KeychainFailure::Malformed => StartupOutcome::MalformedKey,
+            KeychainFailure::Other => StartupOutcome::Failed {
+                detail: keychain.to_string(),
+            },
+        },
+        other => StartupOutcome::Failed {
+            detail: other.to_string(),
+        },
+    }
+}
+
+/// A database that would not open, in the user's terms.
+fn from_open_error(error: &MisalError) -> StartupOutcome {
+    // SQLCipher reports a key that does not decrypt the file as NotADatabase, which is the same
+    // code a genuinely corrupt file gives. Naming it "wrong key" is the honest reading here:
+    // the file was written by this application, and the only thing that changed is the key.
+    if let MisalError::Db(rusqlite::Error::SqliteFailure(failure, _)) = error {
+        if failure.code == rusqlite::ErrorCode::NotADatabase {
+            return StartupOutcome::WrongKey;
+        }
+    }
+    StartupOutcome::Failed {
+        detail: error.to_string(),
+    }
 }
 
 fn current_version(conn: &Connection) -> Result<i64> {
@@ -195,6 +347,177 @@ mod tests {
     /// migration is added.
     fn latest_version() -> i64 {
         MIGRATIONS.iter().map(|(v, _, _)| *v).max().unwrap_or(0)
+    }
+
+    /// A keychain that refuses, without a keychain.
+    fn refusing_keychain(message: &'static str) -> impl FnOnce() -> Result<String> {
+        #[derive(Debug)]
+        struct Refusal(&'static str);
+        impl std::fmt::Display for Refusal {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "{}", self.0)
+            }
+        }
+        impl std::error::Error for Refusal {}
+        move || {
+            Err(MisalError::Keychain(keyring::Error::PlatformFailure(
+                Box::new(Refusal(message)),
+            )))
+        }
+    }
+
+    #[test]
+    fn a_denied_keychain_produces_an_explainable_outcome_and_creates_nothing() {
+        // The defect this replaces: the key was read from Tauri's `setup`, before any window
+        // existed, so a denial produced no database, no error and no screen - just an empty
+        // window behind a system password box. Startup must now always end somewhere sayable.
+        let (_dir, path) = temp_db();
+        let outcome = open_startup_at(
+            &path,
+            None,
+            refusing_keychain("User canceled the operation"),
+        )
+        .expect_err("a denied keychain opened the database");
+
+        match outcome {
+            StartupOutcome::KeychainDenied { detail } => assert!(!detail.is_empty()),
+            other => panic!("a denial was reported as {other:?}"),
+        }
+        assert!(
+            !path.exists(),
+            "a denied keychain still created a database file"
+        );
+    }
+
+    #[test]
+    fn an_absent_keyring_daemon_is_told_apart_from_a_denial() {
+        // Different situations, different words, and only one of them has a passphrase fallback:
+        // there is nothing for the user to approve when no keychain is running at all.
+        let (_dir, path) = temp_db();
+        let outcome = open_startup_at(
+            &path,
+            None,
+            refusing_keychain("failed to connect to the D-Bus session bus"),
+        )
+        .expect_err("an unreachable keychain opened the database");
+
+        assert!(
+            matches!(outcome, StartupOutcome::KeychainUnavailable { .. }),
+            "an absent keyring daemon was reported as {outcome:?}"
+        );
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn a_malformed_stored_key_reaches_the_screen_rather_than_a_new_key() {
+        let (_dir, path) = temp_db();
+        let outcome = open_startup_at(&path, None, || Err(MisalError::MalformedKey))
+            .expect_err("a malformed key opened the database");
+        assert_eq!(outcome, StartupOutcome::MalformedKey);
+        assert!(
+            !path.exists(),
+            "a malformed key led to a database being created"
+        );
+    }
+
+    #[test]
+    fn the_passphrase_fallback_opens_and_reopens_a_database() {
+        // The Linux caveat made reachable: with no keychain to answer, a passphrase is the only
+        // remaining door, and it has to still work on the second launch.
+        let (_dir, path) = temp_db();
+        {
+            let conn = open_startup_at(&path, Some("correct horse battery staple"), || {
+                panic!("the keychain was consulted despite a passphrase being supplied")
+            })
+            .expect("the passphrase did not open a fresh database");
+            assert_eq!(current_version(&conn).unwrap(), latest_version());
+            conn.execute(
+                "INSERT INTO setting (key, value, updated_at) VALUES ('probe', 'kept', 'now')",
+                [],
+            )
+            .unwrap();
+        }
+
+        let reopened = open_startup_at(&path, Some("correct horse battery staple"), || {
+            panic!("the keychain was consulted despite a passphrase being supplied")
+        })
+        .expect("the passphrase did not reopen its own database");
+        let kept: String = reopened
+            .query_row("SELECT value FROM setting WHERE key = 'probe'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(kept, "kept");
+    }
+
+    #[test]
+    fn a_key_that_does_not_open_the_file_is_named_as_such_and_destroys_nothing() {
+        let (_dir, path) = temp_db();
+        {
+            let conn = open_at(&path, TEST_KEY).unwrap();
+            migrate(&conn, &path).unwrap();
+            conn.execute(
+                "INSERT INTO setting (key, value, updated_at) VALUES ('probe', 'kept', 'now')",
+                [],
+            )
+            .unwrap();
+        }
+
+        let outcome = open_startup_at(
+            &path,
+            Some("not the key this file was written with"),
+            || panic!("unreachable"),
+        )
+        .expect_err("the wrong key opened the database");
+        assert_eq!(outcome, StartupOutcome::WrongKey);
+
+        // The file has to survive being opened with the wrong key, or the error screen would be
+        // reporting damage it caused itself.
+        let intact = open_at(&path, TEST_KEY).expect("the database no longer opens with its key");
+        let kept: String = intact
+            .query_row("SELECT value FROM setting WHERE key = 'probe'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(kept, "kept");
+    }
+
+    #[test]
+    fn a_working_keychain_opens_and_migrates() {
+        let (_dir, path) = temp_db();
+        let conn = open_startup_at(&path, None, || Ok(TEST_KEY.to_string()))
+            .expect("a working keychain failed to open the database");
+        assert_eq!(current_version(&conn).unwrap(), latest_version());
+    }
+
+    #[test]
+    fn every_outcome_serialises_to_the_shape_the_frontend_branches_on() {
+        // The TypeScript union in src/data/startup.ts is written against these exact strings.
+        let json = |outcome: &StartupOutcome| serde_json::to_string(outcome).unwrap();
+        assert_eq!(json(&StartupOutcome::Ready), r#"{"status":"ready"}"#);
+        assert_eq!(json(&StartupOutcome::WrongKey), r#"{"status":"wrong-key"}"#);
+        assert_eq!(
+            json(&StartupOutcome::MalformedKey),
+            r#"{"status":"malformed-key"}"#
+        );
+        assert_eq!(
+            json(&StartupOutcome::KeychainDenied {
+                detail: "no".to_string()
+            }),
+            r#"{"status":"keychain-denied","detail":"no"}"#
+        );
+        assert_eq!(
+            json(&StartupOutcome::KeychainUnavailable {
+                detail: "no daemon".to_string()
+            }),
+            r#"{"status":"keychain-unavailable","detail":"no daemon"}"#
+        );
+        assert_eq!(
+            json(&StartupOutcome::Failed {
+                detail: "disk".to_string()
+            }),
+            r#"{"status":"failed","detail":"disk"}"#
+        );
     }
 
     #[test]
