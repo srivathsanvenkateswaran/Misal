@@ -1819,8 +1819,16 @@ quarantine notice now point at that panel instead of saying "connect that one".
 rather than from the id the caller proposed, returning the id it actually filed under —
 `resolve_account` in `src-tauri/src/sync.rs`. A row already carrying the identity *is* the account;
 an unclaimed identity is written onto the proposed row; a row whose identity says it is a different
-account at the same exchange is refused rather than repointed, so pasting a second Binance
-account's key into the replace form cannot merge two accounts either.
+account at the same exchange is refused rather than repointed.
+
+**That refusal covers only the rows whose identity is already specific**, and the sentence that
+used to stand here without that qualification was false for two states the core actually meets: a
+row whose `identity_key` is NULL, and a row keyed on the exchange alone. Neither knows which
+exchange-side account it is, so there is nothing for an incoming uid to be compared *with* — the
+comparison cannot be written, and pretending otherwise was the defect below. Those two states now
+get a refusal that says it cannot tell, rather than a silent fold. A key whose own identity is
+generic — the exchange named no account, or the probe could not reach it — is still filed onto the
+row it was aimed at, which is the one remaining way two accounts can meet on one row; see below.
 
 **What identifies an exchange account.** For Binance, the exchange's own `uid`, read from
 `GET /api/v3/account` — already on both copies of the allowlist, and documented there since it was
@@ -1846,9 +1854,9 @@ but it is a real limitation, not an oversight.
   screen picks gets the identity, and the stale twin keeps its anonymous row and its stale snapshot
   and goes on double-counting. It has to be deleted from the accounts screen by hand.
 - **Two accounts at the same exchange are unreachable through the UI**, for Binance as much as for
-  CoinDCX. The core can now tell them apart — it refuses the second key rather than merging it —
-  but there is no screen that can create the second account, so the refusal is a dead end with an
-  explanation.
+  CoinDCX. The core refuses the second key rather than merging it — by comparison where both
+  identities are specific, and by disclosure where the row's is not — but there is no screen that
+  can create the second account, so the refusal is a dead end with an explanation.
 - **A Binance connect makes two extra requests** (`/api/v3/time` and `/api/v3/account`, weight 21 of
   6,000 a minute) and falls back silently when they fail, so an account can end up keyed on
   `exchange:binance` and be upgraded to its uid only on a later connect.
@@ -1857,6 +1865,94 @@ but it is a real limitation, not an oversight.
 `(provider_id)` where only one exists and quarantines the rest for the user to merge, and a
 "connect another account at this exchange" path on the screen once there is a way to tell the user
 which account they are looking at.
+
+### ~~A second account's key was folded onto a row that had never named itself~~ — FIXED
+
+Found reviewing the fix above, in the fix above. `resolve_account`'s "different account at that
+exchange" refusal was only the `Some(_)` fallthrough. The two arms before it — a row whose
+`identity_key` is NULL, and a row whose identity is generic (`exchange:binance`) — wrote the
+incoming identity onto the proposed row with **no comparison at all**, and the credential followed
+it there.
+
+Both preconditions are live rather than hypothetical. Every exchange account in a database written
+before the fix above carries `identity_key` NULL, because the old INSERT had no such column. And
+`binanceAccountRef` (`src/data/sync.ts`) swallows every error — `catch { return null }` — so a first
+connect made while Binance was rate limiting, or while the machine was offline, keys the row
+`exchange:binance` and syncs happily under it.
+
+`ExchangesScreen.tsx` always proposes the existing row (`existing?.accountId ?? runtime.newAccountId()`)
+and the Connect panel is the only place a key can be pasted, so there is no second-account path in
+the UI for a user to take by mistake — the fold arrives through the ordinary rotation form.
+
+**Consequence:** account B's secret overwrote A's keychain entry (`secret/<account_id>` is
+deterministic and `store_secret` overwrites in place, via `ON CONFLICT (account_id)` on the row),
+B's first snapshot superseded A's for every instrument they share — `latestSnapshots` in
+`src/valuation/positions.ts` keys on `(account_id, instrument_id)` — and A's holdings left net worth
+with the screen printing "the balances and trades already synced are untouched" over the top.
+
+**This was a missing disclosure, not a missing comparison.** In those two states the code has no
+information that could separate "the same account, whose probe finally worked" from "a different
+account's key", and no comparison can be invented for it. So `name_unclaimed_row` refuses instead,
+and only where there is something to lose: a row holding a `credential_ref`, a `position` or a `txn`
+is a connected account, and a uid-named key aimed at it is refused with a message saying why it
+cannot tell. A row holding none of those three has nothing to reattribute, so the legitimate
+upgrade — first connect rate-limited, second connect names the account — still goes through, and a
+test asserts that precondition rather than assuming it.
+
+The doc claim above was corrected in the same change: an unqualified promise the code does not
+honour is part of the defect, not a separate one.
+
+**What this still does not cover:**
+
+- **A row that knows its uid, meeting a key that does not.** A generic identity offered for a row
+  keyed on `uid:42` is ignored rather than written — which is right, it must not blunt what the row
+  knows — and the key is then filed onto that row. If it belongs to a *different* Binance account
+  whose probe happened to fail, the fold happens anyway. Refusing it would break every rotation made
+  while Binance is rate limiting, which is the case the fallback exists for, so the trade is made
+  deliberately in favour of the common path.
+- **A refused rotation has no cheap way forward.** A user with a pre-identity database, rotating the
+  key on an account that really is the same one, is now refused and told to delete the account in
+  Settings and connect the key as a new one — which re-syncs from scratch. That is a real cost, paid
+  to avoid a silent merge.
+
+**Fix direction:** ask the exchange who the *stored* key belongs to before replacing it. A uid probe
+signed with the account's existing credential would turn both of the states above into a real
+comparison — same uid, upgrade; different uid, refuse — and would leave the disclosure for the case
+where neither key can be probed at all.
+
+### ~~A failed commit during a key rotation deleted the credential it was replacing~~ — FIXED
+
+`commit_credential` wrote the keychain entry inside the database transaction's window and
+compensated a failed `tx.commit()` with `delete_secret(&keychain_key)`. That is correct for a first
+connect — the rows rolled back, so an entry left behind would be a live API key nothing refers to —
+and wrong for a rotation, which has been the ordinary path since the Connect panel became the
+replace panel.
+
+On a rotation the `credential_ref` row and the `account` row predate the transaction and survive its
+rollback. Deleting the entry therefore left the account reading as connected — `exchange_has_credential`
+counts `credential_ref` rows and nothing else — while the keychain held nothing, and every sync
+afterwards failed at `credential_for` with "the keychain entry for account … is missing". The screen
+printed "Nothing was stored: the key was discarded without being written", which was the opposite of
+what had happened.
+
+**On a rotation the compensation was strictly worse than no compensation.** With no compensation at
+all the failed commit would have left `credential_ref` pointing at a slot holding the valid new key
+— a working account.
+
+Fixed by making the compensation know which of the two it is in. `commit_credential` now asks,
+inside the transaction and before its own insert, whether a `credential_ref` row was already there;
+on a rotation it reads the previous secret first and puts it back if the commit fails, on a first
+connect it deletes as before, and where the row existed but the keychain held nothing — the state
+the old compensation created — the new key is left in place, because that repairs the account rather
+than recreating the failure. Each outcome says which one happened; "nothing was stored" is now
+claimed only where it is true. `ExchangesScreen` no longer appends that sentence to a failed
+*replacement*, where it cannot know it.
+
+**The absence that let this through:** the Rust suite had no fault injection anywhere, and no test
+in `sync.rs` had ever seen `tx.commit()` fail — a commit failure cannot be arranged by feeding a
+fixture bad data. `commit_credential_with` now takes the keychain (`CredentialStore`, an in-memory
+fake in tests, for the same reason `accounts::SecretStore` is injected) and the commit itself, so
+the window between the keychain write and the commit is executed rather than reasoned about.
 
 ### ~~Deposits and withdrawals were never fetched~~ — FIXED
 

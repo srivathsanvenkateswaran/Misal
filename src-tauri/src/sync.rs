@@ -278,6 +278,27 @@ fn account_with_identity(conn: &Connection, identity_key: &str) -> Result<Option
         .optional()?)
 }
 
+/// Whether this row already holds something that filing another account's key onto it would take
+/// over without saying so: a stored credential, a balance snapshot, or a transaction.
+///
+/// All three, because they are three different harms. The credential is overwritten in place -
+/// `keychain_key` is `secret/<account_id>` and `store_secret` overwrites - so the account whose key
+/// was there can no longer be reached. The snapshot is worse: `latestSnapshots` takes the newest
+/// row per `(account_id, instrument_id)`, so the incoming account's first sync supersedes the other
+/// account's holdings for every instrument they share and those holdings leave net worth with
+/// nothing on any screen saying so. Transactions carry `account_id` in their natural key, so a
+/// second account's fills land beside the first's as one history.
+fn account_holds_data(conn: &Connection, account_id: &str) -> Result<bool> {
+    let held: i64 = conn.query_row(
+        "SELECT (SELECT count(*) FROM credential_ref WHERE account_id = ?1)
+              + (SELECT count(*) FROM position WHERE account_id = ?1)
+              + (SELECT count(*) FROM txn WHERE account_id = ?1)",
+        [account_id],
+        |row| row.get(0),
+    )?;
+    Ok(held > 0)
+}
+
 /// Which account row this credential belongs on, and the identity to write there.
 ///
 /// The caller proposes an id. It is only a proposal: the connect screen mints a fresh uuid when it
@@ -289,13 +310,19 @@ fn account_with_identity(conn: &Connection, identity_key: &str) -> Result<Option
 ///
 ///   * a row already carrying this identity **is** the account - the credential lands there and
 ///     the caller is told which id it actually got;
-///   * an identity nothing claims yet is written onto the proposed row;
+///   * an identity nothing claims yet is written onto the proposed row, but only where the row
+///     holds nothing that writing it would reattribute - see `name_unclaimed_row`;
 ///   * a row whose identity says it is a *different* account at the same exchange is refused
 ///     rather than repointed, because folding two exchange accounts into one row would merge two
 ///     sets of holdings as surely as splitting one would double them;
 ///   * a generic identity offered for a row that already knows its exchange-side account id is
 ///     ignored rather than written, so a probe that could not reach the exchange this time does
 ///     not erase what a previous connect learned.
+///
+/// The comparison in the third rule needs both sides to be specific, and only the third rule is a
+/// comparison at all. Where the row's identity is NULL or generic there is nothing to compare an
+/// incoming uid against, and no amount of code here can invent one; what that case gets instead is
+/// a refusal that says so. See `name_unclaimed_row`.
 fn resolve_account(
     conn: &Connection,
     account: &AccountIdentity,
@@ -310,11 +337,12 @@ fn resolve_account(
     }
 
     match account_identity(conn, &account.id)? {
-        None => Ok((account.id.clone(), Some(identity.to_string()))),
+        None => name_unclaimed_row(conn, account, identity),
         // The exchange named itself this time and did not last time: the same account, better
-        // identified.
+        // identified - where it is the same account, which is the part that has to be established
+        // rather than assumed.
         Some(held) if held == generic_identity(&account.provider_id) => {
-            Ok((account.id.clone(), Some(identity.to_string())))
+            name_unclaimed_row(conn, account, identity)
         }
         // We learned nothing this time. Keep what is there rather than blunting it.
         Some(_) if identity == generic_identity(&account.provider_id) => {
@@ -327,6 +355,48 @@ fn resolve_account(
              belongs to.",
         )),
     }
+}
+
+/// Name a row that does not know which account it is - or refuse, when naming it would be a guess.
+///
+/// This is the arm with **no comparison available**, and that is the whole of it. A row whose
+/// `identity_key` is NULL (every exchange account in a database written before the column was
+/// populated) or generic (`exchange:binance`, which is what a rate-limited or offline connect
+/// leaves behind, because `binanceAccountRef` answers `null` on any failure) has never said which
+/// exchange-side account it is. A key arriving with a uid says which account *it* is. Nothing here
+/// can tell "the same account, and the probe finally worked" from "a different account's key", so
+/// the honest answer is not a comparison - it is a disclosure.
+///
+/// Refused only where there is something to lose. A row holding no credential, no snapshot and no
+/// transaction is a row nothing has been synced into, so naming it cannot reattribute anything and
+/// the legitimate upgrade goes through untouched. A row that already holds one of those is a
+/// connected account, and filing a key that names a different one onto it would overwrite its
+/// keychain entry and hand its holdings to whatever the new key syncs.
+///
+/// A generic incoming identity is not refused here: it claims no account, it is what an exchange
+/// that names none (CoinDCX, always) and a probe that could not reach one (Binance, sometimes)
+/// both produce, and the one-account-per-exchange consequence of it is documented rather than
+/// prevented. A row belonging to another exchange is not refused here either: the caller,
+/// `upsert_exchange_account`, refuses it a few lines later for a better reason.
+fn name_unclaimed_row(
+    conn: &Connection,
+    account: &AccountIdentity,
+    identity: &str,
+) -> Result<(String, Option<String>)> {
+    let names_an_account = identity != generic_identity(&account.provider_id);
+    let same_exchange =
+        account_provider(conn, &account.id)?.as_deref() == Some(&account.provider_id);
+    if names_an_account && same_exchange && account_holds_data(conn, &account.id)? {
+        return Err(refused(
+            &account.provider_id,
+            "this key says which account at that exchange it belongs to, and the account it would \
+             replace has never said which account it is - so nothing here can tell whether they \
+             are the same one. Nothing was changed. If it is the same account, delete it in \
+             Settings and connect this key as a new one; if it is not, filing it here would have \
+             put two accounts' holdings on a single row.",
+        ));
+    }
+    Ok((account.id.clone(), Some(identity.to_string())))
 }
 
 /// Refuse an account that does not belong to the adapter the caller named.
@@ -454,6 +524,44 @@ struct CredentialBlob {
     api_secret: String,
 }
 
+/// The keychain, as the connect flow uses it.
+///
+/// Injected for the reason `accounts::SecretStore` is injected: a test that wrote a real secret
+/// would put key material in the developer's login keychain, and would fail outright on a machine
+/// with no keyring daemon. It is also what makes the window between the keychain write and the
+/// database commit observable at all - that window is where the only credential an account has can
+/// be destroyed, and nothing could look inside it before.
+pub trait CredentialStore {
+    fn read(&mut self, keychain_key: &str) -> Result<Option<String>>;
+    fn store(&mut self, keychain_key: &str, secret: &str) -> Result<()>;
+    fn delete(&mut self, keychain_key: &str) -> Result<()>;
+}
+
+/// The real one.
+pub struct SystemKeychain;
+
+impl CredentialStore for SystemKeychain {
+    fn read(&mut self, keychain_key: &str) -> Result<Option<String>> {
+        secrets::read_secret(keychain_key)
+    }
+
+    fn store(&mut self, keychain_key: &str, secret: &str) -> Result<()> {
+        secrets::store_secret(keychain_key, secret)
+    }
+
+    fn delete(&mut self, keychain_key: &str) -> Result<()> {
+        secrets::delete_secret(keychain_key)
+    }
+}
+
+/// How the credential transaction is finished.
+///
+/// `Transaction::commit` in production. A test substitutes a failure, which is the only way to
+/// reach the compensation below: a commit that fails is not something a fixture can arrange by
+/// feeding bad data, and the absence of any way to arrange it is why the compensation went wrong
+/// unnoticed.
+type CommitFn = fn(rusqlite::Transaction<'_>) -> rusqlite::Result<()>;
+
 fn now_iso() -> String {
     chrono::Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true)
 }
@@ -511,14 +619,29 @@ fn upsert_exchange_account(conn: &Connection, account: &AccountIdentity) -> Resu
 /// the id it proposed would sync an account that does not exist.
 ///
 /// The database rows are staged first and the keychain written inside the same window, so a
-/// failure on either side leaves neither: a rollback drops the rows, and a failed commit deletes
-/// the secret. An orphaned keychain entry is a quiet security failure rather than a visible bug,
-/// which is exactly the kind worth spending an extra branch on.
+/// failure on either side leaves the account with a key it can use and a row that agrees: a
+/// rollback drops the rows this connect would have created, and a failed commit puts the keychain
+/// back the way the transaction found it. What "the way it found it" means depends on whether this
+/// was a first connect or a rotation, and getting that wrong destroys a credential - see
+/// `undo_keychain_write`.
 pub fn commit_credential(
     conn: &mut Connection,
     state: &ExchangeState,
     handle: &str,
     account: &AccountIdentity,
+) -> Result<String> {
+    commit_credential_with(conn, state, handle, account, &mut SystemKeychain, |tx| {
+        tx.commit()
+    })
+}
+
+fn commit_credential_with(
+    conn: &mut Connection,
+    state: &ExchangeState,
+    handle: &str,
+    account: &AccountIdentity,
+    keychain: &mut dyn CredentialStore,
+    commit: CommitFn,
 ) -> Result<String> {
     let staged = state
         .take(handle)
@@ -534,6 +657,24 @@ pub fn commit_credential(
     let tx = conn.transaction()?;
     let account_id = upsert_exchange_account(&tx, account)?;
     let keychain_key = secrets::account_secret_key(&account_id);
+
+    // Asked inside the transaction and *before* the insert below, so it answers a question about
+    // the rows as this connect found them: is there already a `credential_ref` here - one that a
+    // rollback will leave in place, still pointing at the entry about to be overwritten?
+    let credentials_here: i64 = tx.query_row(
+        "SELECT count(*) FROM credential_ref WHERE account_id = ?1",
+        [&account_id],
+        |row| row.get(0),
+    )?;
+    let replacing = credentials_here > 0;
+    // Read only on a rotation, so an ordinary first connect still touches the keychain exactly
+    // once, for the write.
+    let previous = if replacing {
+        keychain.read(&keychain_key)?
+    } else {
+        None
+    };
+
     tx.execute(
         "INSERT INTO credential_ref (account_id, keychain_key, kind, created_at)
          VALUES (?1, ?2, 'api-key-secret', ?3)
@@ -541,12 +682,79 @@ pub fn commit_credential(
         rusqlite::params![account_id, keychain_key, now_iso()],
     )?;
 
-    secrets::store_secret(&keychain_key, &blob)?;
-    if let Err(error) = tx.commit() {
-        let _ = secrets::delete_secret(&keychain_key);
-        return Err(error.into());
+    keychain.store(&keychain_key, &blob)?;
+    if let Err(error) = commit(tx) {
+        return Err(undo_keychain_write(
+            keychain,
+            &keychain_key,
+            previous,
+            replacing,
+            &error,
+        ));
     }
     Ok(account_id)
+}
+
+/// Put the keychain back the way the transaction found it, and say which of the two happened.
+///
+/// Deleting the entry is right for a **first connect**: the `credential_ref` and `account` rows
+/// rolled back with the transaction, so nothing points at it and an orphaned entry would be a live
+/// API key the user cannot see and Misal will never use.
+///
+/// It is wrong for a **rotation**, which is the ordinary path now that the connect panel doubles as
+/// the replace panel. There the `credential_ref` row and the account row predate the transaction
+/// and survive its rollback: deleting the entry leaves the account reading as connected - that is
+/// all `exchange_has_credential` counts - while the keychain holds nothing, and every sync then
+/// fails at `credential_for` with no way to recover but a fresh connect. That is strictly worse
+/// than doing nothing at all, since doing nothing leaves the surviving row pointing at a slot
+/// holding the valid new key. So the previous secret is put back where there is one, the new key
+/// is left in place where there is not, and the entry is deleted only where this transaction is
+/// what created the row that referred to it.
+///
+/// Each outcome says what it did. "Nothing was stored" is true of exactly one of them, and a
+/// message that claimed it of all three would be reassuring the user about the case that needs
+/// them most.
+fn undo_keychain_write(
+    keychain: &mut dyn CredentialStore,
+    keychain_key: &str,
+    previous: Option<String>,
+    replacing: bool,
+    error: &rusqlite::Error,
+) -> MisalError {
+    if !replacing {
+        return match keychain.delete(keychain_key) {
+            Ok(()) => MisalError::Other(format!(
+                "the connection could not be recorded ({error}). Nothing was stored: the key was \
+                 taken back out of the keychain."
+            )),
+            Err(cleanup) => MisalError::Other(format!(
+                "the connection could not be recorded ({error}), and the key could not be taken \
+                 back out of the keychain either ({cleanup}). No account refers to it; remove the \
+                 '{keychain_key}' entry by hand."
+            )),
+        };
+    }
+
+    match previous {
+        Some(prior) => match keychain.store(keychain_key, &prior) {
+            Ok(()) => MisalError::Other(format!(
+                "the replacement could not be recorded ({error}). Nothing was replaced: this \
+                 account still has the key it had before, and it still syncs."
+            )),
+            Err(restore) => MisalError::Other(format!(
+                "the replacement could not be recorded ({error}) and the previous key could not be \
+                 put back ({restore}). The key you just entered is the stored one and this account \
+                 syncs with it - it was not discarded."
+            )),
+        },
+        // The row said a credential was stored and the keychain had none: the state the old
+        // compensation created. Leaving the new key where it is repairs that account; deleting it
+        // would recreate it.
+        None => MisalError::Other(format!(
+            "the replacement could not be recorded ({error}). The key you just entered is the \
+             stored one and this account syncs with it - it was not discarded."
+        )),
+    }
 }
 
 /// The api key and secret to sign this request with, or empty values for an unsigned one.
@@ -1667,6 +1875,81 @@ mod tests {
         .unwrap();
     }
 
+    /// A keychain in memory, so a test can look at what a failed connect left behind.
+    ///
+    /// The real one is refused to tests on purpose: writing a secret would put key material in the
+    /// developer's login keychain and would fail outright where no keyring daemon runs. That is why
+    /// `commit_credential`'s compensation had never been executed by anything.
+    struct FakeKeychain {
+        entries: HashMap<String, String>,
+        /// Writes to accept before refusing. `usize::MAX` is a keychain that always works; `1` is
+        /// one that dies between the write and the attempt to undo it.
+        writes_accepted: usize,
+    }
+
+    impl FakeKeychain {
+        fn working() -> Self {
+            Self {
+                entries: HashMap::new(),
+                writes_accepted: usize::MAX,
+            }
+        }
+
+        fn failing_after(writes: usize) -> Self {
+            Self {
+                entries: HashMap::new(),
+                writes_accepted: writes,
+            }
+        }
+
+        fn holding(key: &str, blob: &str) -> Self {
+            let mut keychain = Self::working();
+            keychain.entries.insert(key.to_string(), blob.to_string());
+            keychain
+        }
+
+        /// The api key behind an account, read the way `credential_for` reads it.
+        fn api_key(&self, keychain_key: &str) -> Option<String> {
+            let raw = self.entries.get(keychain_key)?;
+            let blob: CredentialBlob = serde_json::from_str(raw).expect("a stored credential");
+            Some(blob.api_key)
+        }
+    }
+
+    impl CredentialStore for FakeKeychain {
+        fn read(&mut self, keychain_key: &str) -> Result<Option<String>> {
+            Ok(self.entries.get(keychain_key).cloned())
+        }
+
+        fn store(&mut self, keychain_key: &str, secret: &str) -> Result<()> {
+            if self.writes_accepted == 0 {
+                return Err(MisalError::Other(
+                    "the keychain refused the write".to_string(),
+                ));
+            }
+            self.writes_accepted -= 1;
+            self.entries
+                .insert(keychain_key.to_string(), secret.to_string());
+            Ok(())
+        }
+
+        fn delete(&mut self, keychain_key: &str) -> Result<()> {
+            self.entries.remove(keychain_key);
+            Ok(())
+        }
+    }
+
+    /// A commit that fails, with the transaction rolled back exactly as a real failure rolls it
+    /// back. `SQLITE_BUSY` because a second connection holding the write lock is the way this
+    /// actually happens on a user's machine.
+    fn commit_fails(tx: rusqlite::Transaction<'_>) -> rusqlite::Result<()> {
+        drop(tx);
+        Err(rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_BUSY),
+            Some("database is locked".to_string()),
+        ))
+    }
+
     fn request(adapter: &str, method: Method, path: &str, host: HostKey) -> ExchangeRequest {
         ExchangeRequest {
             adapter_id: adapter.to_string(),
@@ -2137,10 +2420,21 @@ mod tests {
         );
     }
 
+    /// The legitimate upgrade, and the one state in which it is still legitimate.
+    ///
+    /// The row holds nothing - no credential, no snapshot, no transaction - so naming it cannot
+    /// reattribute anything to anyone, and a first connect whose probe was rate limited followed by
+    /// one that reached the exchange must not cost the user an account.
+    ///
+    /// The precondition is asserted rather than assumed, because it is the whole difference between
+    /// this test and the two below it: this arm cannot tell "the same account, named at last" from
+    /// "a different account's key" either. What makes it safe here is that there is nothing on the
+    /// row to be wrong about.
     #[test]
     fn an_account_that_could_not_name_itself_is_named_when_the_exchange_finally_does() {
         let (_dir, conn) = open_test_db();
         upsert_exchange_account(&conn, &connecting("u1", "exchange:binance")).unwrap();
+        assert!(!account_holds_data(&conn, "u1").unwrap());
 
         let same =
             upsert_exchange_account(&conn, &connecting("u1", "exchange:binance:uid:42")).unwrap();
@@ -2149,6 +2443,78 @@ mod tests {
             account_identity(&conn, "u1").unwrap().as_deref(),
             Some("exchange:binance:uid:42")
         );
+    }
+
+    /// The first of the two states where the refusal above has nothing to compare with.
+    ///
+    /// Every exchange account in a database written before `identity_key` was populated carries
+    /// NULL there - the old INSERT had no such column - so this is not a hypothetical row, it is
+    /// every user who connected an exchange before this shipped. `a1` is that row, and it holds a
+    /// credential, which `commit_credential` overwrites in place: `secret/<account_id>` is
+    /// deterministic and `store_secret` overwrites. Folding a second account's key onto it would
+    /// take the first account's key out of reach and hand its instruments to the second account's
+    /// next snapshot, with the screen printing "the balances and trades already synced are
+    /// untouched" over the top.
+    #[test]
+    fn a_key_that_names_its_account_is_not_folded_onto_a_row_that_never_named_itself() {
+        let (_dir, conn) = open_test_db();
+        conn.execute(
+            "INSERT INTO credential_ref (account_id, keychain_key, kind, created_at)
+             VALUES ('a1', 'secret/a1', 'api-key-secret', 'now')",
+            [],
+        )
+        .unwrap();
+
+        let error = upsert_exchange_account(&conn, &connecting("a1", "exchange:binance:uid:99"))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("never said which account it is"),
+            "the refusal did not say why it could not tell: {error}"
+        );
+        assert_eq!(
+            account_identity(&conn, "a1").unwrap(),
+            None,
+            "a uid was written onto a row nothing could compare it with"
+        );
+    }
+
+    /// The second state: a row keyed on the exchange alone.
+    ///
+    /// `binanceAccountRef` swallows every error - `catch { return null }` - so a first connect made
+    /// while Binance was rate limiting or the machine was offline keys the row `exchange:binance`
+    /// and syncs happily under it. The snapshot is what a foreign key would take: `latestSnapshots`
+    /// keys on `(account_id, instrument_id)`, so the new key's first sync becomes the newest row
+    /// for every instrument the two accounts share and the holdings behind it leave net worth.
+    #[test]
+    fn a_key_that_names_its_account_is_not_folded_onto_a_row_keyed_on_the_exchange_alone() {
+        let (_dir, mut conn) = open_test_db();
+        upsert_exchange_account(&conn, &connecting("u1", "exchange:binance")).unwrap();
+        commit_positions(
+            &mut conn,
+            "u1",
+            "2026-08-12",
+            &[PositionRow {
+                instrument_id: "i-btc".to_string(),
+                quantity: "1.00000000".to_string(),
+            }],
+            "d1",
+        )
+        .unwrap();
+
+        let error = upsert_exchange_account(&conn, &connecting("u1", "exchange:binance:uid:99"))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("never said which account it is"),
+            "the refusal did not say why it could not tell: {error}"
+        );
+        assert_eq!(
+            account_identity(&conn, "u1").unwrap().as_deref(),
+            Some("exchange:binance"),
+            "a uid was written onto a row nothing could compare it with"
+        );
+        assert_eq!(count(&conn, "position WHERE account_id = 'u1'"), 1);
     }
 
     #[test]
@@ -2165,6 +2531,147 @@ mod tests {
         };
         assert_eq!(upsert_exchange_account(&conn, &account).unwrap(), "a1");
         assert_eq!(account_identity(&conn, "a1").unwrap(), None);
+    }
+
+    // -- a commit that fails ------------------------------------------------
+    //
+    // The window between the keychain write and the database commit. Nothing in this suite could
+    // enter it before: a commit failure cannot be arranged with bad data, and the keychain was the
+    // real one. `commit_credential_with` takes both, so the compensation is executed here rather
+    // than reasoned about.
+
+    /// What the account's keychain entry holds before the rotation begins.
+    const OLD_CREDENTIAL: &str =
+        r#"{"apiKey":"the-key-already-in-use","apiSecret":"0123456789ab"}"#;
+
+    /// A connected account, keyed on its uid, with a key in the keychain and a row that names it.
+    fn connected_account(conn: &Connection) -> FakeKeychain {
+        upsert_exchange_account(conn, &connecting("u1", "exchange:binance:uid:42")).unwrap();
+        conn.execute(
+            "INSERT INTO credential_ref (account_id, keychain_key, kind, created_at)
+             VALUES ('u1', 'secret/u1', 'api-key-secret', 'now')",
+            [],
+        )
+        .unwrap();
+        FakeKeychain::holding("secret/u1", OLD_CREDENTIAL)
+    }
+
+    /// The defect, in the state it actually occurs in.
+    ///
+    /// Since the connect panel became the replace panel, a rotation is the ordinary path. The
+    /// `credential_ref` row and the account row predate the transaction and survive its rollback,
+    /// so deleting the keychain entry - which is what a first connect's compensation is for - left
+    /// the account reading as connected with nothing behind it: `exchange_has_credential` counts
+    /// rows, and every sync then died at `credential_for`. On this path the compensation was
+    /// strictly worse than no compensation at all.
+    #[test]
+    fn a_failed_commit_during_a_rotation_leaves_the_account_a_key_that_works() {
+        let (_dir, mut conn) = open_test_db();
+        let mut keychain = connected_account(&conn);
+        let state = ExchangeState::new();
+        let handle = state.stage("the-key-just-entered", "fedcba9876543210");
+
+        let error = commit_credential_with(
+            &mut conn,
+            &state,
+            &handle,
+            &connecting("u1", "exchange:binance:uid:42"),
+            &mut keychain,
+            commit_fails,
+        )
+        .unwrap_err()
+        .to_string();
+
+        // The row survived the rollback, so the account still reads as connected...
+        assert_eq!(count(&conn, "credential_ref WHERE account_id = 'u1'"), 1);
+        // ...and there has to be a key behind it. Either key is a working account; no key is an
+        // account that cannot sync and cannot say why.
+        let stored = keychain
+            .api_key("secret/u1")
+            .expect("the account still says it is connected and the keychain holds nothing");
+        assert!(
+            stored == "the-key-already-in-use" || stored == "the-key-just-entered",
+            "the keychain holds neither the old key nor the new one: {stored}"
+        );
+        assert!(
+            error.contains("still has the key it had before"),
+            "the failure did not say what happened to the key: {error}"
+        );
+    }
+
+    /// The half that was already right, pinned so the fix above cannot quietly take it away.
+    ///
+    /// On a first connect the rows roll back and nothing points at the entry, so leaving it there
+    /// would be a live API key the user cannot see and Misal will never use.
+    #[test]
+    fn a_failed_commit_on_a_first_connect_leaves_no_orphaned_key() {
+        let (_dir, mut conn) = open_test_db();
+        let mut keychain = FakeKeychain::working();
+        let state = ExchangeState::new();
+        let handle = state.stage("the-key-just-entered", "fedcba9876543210");
+
+        let error = commit_credential_with(
+            &mut conn,
+            &state,
+            &handle,
+            &connecting("u-new", "exchange:binance:uid:42"),
+            &mut keychain,
+            commit_fails,
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(
+            keychain.entries.is_empty(),
+            "an orphaned key was left behind"
+        );
+        assert_eq!(count(&conn, "credential_ref"), 0);
+        assert_eq!(count(&conn, "account WHERE id = 'u-new'"), 0);
+        assert!(error.contains("Nothing was stored"), "{error}");
+    }
+
+    /// And when the keychain will not take the previous key back, the new one stays.
+    ///
+    /// The account is connected either way; what must never happen is that both keys are gone. The
+    /// message says which one is in the slot, because the user has to be able to tell whether the
+    /// key they just entered is now the live one.
+    #[test]
+    fn a_key_that_cannot_be_put_back_leaves_the_new_one_in_use_and_says_so() {
+        let (_dir, mut conn) = open_test_db();
+        let mut keychain = connected_account(&conn);
+        // One write: the new key. The attempt to restore the old one is the second, and it fails.
+        keychain.writes_accepted = 1;
+        let state = ExchangeState::new();
+        let handle = state.stage("the-key-just-entered", "fedcba9876543210");
+
+        let error = commit_credential_with(
+            &mut conn,
+            &state,
+            &handle,
+            &connecting("u1", "exchange:binance:uid:42"),
+            &mut keychain,
+            commit_fails,
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert_eq!(
+            keychain.api_key("secret/u1").as_deref(),
+            Some("the-key-just-entered")
+        );
+        assert!(
+            error.contains("it was not discarded"),
+            "the user was told the key was discarded when it is the one in use: {error}"
+        );
+    }
+
+    /// `failing_after` exists for the test above; this pins the knob itself, so a keychain that
+    /// silently accepted every write could not make that test pass for the wrong reason.
+    #[test]
+    fn the_fake_keychain_refuses_writes_once_its_budget_is_spent() {
+        let mut keychain = FakeKeychain::failing_after(1);
+        assert!(keychain.store("secret/u1", OLD_CREDENTIAL).is_ok());
+        assert!(keychain.store("secret/u1", OLD_CREDENTIAL).is_err());
     }
 
     // -- the store ----------------------------------------------------------

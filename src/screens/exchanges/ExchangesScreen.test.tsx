@@ -811,6 +811,33 @@ describe('Exchanges — replacing the key on an account already connected', () =
     expect(await screen.findByText(/The key for Binance spot has been replaced/u)).toBeInTheDocument()
   })
 
+  /**
+   * What a *failed* replacement is told, which is not what a failed first connection is told.
+   *
+   * "Nothing was stored: the key was discarded without being written" is true of a first
+   * connection and cannot be said here. `commit_credential` writes the keychain entry and commits
+   * the rows in one window, and on a rotation the row it would roll back to already exists: a
+   * commit that fails after the write leaves the slot holding the previous key or the one just
+   * entered. Emptying it instead would leave an account that still reads as connected and can no
+   * longer sync — the outcome this sentence used to describe as the key having been discarded.
+   */
+  it('does not tell a failed replacement that nothing was stored', async () => {
+    const core = fakeCore()
+    vi.mocked(core.runtime.connect).mockRejectedValue(
+      new Error('binance refused the request: the replacement could not be recorded.'),
+    )
+    const { container } = render(<ExchangesScreen runtime={core.runtime} tickMillis={50_000} />)
+    await screen.findByText('Connected accounts')
+
+    paste()
+    fireEvent.click(screen.getByRole('button', { name: 'Check this key and replace' }))
+
+    const note = await screen.findByText(/the replacement could not be recorded/u)
+    expect(note).toHaveTextContent(/keeps the key it already had/u)
+    expect(note.textContent).not.toContain('Nothing was stored')
+    assertHonest(container)
+  })
+
   it('still offers a first connection for an exchange that has none', async () => {
     const core = fakeCore()
     render(<ExchangesScreen runtime={core.runtime} tickMillis={50_000} />)
