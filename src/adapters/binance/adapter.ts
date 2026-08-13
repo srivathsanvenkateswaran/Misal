@@ -314,7 +314,21 @@ async function* walkFills(
 
   let state: BinanceCursor = { v: 1, symbols, empty: [...empty], assetsKey }
 
+  // The sweep is the slow part of a first sync and the reason this adapter reports progress at
+  // all: `myTrades` needs a symbol, there is no cross-symbol endpoint, and a hundred-odd calls at
+  // weight 20 take minutes. Reported before the first call rather than after it, so the count
+  // appears immediately rather than after the first symbol has finished.
+  let swept = 0
+  ctx.report({
+    phase: 'fills',
+    done: 0,
+    total: candidates.length,
+    detail: `Checking ${candidates.length} trading pairs for your trades`,
+  })
+
   for (const symbol of candidates) {
+    swept += 1
+    ctx.report({ phase: 'fills', done: swept, total: candidates.length, detail: symbol })
     if (empty.has(symbol)) continue
     let lastId = symbols[symbol]
 

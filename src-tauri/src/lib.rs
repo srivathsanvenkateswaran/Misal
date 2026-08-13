@@ -5,6 +5,7 @@ pub mod http;
 pub mod ingest;
 pub mod queries;
 pub mod secrets;
+pub mod sync;
 
 use error::Result;
 use serde::Serialize;
@@ -52,6 +53,9 @@ pub fn run() {
             app.manage(AppState {
                 conn: Mutex::new(conn),
             });
+            // Staged exchange credentials live here and nowhere else until the scope check has
+            // decided whether they may be written to the keychain at all.
+            app.manage(sync::ExchangeState::new());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -78,7 +82,32 @@ pub fn run() {
             ingest::ingest_map_unresolved,
             ingest::ingest_ignore_unresolved,
             ingest::pick_statement_file,
-            ingest::read_statement_bytes
+            ingest::read_statement_bytes,
+            sync::exchange_stage_credential,
+            sync::exchange_discard_credential,
+            sync::exchange_commit_credential,
+            sync::exchange_has_credential,
+            sync::exchange_record_scope,
+            sync::exchange_send,
+            sync::sync_read_cursor,
+            sync::sync_write_cursor,
+            sync::sync_upsert_document,
+            sync::sync_start_run,
+            sync::sync_finish_run,
+            sync::sync_record_issue,
+            sync::sync_commit_positions,
+            sync::sync_commit_transactions,
+            sync::sync_transaction_quantities,
+            sync::sync_read_discovered_assets,
+            sync::sync_add_discovered_assets,
+            sync::sync_read_markets,
+            sync::sync_write_markets,
+            sync::sync_set_account_status,
+            sync::sync_touch_credential,
+            sync::sync_find_instrument_by_alias,
+            sync::sync_create_instrument,
+            sync::sync_add_alias,
+            sync::sync_record_unresolved
         ])
         .run(tauri::generate_context!())
         .expect("error while running Misal");

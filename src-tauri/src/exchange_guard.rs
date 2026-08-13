@@ -78,8 +78,11 @@ pub struct AllowedRequest {
     pub path_pattern: String,
 }
 
+// Kebab-case, so the wire names match the `SigningScheme` union in src/adapters/contract.ts:
+// 'none', 'binance-query', 'coindcx-body'. The adapter names a scheme; it never sees the secret
+// and never builds an Authorization header itself.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "kebab-case")]
 pub enum SigningScheme {
     None,
     /// HMAC-SHA256 over the exact query string, appended as a trailing `signature` parameter.
