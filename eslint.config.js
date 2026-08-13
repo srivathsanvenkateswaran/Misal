@@ -53,7 +53,9 @@ const FLOAT_BAN = [
 ]
 
 export default tseslint.config(
-  { ignores: ['dist', 'node_modules', 'src-tauri/target', 'docs/design/mockups'] },
+  // `.claude/worktrees` holds in-progress agent checkouts. Linting into them reports
+  // failures for code that is not in this tree and may not even be finished.
+  { ignores: ['dist', 'node_modules', 'src-tauri/target', 'docs/design/mockups', '.claude'] },
 
   js.configs.recommended,
 
