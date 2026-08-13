@@ -1,0 +1,158 @@
+/* ============================================================
+   Screen 07 — Refresh.
+
+   The approved mockup has no refresh screen, so nothing here is a
+   new visual idea. The panel, the label, the badge, the button,
+   the `.dq` counter strip and the `.dtable` data table all come
+   from @ui/base.css, @ui/table/DataTable.css and the screen
+   chrome; this file only arranges them.
+
+   Three borrowings are deliberate and worth naming:
+     * .rf-status and .rf-note reuse the settings screen's stated
+       outcome (.set-note): a sentence that stays on screen rather
+       than toasting away, because a refresh that half worked is
+       exactly the thing nobody should have to remember.
+     * .rf-table reuses .dtable directly rather than the DataTable
+       component, following the settings screen's precedent: these
+       rows carry no figure traceable to a document, so there is
+       nothing to put in the 56px provenance gutter and a permanent
+       empty column would read as a missing stamp.
+     * .rf-counts is the dashboard's data-quality strip (.dq),
+       unchanged. Four counts of the same kind belong in the same
+       shape wherever they appear.
+   ============================================================ */
+
+.rf-screen {
+  padding: 16px;
+}
+
+.rf-panel {
+  margin-bottom: 14px;
+}
+
+.rf-counts {
+  margin-bottom: 14px;
+}
+
+/* ---------------------------------------------- the gate */
+
+.rf-gate {
+  border: 1px solid var(--rule);
+  background: var(--surface-2);
+  padding: 9px 11px;
+  margin-bottom: 12px;
+}
+
+.rf-line {
+  font-size: var(--fs-body);
+  color: var(--ink-2);
+  margin: 3px 0 0;
+  max-width: 92ch;
+}
+
+/* The escape hatch is a deliberate tick, so it is laid out as a decision with
+   its reasoning attached rather than as a lone checkbox with a terse label. */
+.rf-override {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid var(--rule);
+  max-width: 92ch;
+}
+
+.rf-override input {
+  margin: 2px 0 0;
+}
+
+.rf-override b {
+  font-size: var(--fs-body);
+  color: var(--ink-1);
+  display: block;
+}
+
+.rf-override .sublab {
+  display: block;
+  margin-top: 2px;
+}
+
+/* ---------------------------------------------- actions and progress */
+
+.rf-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.rf-note {
+  font-size: var(--fs-body);
+  color: var(--ink-3);
+  margin: 6px 0 0;
+  max-width: 92ch;
+}
+
+.rf-status {
+  font-size: var(--fs-body);
+  color: var(--ink-2);
+  background: var(--surface-2);
+  border-left: 3px solid var(--st-good);
+  padding: 6px 9px;
+  margin: 8px 0 0;
+  max-width: 92ch;
+}
+
+.rf-lede {
+  font-size: var(--fs-body);
+  color: var(--ink-2);
+  margin: 0 0 10px;
+  max-width: 92ch;
+}
+
+/* ---------------------------------------------- notes and tables */
+
+.rf-notes {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 9px;
+}
+
+.rf-notes li {
+  border-left: 3px solid var(--st-warn);
+  background: var(--surface-2);
+  padding: 6px 9px;
+}
+
+.rf-subjects {
+  font-size: var(--fs-meta);
+  color: var(--ink-3);
+  margin: 3px 0 0;
+  word-break: break-word;
+}
+
+.rf-table {
+  margin-top: 14px;
+}
+
+.rf-table td,
+.rf-table th {
+  vertical-align: top;
+}
+
+.rf-mono {
+  font-family: var(--mono);
+  color: var(--ink-3);
+}
+
+/* ---------------------------------------------- responsive floor: 1024px */
+
+@media (max-width: 1140px) {
+  .rf-actions {
+    align-items: stretch;
+  }
+}
