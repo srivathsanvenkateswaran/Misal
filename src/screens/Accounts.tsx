@@ -78,8 +78,19 @@ const CAPABILITY_MATRIX: readonly { readonly metric: string; readonly full: bool
  * account is right there, its capability is stated in the same table, and the foot denied it.
  *
  * So the question is asked of the accounts. The rupee figure only decides *how much* can be
- * promised, and when it cannot be stated the sentence says that rather than saying nothing is
- * missing.
+ * promised.
+ *
+ * The repair for that then asserted a cause of its own: "None of those holdings could be priced",
+ * for a branch `view-model.ts` enters on `isZeroMinor(snapshotOnly) || isZeroMinor(netWorth)`.
+ * Pricing is only one of the ways that is true. A snapshot account with **no position rows at all**
+ * reaches it too — `upsert_exchange_account` writes `capability = 'snapshot'` when the credential is
+ * committed, before any balances sync has run, so an exchange whose first sync has not landed is
+ * listed here holding nothing — and so does an account whose rows all priced to zero. In both,
+ * `unpricedCount` is 0 and the calibration bar on the dashboard says so in the same session.
+ *
+ * So the branch is split on evidence this screen actually holds — `unpriced` and `holdings`, per
+ * account — and where neither says anything, the sentence names no cause at all. A foot that
+ * cannot explain a zero is allowed to say only that it cannot state the figure.
  */
 function capabilityFoot(data: PortfolioData): string {
   const snapshotAccounts = data.accounts.filter((account) => account.capability === 'snapshot')
@@ -87,12 +98,34 @@ function capabilityFoot(data: PortfolioData): string {
     return 'Every account supplies transaction history, so nothing on this screen is withheld.'
   }
   if (data.coverageOpportunity !== null) return data.coverageOpportunity
+
   const names = snapshotAccounts.map((account) => account.label).join(', ')
+  const one = snapshotAccounts.length === 1
+  const supplies = `${names} ${one ? 'supplies' : 'supply'} holdings only.`
+  const closing =
+    'importing one is still the only thing that changes what the metrics above can measure.'
+
+  if (snapshotAccounts.every((account) => account.holdings === 0)) {
+    return (
+      `${names} ${one ? 'is a holdings-only account' : 'are holdings-only accounts'} with no ` +
+      `${one ? 'holding' : 'holdings'} recorded yet. Until rows land there is nothing for a ` +
+      'transaction history to move across the calibration line.'
+    )
+  }
+
+  const unpriced = snapshotAccounts.reduce((total, account) => total + account.unpriced, 0)
+  if (unpriced > 0) {
+    return (
+      `${supplies} ${unpriced.toString()} of ${one ? 'its' : 'their'} ` +
+      `${unpriced === 1 ? 'holdings has' : 'holdings have'} no stored price, so how much a ` +
+      'transaction history would move across the calibration line is not a figure Misal can ' +
+      `state — ${closing}`
+    )
+  }
+
   return (
-    `${names} ${snapshotAccounts.length === 1 ? 'supplies' : 'supply'} holdings only. ` +
-    'None of those holdings could be priced, so how much a transaction history would move across ' +
-    'the calibration line is not a figure Misal can state — importing one is still the only thing ' +
-    'that changes what the metrics above can measure.'
+    `${supplies} How much a transaction history would move across the calibration line is not a ` +
+    `figure Misal can state — ${closing}`
   )
 }
 
