@@ -1,0 +1,7 @@
+{
+  "method": "GET",
+  "path": "/sapi/v1/capital/deposit/hisrec",
+  "query": "offset=0",
+  "status": 200,
+  "headers": { "content-type": "application/json" }
+}

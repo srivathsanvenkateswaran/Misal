@@ -26,7 +26,9 @@ import type {
   ExchangeAdapter,
   MarketSpec,
   RawBalance,
+  RawConversion,
   RawFill,
+  RawTransfer,
   ScopeReport,
   Tristate,
 } from '../contract'
@@ -44,18 +46,17 @@ import {
   type Json,
 } from '../lossless-json'
 import type { RateLimiter } from '../ratelimit'
-import { epochMsToIso, signingTimestamp, truncateToMs } from '../time'
-import { describeDocument, queryString } from '../wire'
+import { epochMsToIso, truncateToMs } from '../time'
+import { describeDocument } from '../wire'
 import { BINANCE_ALLOWLIST } from './allowlist'
+import { walkConversions, walkTransfers, type HistoryOptions } from './history'
+import { signed } from './signing'
 
 const HOSTS = {
   primary: 'https://api.binance.com',
   // Public market data only. Keeps exchangeInfo's weight off the authenticated IP budget.
   public: 'https://data-api.binance.vision',
 } as const
-
-/** Binance's default is 5000 ms and its cap is 60000. Generous but inside the cap. */
-const RECV_WINDOW = '10000'
 
 const MAX_TRADES_PER_PAGE = 1000
 
@@ -121,9 +122,21 @@ export interface BinanceAdapterOptions {
    * value; tests lower it so paging is exercised without a thousand-row fixture.
    */
   readonly pageSize?: number
+  /**
+   * How many 90-day (or 30-day, for Convert) history windows one sync may backfill.
+   *
+   * Left at the default in production. Tests set it low because the alternative is a fixture per
+   * window back to 2017.
+   */
+  readonly backfillWindows?: number
 }
 
 export function createBinanceAdapter(options: BinanceAdapterOptions = {}): ExchangeAdapter {
+  const history: HistoryOptions = {
+    ...(options.backfillWindows === undefined ? {} : { backfillWindows: options.backfillWindows }),
+    ...(options.pageSize === undefined ? {} : { pageSize: options.pageSize }),
+  }
+
   return {
     id: 'binance',
     displayName: 'Binance',
@@ -137,12 +150,20 @@ export function createBinanceAdapter(options: BinanceAdapterOptions = {}): Excha
       { name: 'apiSecret', label: 'API secret', secret: true },
     ],
     coverageGaps: [
-      'Binance Convert trades never appear in trade history, so any asset acquired through ' +
-        'Convert shows a balance with no matching fills.',
+      // The first clause is still true and always was; what changed is the consequence. Convert
+      // is fetched now, from /sapi/v1/convert/tradeFlow, and the honest caveat is what that
+      // endpoint costs rather than that it does not exist. A caveat that no longer applies is
+      // worse than none, because it teaches the reader to discount the ones that do.
+      'Binance Convert trades never appear in trade history, so Misal reads them from Convert ' +
+        'history instead. Binance meters that endpoint against the account rather than the ' +
+        'connection, so a long Convert history is filled in over several syncs rather than all ' +
+        'at once.',
       'Earn, staking, savings and lending balances sit outside the spot account and are not ' +
         'included, so this figure may understate what you hold.',
       'Fills in a trading pair Misal did not enumerate are invisible: an asset bought and then ' +
         'entirely sold leaves no balance to discover it by.',
+      'Units transferred in from elsewhere carry no acquisition price, so their cost basis is ' +
+        'recorded as unknown rather than guessed at from the price on the day they arrived.',
     ],
 
     async serverTime(ctx: AdapterContext): Promise<EpochMs> {
@@ -285,6 +306,20 @@ export function createBinanceAdapter(options: BinanceAdapterOptions = {}): Excha
     ): AsyncIterable<AcquiredPage<RawFill>> {
       return walkFills(ctx, cursor, markets, options.pageSize ?? MAX_TRADES_PER_PAGE)
     },
+
+    fetchTransfers(
+      ctx: AdapterContext,
+      cursor: string | null,
+    ): AsyncIterable<AcquiredPage<RawTransfer>> {
+      return walkTransfers(ctx, cursor, history)
+    },
+
+    fetchConversions(
+      ctx: AdapterContext,
+      cursor: string | null,
+    ): AsyncIterable<AcquiredPage<RawConversion>> {
+      return walkConversions(ctx, cursor, history)
+    },
   }
 }
 
@@ -413,97 +448,8 @@ function isPlausibleQuote(quote: string, assets: ReadonlySet<string>): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Signing and small parsers
+// Small parsers
 // ---------------------------------------------------------------------------
-
-interface SignedCall {
-  readonly method: 'GET' | 'POST'
-  readonly path: string
-  readonly params: readonly (readonly [string, string])[]
-  readonly weight: number
-}
-
-/**
- * Issue a signed request, re-measuring the clock exactly once on a `-1021` rejection.
- *
- * One retry, then a typed `clock_skew` error naming the measured drift. Retrying indefinitely
- * against a broken clock burns rate budget and hides a real machine problem.
- */
-async function signed(ctx: AdapterContext, call: SignedCall) {
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const query = queryString([
-      ...call.params,
-      ['recvWindow', RECV_WINDOW],
-      ['timestamp', signingTimestamp(ctx.now(), ctx.clock.offsetMs)],
-    ])
-    const response = await ctx.http.send({
-      method: call.method,
-      host: 'primary',
-      path: call.path,
-      query,
-      body: null,
-      signing: 'binance-query',
-      weight: call.weight,
-    })
-    if (response.status < 400) return response
-
-    const error = binanceError(response.status, response.text)
-    if (error.code === 'clock_skew' && attempt === 0) {
-      await ctx.clock.resync()
-      continue
-    }
-    throw error
-  }
-  throw new AdapterError('clock_skew', 'Binance rejected our timestamp twice.', {
-    detail: `offset ${ctx.clock.offsetMs} ms`,
-  })
-}
-
-/** Binance error bodies are `{"code": -1021, "msg": "..."}`. */
-export function binanceError(status: number, body: string): AdapterError {
-  let code: string | null = null
-  let msg = body.slice(0, 200)
-  try {
-    const parsed = parseLossless(body)
-    code = textOrNull(parsed, 'code')
-    msg = textOrNull(parsed, 'msg') ?? msg
-  } catch {
-    // Not JSON. Fall through to the status-based classification below.
-  }
-
-  switch (code ?? '') {
-    case '-1021':
-      return new AdapterError(
-        'clock_skew',
-        'Your computer’s clock is too far from Binance’s. Misal re-checked it once and Binance ' +
-          'still refused the request; please correct your system time.',
-        { detail: msg },
-      )
-    case '-1022':
-      return new AdapterError('auth_invalid', 'Binance rejected the request signature.', {
-        detail: msg,
-      })
-    case '-2014':
-      return new AdapterError('auth_invalid', 'That API key is not in a format Binance accepts.', {
-        detail: msg,
-      })
-    case '-2015':
-      return new AdapterError(
-        'auth_invalid',
-        'Binance rejected the key, this IP address, or the key’s permissions.',
-        { detail: msg },
-      )
-    default:
-      break
-  }
-
-  if (status === 401 || status === 403) {
-    return new AdapterError('auth_invalid', 'Binance rejected the credentials.', { detail: msg })
-  }
-  return new AdapterError('upstream_unavailable', 'Binance returned an error.', {
-    detail: `HTTP ${status}: ${msg}`,
-  })
-}
 
 function anyTrue(values: readonly Tristate[]): Tristate {
   if (values.some((v) => v === true)) return true

@@ -81,6 +81,29 @@ export function epochMsOf(when: Date): EpochMs {
 }
 
 /**
+ * Binance's withdrawal timestamps, which are not epochs.
+ *
+ * `capital/withdraw/history` reports `applyTime` and `completeTime` as `'2019-10-12 11:12:02'` -
+ * a UTC civil datetime with a space instead of a `T` and no zone marker at all - while every other
+ * endpoint on the same API reports integer milliseconds. Reformatted by string surgery rather than
+ * fed to `Date`, because `new Date('2019-10-12 11:12:02')` is parsed in the *local* zone by every
+ * engine, which would silently shift an Indian user's withdrawals by five and a half hours and put
+ * some of them on the wrong calendar day - and the calendar day is what the natural key is built on.
+ */
+export function binanceCivilTimeToIso(raw: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?Z?$/.exec(
+    raw.trim(),
+  )
+  if (match === null) {
+    throw new AdapterError('malformed_response', 'The exchange returned an unreadable timestamp.', {
+      detail: `timestamp: ${JSON.stringify(raw)}`,
+    })
+  }
+  const [, year, month, day, hour, minute, second, milli] = match
+  return `${year}-${month}-${day}T${hour}:${minute}:${second}.${(milli ?? '').padEnd(3, '0')}Z`
+}
+
+/**
  * Parse an HTTP `Date` header to epoch milliseconds.
  *
  * CoinDCX has no server-time endpoint - every candidate path 404s - so this header is the only

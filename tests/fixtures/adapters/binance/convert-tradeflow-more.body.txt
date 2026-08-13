@@ -1,0 +1,32 @@
+{
+  "list": [
+    {
+      "quoteId": "aa91c525b2644c7bc1e1cd31b6e1aa61",
+      "orderId": "940708407462087200",
+      "orderStatus": "SUCCESS",
+      "fromAsset": "USDT",
+      "fromAmount": "500.00000000",
+      "toAsset": "SOL",
+      "toAmount": "2.50000000",
+      "ratio": "0.00500000",
+      "inverseRatio": "200.00000000",
+      "createTime": 1786000000000
+    },
+    {
+      "quoteId": "bb91c525b2644c7bc1e1cd31b6e1aa62",
+      "orderId": "940708407462087199",
+      "orderStatus": "SUCCESS",
+      "fromAsset": "USDT",
+      "fromAmount": "1200.00000000",
+      "toAsset": "ETH",
+      "toAmount": "0.40000000",
+      "ratio": "0.00033333",
+      "inverseRatio": "3000.00000000",
+      "createTime": 1785000000000
+    }
+  ],
+  "startTime": 1783936800001,
+  "endTime": 1786528800000,
+  "limit": 2,
+  "moreData": true
+}

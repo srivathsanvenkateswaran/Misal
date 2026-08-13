@@ -9,6 +9,10 @@
     "must be allowed, /sapi/v1/capital/withdraw/apply performs one and must not be, and the",
     "difference between them is entirely in the last segment.",
     "",
+    "/sapi/v1/convert/tradeFlow is the same shape one level along: 'convert' names a mutating",
+    "operation, and only the 'tradeFlow' terminal turns it into a read. getQuote, acceptQuote and",
+    "limit/placeOrder sit under the same segment and stay refused.",
+    "",
     "Punctuation-disguised entries were added after adversarial testing: the path grammar permits '.', '_' and '-', so whole-segment matching let 'order.' and 'order.json' through. Both classifiers tokenise on that punctuation."
   ],
   "mutating": [
@@ -24,6 +28,8 @@
     "/sapi/v1/margin/loan",
     "/sapi/v1/margin/repay",
     "/sapi/v1/convert/getQuote",
+    "/sapi/v1/convert/acceptQuote",
+    "/sapi/v1/convert/limit/placeOrder",
     "/exchange/v1/orders/create",
     "/exchange/v1/orders/create_multiple",
     "/exchange/v1/orders/cancel",
@@ -46,6 +52,7 @@
     "/sapi/v1/account/apiRestrictions",
     "/sapi/v1/capital/deposit/hisrec",
     "/sapi/v1/capital/withdraw/history",
+    "/sapi/v1/convert/tradeFlow",
     "/sapi/v3/asset/getUserAsset",
     "/exchange/v1/markets_details",
     "/exchange/v1/users/balances",

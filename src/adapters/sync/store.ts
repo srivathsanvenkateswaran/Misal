@@ -25,7 +25,15 @@ export interface PositionRow {
 export interface TxnRow {
   readonly accountId: string
   readonly instrumentId: string
-  readonly type: 'buy' | 'sell' | 'fee'
+  /**
+   * A subset of the schema's `txn.type` CHECK.
+   *
+   * `transfer_in`/`transfer_out` are here because a deposit is not a purchase: the fold opens a
+   * `transfer_in` as a lot whose cost is explicitly unknown, whereas a `buy` with a null price is a
+   * purchase whose cost we merely failed to record. The two read identically in a quantity column
+   * and completely differently in a cost-basis one.
+   */
+  readonly type: 'buy' | 'sell' | 'fee' | 'transfer_in' | 'transfer_out'
   readonly occurredAt: Iso8601
   /** Always null for exchange data: exchanges report epoch UTC and there is no original zone. */
   readonly occurredTz: null

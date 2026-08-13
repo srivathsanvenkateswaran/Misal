@@ -33,8 +33,25 @@ export interface AdapterRegistration {
  * contradictory limits, so a conservative floor plus the live header is the only defensible
  * policy.
  */
-const LIMITS: Record<ProviderId, { budgetPerMinute: number; maxPerSecond: number; usedWeightHeader?: string }> = {
-  binance: { budgetPerMinute: 6000, maxPerSecond: 20, usedWeightHeader: 'x-mbx-used-weight-1m' },
+const LIMITS: Record<
+  ProviderId,
+  {
+    budgetPerMinute: number
+    maxPerSecond: number
+    uidBudgetPerMinute?: number
+    usedWeightHeader?: string
+    usedUidWeightHeader?: string
+  }
+> = {
+  binance: {
+    budgetPerMinute: 6000,
+    maxPerSecond: 20,
+    // Binance's second, per-account budget. Withdrawal history costs 18,000 of it a call and
+    // Convert history 3,000, so a backfill is paced by this bucket rather than by the IP one.
+    uidBudgetPerMinute: 180_000,
+    usedWeightHeader: 'x-mbx-used-weight-1m',
+    usedUidWeightHeader: 'x-sapi-used-uid-weight-1m',
+  },
   coindcx: { budgetPerMinute: 5000, maxPerSecond: 16 },
 }
 

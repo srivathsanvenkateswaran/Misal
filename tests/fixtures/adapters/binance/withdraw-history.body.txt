@@ -1,0 +1,20 @@
+[
+  {
+    "id": "b6ae22b3aa844210a7041aee7589627c",
+    "amount": "0.02000000",
+    "transactionFee": "0.00050000",
+    "coin": "BTC",
+    "status": 6,
+    "address": "bc1qexampleexampleexampleexampleexampleexam",
+    "txId": "0000000000000000000000000000000000000000000000000000000000000001",
+    "applyTime": "2026-06-15 08:30:00",
+    "completeTime": "2026-06-15 08:41:12",
+    "network": "BTC",
+    "transferType": 0,
+    "withdrawOrderId": "",
+    "info": "",
+    "confirmNo": 3,
+    "walletType": 0,
+    "txKey": ""
+  }
+]

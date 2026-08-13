@@ -45,6 +45,8 @@ export interface HarnessOptions {
   readonly now?: Date
   readonly maxAttempts?: number
   readonly budgetPerMinute?: number
+  /** Binance's second, per-account budget. Left off, the limiter has no such bucket. */
+  readonly uidBudgetPerMinute?: number
   readonly maxPerSecond?: number
 }
 
@@ -69,6 +71,9 @@ export function createHarness(options: HarnessOptions): Harness {
   const limiter = new RateLimiter({
     budgetPerMinute: options.budgetPerMinute ?? 6000,
     maxPerSecond: options.maxPerSecond ?? 1000,
+    ...(options.uidBudgetPerMinute === undefined
+      ? {}
+      : { uidBudgetPerMinute: options.uidBudgetPerMinute }),
     clock,
   })
   const issues: AdapterIssue[] = []

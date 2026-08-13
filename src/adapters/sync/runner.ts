@@ -23,7 +23,9 @@ import type {
   MarketSpec,
   ProgressReporter,
   RawBalance,
+  RawConversion,
   RawFill,
+  RawTransfer,
   ScopeReport,
   SourceDocumentDescriptor,
   SyncPhase,
@@ -35,11 +37,26 @@ import type { Catalogue } from '../resolution/catalogue'
 import { resolveAsset } from '../resolution/resolve'
 import { MeasuredClockOffset } from '../time'
 import { QUOTE_ASSET_SENTINEL } from '../coindcx/adapter'
-import { normalizeFill, withKeys, type UnkeyedTxnRow } from './normalize'
+import {
+  normalizeConversion,
+  normalizeFill,
+  normalizeTransfer,
+  withKeys,
+  type UnkeyedTxnRow,
+} from './normalize'
 import { reconcileCoverage, type CoverageRow } from './reconcile'
 import type { RunCounts, SyncStore } from './store'
 
 const FILLS_STREAM = 'fills'
+/**
+ * Separate streams, and therefore separate cursors.
+ *
+ * Deposits, Convert and trade history page by different things - a date window, a narrowing date
+ * window and a trade id - and a stream that fails has to be resumable without re-walking the two
+ * that succeeded.
+ */
+const TRANSFERS_STREAM = 'transfers'
+const CONVERSIONS_STREAM = 'conversions'
 /** Neither v1 adapter partitions its cursor; the column exists for one that will. */
 const UNPARTITIONED = '*'
 
@@ -70,6 +87,16 @@ export interface SyncOutcome {
   readonly balancesCommitted: number
   readonly fillsCommitted: number
   readonly fillsDuplicate: number
+  /**
+   * Deposits and withdrawals turned into rows. Zero where the exchange exposes neither.
+   *
+   * Optional so that adding a stream is additive for every consumer that builds an outcome by
+   * hand, of which the screens have several. `runSync` always sets it; a reader treats an absent
+   * value as zero.
+   */
+  readonly transfersCommitted?: number
+  /** Convert acquisitions turned into rows. Optional for the same reason. */
+  readonly conversionsCommitted?: number
   readonly rowsFailed: number
   readonly issues: readonly AdapterIssue[]
   readonly coverage: readonly CoverageRow[]
@@ -135,6 +162,8 @@ export async function runSync(options: SyncOptions): Promise<SyncOutcome> {
       balancesCommitted: 0,
       fillsCommitted: 0,
       fillsDuplicate: 0,
+      transfersCommitted: 0,
+      conversionsCommitted: 0,
       rowsFailed: 0,
       issues: [
         {
@@ -220,6 +249,8 @@ export async function runSync(options: SyncOptions): Promise<SyncOutcome> {
         scope,
         balancesCommitted: 0,
         fills: { committed: 0, duplicate: 0 },
+        transfersCommitted: 0,
+        conversionsCommitted: 0,
         rowsFailed: rowsFailed + 1,
         issues,
         coverage: [],
@@ -229,7 +260,32 @@ export async function runSync(options: SyncOptions): Promise<SyncOutcome> {
     }
   }
 
-  // 5. Fills, one committed transaction per page, watermark after each.
+  // 5. Transfers, before the trade crawl and for a reason beyond ordering aesthetics: a coin
+  //    deposited from a wallet and never traded on this exchange enters the discovered-asset set
+  //    here or nowhere, and the symbol sweep below is driven by that set.
+  phase('fills', 'Reading deposits and withdrawals')
+  const transfers = await runStream(options, ctx, TRANSFERS_STREAM, {
+    pages: (cursor) => adapter.fetchTransfers?.(ctx, cursor),
+    commit: (page: AcquiredPage<RawTransfer>) =>
+      commitTransferPage(options, page, precisionByAsset, issues),
+  })
+  rowsFailed += transfers.failed
+  anythingCommitted ||= transfers.committed > 0
+  errorCode ??= transfers.errorCode
+
+  // 6. Conversions. Binance Convert never reaches `myTrades`, so for an account built through the
+  //    Convert screen this is not a supplement to trade history - it is the trade history.
+  phase('fills', 'Reading Convert history')
+  const conversions = await runStream(options, ctx, CONVERSIONS_STREAM, {
+    pages: (cursor) => adapter.fetchConversions?.(ctx, cursor),
+    commit: (page: AcquiredPage<RawConversion>) =>
+      commitConversionPage(options, page, precisionByAsset, issues),
+  })
+  rowsFailed += conversions.failed
+  anythingCommitted ||= conversions.committed > 0
+  errorCode ??= conversions.errorCode
+
+  // 7. Fills, one committed transaction per page, watermark after each.
   const fillsCtx: AdapterContext = {
     ...ctx,
     discoveredAssets: await store.readDiscoveredAssets(accountId),
@@ -274,7 +330,7 @@ export async function runSync(options: SyncOptions): Promise<SyncOutcome> {
     })
   }
 
-  // 6. Coverage. A mismatch between the fold and the reported balance is expected and is
+  // 8. Coverage. A mismatch between the fold and the reported balance is expected and is
   //    recorded as a warning, because measuring it is the evidence behind 'snapshot'.
   phase('coverage', 'Checking the transactions against the reported balances')
   const coverage = await reconcileCoverage(options.store, accountId, balanceInstruments)
@@ -307,12 +363,93 @@ export async function runSync(options: SyncOptions): Promise<SyncOutcome> {
     scope,
     balancesCommitted,
     fills: { committed: fillsCommitted, duplicate: fillsDuplicate },
+    transfersCommitted: transfers.committed,
+    conversionsCommitted: conversions.committed,
     rowsFailed,
     issues,
     coverage,
     errorCode,
     anythingCommitted,
   })
+}
+
+// ---------------------------------------------------------------------------
+// Optional streams
+// ---------------------------------------------------------------------------
+
+interface StreamSpec<T> {
+  /** Undefined where the adapter does not implement this stream at all. */
+  readonly pages: (cursor: string | null) => AsyncIterable<AcquiredPage<T>> | undefined
+  readonly commit: (
+    page: AcquiredPage<T>,
+  ) => Promise<{ committed: number; duplicate: number; failed: number }>
+}
+
+interface StreamResult {
+  readonly committed: number
+  readonly duplicate: number
+  readonly failed: number
+  readonly errorCode: string | null
+}
+
+const NO_STREAM: StreamResult = { committed: 0, duplicate: 0, failed: 0, errorCode: null }
+
+/**
+ * Drive one optional stream: page, commit, then advance its own watermark.
+ *
+ * A stream the adapter does not implement is not an error and not a zero - it is a stream that was
+ * never asked about, so nothing is written, no cursor is created, and the coverage note the adapter
+ * publishes is the only thing that speaks for it. CoinDCX has no transfer endpoint we could
+ * establish, and that has to look different from a CoinDCX account with no transfers.
+ *
+ * A failure here does not abort the sync. Withdrawal history dying is a reason to say so and carry
+ * on to trade history, not a reason to lose trade history too.
+ */
+async function runStream<T>(
+  options: SyncOptions,
+  ctx: AdapterContext,
+  stream: string,
+  spec: StreamSpec<T>,
+): Promise<StreamResult> {
+  const { store, accountId } = options
+  const startCursor = await store.readCursor(accountId, stream, UNPARTITIONED)
+  const pages = spec.pages(startCursor)
+  if (pages === undefined) return NO_STREAM
+
+  let committed = 0
+  let duplicate = 0
+  let failed = 0
+
+  try {
+    for await (const page of pages) {
+      if (page.records.length === 0) {
+        await store.writeCursor(accountId, stream, UNPARTITIONED, page.nextCursor, {
+          lastSyncedAt: options.now().toISOString(),
+        })
+        continue
+      }
+      const result = await spec.commit(page)
+      committed += result.committed
+      duplicate += result.duplicate
+      failed += result.failed
+      // Only after the page has landed. A watermark ahead of committed data loses a window
+      // forever, and a 90-day window is a lot to lose.
+      await store.writeCursor(accountId, stream, UNPARTITIONED, page.nextCursor, {
+        lastSyncedAt: options.now().toISOString(),
+      })
+    }
+  } catch (error) {
+    const failure = toAdapterError(error)
+    ctx.log({
+      severity: 'error',
+      code: failure.code,
+      message: failure.message,
+      ...(failure.detail === undefined ? {} : { rawPayload: failure.detail }),
+    })
+    return { committed, duplicate, failed: failed + 1, errorCode: failure.code }
+  }
+
+  return { committed, duplicate, failed, errorCode: null }
 }
 
 // ---------------------------------------------------------------------------
@@ -484,6 +621,181 @@ async function commitFillPage(
   return { committed, duplicate, failed }
 }
 
+/**
+ * Commit one page of deposits and withdrawals.
+ *
+ * Nothing here can produce a priced acquisition, because `normalizeTransfer` has nowhere to put a
+ * price. A pending or failed transfer is read and counted but never committed: units that have not
+ * arrived, or that never left, are not part of the holding, and a `transfer_in` for a deposit still
+ * awaiting confirmations would show up as inventory the exchange does not agree exists.
+ */
+async function commitTransferPage(
+  options: SyncOptions,
+  page: AcquiredPage<RawTransfer>,
+  precisionByAsset: ReadonlyMap<string, number>,
+  issues: AdapterIssue[],
+): Promise<{ committed: number; duplicate: number; failed: number }> {
+  const { store, adapter, accountId } = options
+  const descriptor = requireDocument(page.document)
+  const document = await store.upsertDocument(descriptor)
+  const runId = await store.startRun(document.id)
+
+  // Every asset a transfer names, whether or not it resolves. This is the whole reason transfers
+  // run before the symbol sweep: a coin deposited and never traded is discoverable here and
+  // nowhere else on the account.
+  await store.addDiscoveredAssets(
+    accountId,
+    page.records.map((record) => record.asset.code),
+  )
+
+  const unkeyed: UnkeyedTxnRow[] = []
+  let failed = 0
+
+  for (const transfer of page.records) {
+    if (transfer.status !== 'completed') continue
+
+    const asset = await resolveAsset(store, adapter.id, transfer.asset.code, {
+      ...(options.catalogue === undefined ? {} : { catalogue: options.catalogue }),
+      ...(precisionByAsset.has(transfer.asset.code)
+        ? { precision: precisionByAsset.get(transfer.asset.code) as number }
+        : {}),
+    })
+    if (!asset.resolved) {
+      await store.recordUnresolved({
+        accountId,
+        sourceDocumentId: document.id,
+        rawIdentifier: transfer.asset.code,
+        rawName: null,
+        assetClassHint: 'crypto',
+        observedQuantity: transfer.quantity,
+      })
+      failed += 1
+      continue
+    }
+
+    unkeyed.push(
+      ...normalizeTransfer({
+        accountId,
+        transfer,
+        instrumentId: asset.instrumentId,
+        // The fee is charged in the transferred asset itself on both Binance endpoints.
+        feeInstrumentId: transfer.fee === undefined ? null : asset.instrumentId,
+        // The account's reporting currency, not the asset's. A transfer carries no amount at all,
+        // so this names the currency a cost would be entered in later rather than one anything
+        // here is denominated in.
+        reportingCurrency: adapter.baseCurrency,
+        sourceDocumentId: document.id,
+      }),
+    )
+  }
+
+  const rows = await withKeys(unkeyed)
+  const { committed, duplicate } = await store.commitTransactions(rows)
+
+  const skipped = page.records.filter((r) => r.status !== 'completed')
+  for (const transfer of skipped) {
+    const issue: AdapterIssue = {
+      severity: 'warning',
+      code: 'transfer_not_settled',
+      message:
+        `A ${transfer.direction === 'in' ? 'deposit' : 'withdrawal'} of ${transfer.quantity} ` +
+        `${transfer.asset.code} is ${transfer.status} on the exchange, so it is not counted yet.`,
+      rowRef: transfer.externalId,
+    }
+    issues.push(issue)
+    await store.recordIssue(runId, issue)
+  }
+
+  await store.finishRun(runId, 'completed', {
+    rowsRead: page.records.length,
+    rowsCommitted: committed,
+    rowsDuplicate: duplicate,
+    rowsFailed: failed,
+  })
+
+  return { committed, duplicate, failed }
+}
+
+/**
+ * Commit one page of Convert acquisitions.
+ *
+ * There is no market catalogue lookup here, and there cannot be: Convert will swap a pair that has
+ * no order book, so `marketsBySymbol` would reject exactly the conversions that are least visible
+ * anywhere else. The two assets are named outright by the endpoint instead.
+ */
+async function commitConversionPage(
+  options: SyncOptions,
+  page: AcquiredPage<RawConversion>,
+  precisionByAsset: ReadonlyMap<string, number>,
+  issues: AdapterIssue[],
+): Promise<{ committed: number; duplicate: number; failed: number }> {
+  const { store, adapter, accountId } = options
+  const descriptor = requireDocument(page.document)
+  const document = await store.upsertDocument(descriptor)
+  const runId = await store.startRun(document.id)
+
+  await store.addDiscoveredAssets(
+    accountId,
+    page.records.flatMap((record) => [record.from.code, record.to.code]),
+  )
+
+  const unkeyed: UnkeyedTxnRow[] = []
+  let failed = 0
+
+  for (const conversion of page.records) {
+    const to = await resolveAsset(store, adapter.id, conversion.to.code, {
+      ...(options.catalogue === undefined ? {} : { catalogue: options.catalogue }),
+      ...(precisionByAsset.has(conversion.to.code)
+        ? { precision: precisionByAsset.get(conversion.to.code) as number }
+        : {}),
+    })
+    if (!to.resolved) {
+      await store.recordUnresolved({
+        accountId,
+        sourceDocumentId: document.id,
+        rawIdentifier: conversion.to.code,
+        rawName: null,
+        assetClassHint: 'crypto',
+        observedQuantity: conversion.toQuantity,
+      })
+      const issue: AdapterIssue = {
+        severity: 'warning',
+        code: 'unresolved_instrument',
+        message:
+          `${conversion.to.code} was acquired through Convert but is not in the crypto ` +
+          'catalogue yet, so that acquisition is excluded from your cost basis until you ' +
+          'identify it.',
+        rowRef: conversion.externalId,
+      }
+      issues.push(issue)
+      await store.recordIssue(runId, issue)
+      failed += 1
+      continue
+    }
+
+    unkeyed.push(
+      ...normalizeConversion({
+        accountId,
+        conversion,
+        toInstrumentId: to.instrumentId,
+        sourceDocumentId: document.id,
+      }),
+    )
+  }
+
+  const rows = await withKeys(unkeyed)
+  const { committed, duplicate } = await store.commitTransactions(rows)
+
+  await store.finishRun(runId, 'completed', {
+    rowsRead: page.records.length,
+    rowsCommitted: committed,
+    rowsDuplicate: duplicate,
+    rowsFailed: failed,
+  })
+
+  return { committed, duplicate, failed }
+}
+
 // ---------------------------------------------------------------------------
 // Outcome plumbing
 // ---------------------------------------------------------------------------
@@ -493,6 +805,8 @@ interface FinishInput {
   scope: ScopeReport | null
   balancesCommitted: number
   fills: { committed: number; duplicate: number }
+  transfersCommitted: number
+  conversionsCommitted: number
   rowsFailed: number
   issues: AdapterIssue[]
   coverage: readonly CoverageRow[]
@@ -521,6 +835,8 @@ async function finish(options: SyncOptions, input: FinishInput): Promise<SyncOut
     balancesCommitted: input.balancesCommitted,
     fillsCommitted: input.fills.committed,
     fillsDuplicate: input.fills.duplicate,
+    transfersCommitted: input.transfersCommitted,
+    conversionsCommitted: input.conversionsCommitted,
     rowsFailed: input.rowsFailed,
     issues: input.issues,
     coverage: input.coverage,
@@ -549,6 +865,8 @@ async function failed(
     balancesCommitted: 0,
     fillsCommitted: 0,
     fillsDuplicate: 0,
+    transfersCommitted: 0,
+    conversionsCommitted: 0,
     rowsFailed: 1,
     issues,
     coverage: [],

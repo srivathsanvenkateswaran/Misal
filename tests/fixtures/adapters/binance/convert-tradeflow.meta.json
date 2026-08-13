@@ -1,0 +1,11 @@
+{
+  "method": "GET",
+  "path": "/sapi/v1/convert/tradeFlow",
+  "repeatable": true,
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-mbx-used-weight-1m": "13",
+    "x-sapi-used-uid-weight-1m": "3000"
+  }
+}

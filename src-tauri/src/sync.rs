@@ -124,6 +124,15 @@ const BINANCE: AdapterSpec = AdapterSpec {
             path: "/sapi/v1/capital/withdraw/history",
             host: HostKey::Primary,
         },
+        // Convert history. The only place Binance Convert fills appear at all - they are in no
+        // trade history - so without it an account bought entirely through Convert reads as units
+        // with no purchase behind them. Its mutating siblings /convert/getQuote and
+        // /convert/acceptQuote are refused by the path classifier, not merely left off this list.
+        Endpoint {
+            method: Method::Get,
+            path: "/sapi/v1/convert/tradeFlow",
+            host: HostKey::Primary,
+        },
         // Read-only despite the verb.
         Endpoint {
             method: Method::Post,
@@ -1720,6 +1729,50 @@ mod tests {
         let mut mismatched = request("binance", Method::Get, "/api/v3/myTrades", HostKey::Primary);
         mismatched.signing = SigningScheme::CoindcxBody;
         assert!(prepare(&conn, &state, &mismatched).is_err());
+    }
+
+    /// Every endpoint the core will let any adapter reach, checked as a set.
+    ///
+    /// The list is what a security reviewer reads, so it has to be enumerable and it has to be
+    /// read-only in the classifier's own judgement rather than in the reviewer's. This is the
+    /// check that catches an endpoint added to the table without a matching read terminal - the
+    /// exact shape of the Convert addition, where `/sapi/v1/convert/tradeFlow` is admissible only
+    /// because `tradeflow` earns the exemption and its sibling `getQuote` does not.
+    #[test]
+    fn every_declared_endpoint_is_read_only_and_builds_a_session() {
+        for spec in ADAPTERS {
+            for endpoint in spec.endpoints {
+                assert!(
+                    !crate::exchange_guard::is_mutating_path(endpoint.path),
+                    "{} declares {} {}, which the classifier calls mutating: {:?}",
+                    spec.id,
+                    endpoint.method,
+                    endpoint.path,
+                    crate::exchange_guard::mutation_reason(endpoint.path)
+                );
+            }
+            Session::new(spec.id, spec.allowlist())
+                .unwrap_or_else(|e| panic!("{} allowlist rejected: {e}", spec.id));
+        }
+    }
+
+    #[test]
+    fn convert_history_is_reachable_and_converting_is_not() {
+        let (_dir, conn) = open_test_db();
+        let state = ExchangeState::new();
+        // Reachable: Convert fills appear in no trade history, so this endpoint or nothing.
+        assert!(BINANCE.permits(Method::Get, "/sapi/v1/convert/tradeFlow", HostKey::Primary));
+        // And the operations that would actually convert are not on the table at all.
+        for path in [
+            "/sapi/v1/convert/getQuote",
+            "/sapi/v1/convert/acceptQuote",
+            "/sapi/v1/convert/limit/placeOrder",
+        ] {
+            assert!(!BINANCE.permits(Method::Post, path, HostKey::Primary));
+            assert!(!BINANCE.permits(Method::Get, path, HostKey::Primary));
+            let attempt = request("binance", Method::Post, path, HostKey::Primary);
+            assert!(prepare(&conn, &state, &attempt).is_err());
+        }
     }
 
     #[test]

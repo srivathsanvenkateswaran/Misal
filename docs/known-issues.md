@@ -645,6 +645,147 @@ the bucket was never built. `src/screens/view-model.test.ts` now carries a twelv
 a range leaves the honesty machinery untested exactly where it matters — at completeness, at the
 tail, and in the currency this product exists to consolidate.
 
+## Exchange adapters
+
+### ~~Deposits and withdrawals were never fetched~~ — FIXED
+
+`fetchTransfers` was declared on the adapter contract and implemented by neither exchange, so the
+discovered-asset set grew only from balances and fills. Two consequences, both silent: a coin
+deposited from a wallet and never traded on the exchange was invisible — no balance explanation, and
+worse, it never entered the set that drives Binance's symbol sweep, so Misal never even asked
+whether it had been traded — and a withdrawal left the fold permanently above the reported balance
+with the difference attributed to "activity Misal cannot see".
+
+Fixed for Binance by `src/adapters/binance/history.ts`, walking `capital/deposit/hisrec` and
+`capital/withdraw/history` in ≤90-day windows with `offset` paging inside each. Transfers run before
+the symbol sweep, which is the whole point of the ordering.
+
+**A transfer is modelled so it cannot be mistaken for an acquisition.** `RawTransfer` has no `price`
+and no `side` field to put one in, and `normalizeTransfer` takes no price argument: a deposit becomes
+a `transfer_in` with a null price and a null amount, which the fold already opens as a lot whose cost
+is explicitly unknown and whose holding withholds cost basis, unrealised P&L and XIRR while still
+counting the units. The withdrawal fee is a separate `fee` row, because Binance charges it on top of
+the amount withdrawn and folding it into the quantity would misstate both.
+
+### CoinDCX transfer endpoints could not be established
+
+CoinDCX's published API covers markets, balances, order placement and trade history. No deposit or
+withdrawal history endpoint is documented, and none of the plausible paths has a shape anyone has
+written down. Establishing them needs recorded traffic from a live account, which no test in this
+repository is permitted to produce.
+
+`fetchTransfers` is therefore **absent** from the CoinDCX adapter rather than implemented against a
+guessed shape — on an exchange whose only key class can also move funds, an invented request is
+precisely what the allowlist exists to make impossible. The runner treats an absent stream as "never
+asked", which is a different thing from "asked, and there were none", and the conformance suite
+requires an adapter that omits the method to state the gap in `coverageGaps`.
+
+**Consequence:** CoinDCX cost basis remains incomplete for anything deposited or withdrawn, and the
+fold-versus-balance gap for those assets has no explanation attached to it beyond the coverage note.
+
+**Fix direction:** capture the web app's own network traffic against a throwaway account, or use the
+CoinDCX CSV export, which does contain transfers.
+
+### ~~Binance Convert trades were invisible~~ — FIXED
+
+Convert fills appear in `myTrades` never — not late, not partially, never — and Binance exposes them
+only through `GET /sapi/v1/convert/tradeFlow`. Many retail users acquire their first crypto through
+the Convert widget, so their cost basis was silently incomplete and the report merely said so.
+
+Now fetched. The endpoint is on the Rust-side allowlist in `src-tauri/src/sync.rs`; the frontend's
+copy is deliberately ignored in favour of it. Admitting it needed `tradeflow` as a read terminal in
+both path classifiers, which is the same mechanism that lets `capital/withdraw/history` through while
+`capital/withdraw/apply` stays refused — `convert/getQuote`, `convert/acceptQuote` and
+`convert/limit/placeOrder` are all still classified as mutating and are asserted to be, on both sides
+of the boundary and in `tests/fixtures/adapters/mutating-paths.json`.
+
+A conversion is a *priced* acquisition, unlike a transfer: the units given up are the consideration,
+so it becomes a `buy` of the asset received at the ratio the exchange reports. It does not go through
+the market catalogue, because Convert will swap a pair that has no order book at all.
+
+### Backfilling the weighted endpoints takes several syncs
+
+Binance meters SAPI twice and the two budgets share nothing: deposit history is IP weight 1,
+withdrawal history is **UID weight 18,000** and Convert history **UID weight 3,000**, against 180,000
+UID a minute of which the limiter targets half. `RateLimiter` now carries a second bucket for it,
+and a request heavier than a whole minute's target is refused up front rather than sleeping forever —
+a sync that never finishes and never errors is indistinguishable from a slow one.
+
+The per-sync backfill budget in `BACKFILL_WINDOWS` is chosen so a whole sync fits inside one minute
+of the account budget (2 withdrawal windows + 8 Convert windows + 12 free deposit windows = 60,000),
+and therefore never stalls waiting for it to refill.
+
+**Consequence:** a decade of Convert history arrives over roughly two dozen syncs rather than one.
+Each sync says how far back it has read, as a `backfill_incomplete` warning naming the date, so a
+cost basis built from four months of history is not presented as one built from all of it — but a
+user who wants everything now has no way to ask for it.
+
+**Fix direction:** an explicit "fetch all history" action that accepts the stall and shows it as
+progress, rather than raising the per-sync budget for everyone.
+
+### The sync report still calls Convert a blind spot
+
+`src/screens/exchanges/disclosure.ts` hardcodes `CONVERT_BLIND_SPOT`, whose headline is "Anything you
+bought with Binance Convert is missing from this history" and whose body says the cost basis "is not
+approximate, it is absent". That was true when it was written and is no longer: Convert acquisitions
+now reach the ledger.
+
+Not fixed here because `src/screens/` is owned by another branch. The adapter's own coverage note has
+been reworded to stay true — it says Convert fills are absent from *trade history*, which they are,
+and that Misal reads them from Convert history instead.
+
+**Consequence:** the sync report over-discloses. It tells the user their Convert purchases are
+missing when they are present, which is the safe direction to be wrong in but is still wrong, and it
+undermines the disclosures that are still accurate.
+
+**Fix direction:** rewrite `CONVERT_BLIND_SPOT` to cover what is actually still missing — history
+below the backfill floor — on a branch that owns the screens.
+
+### `SyncPhase` has no member for transfers or conversions
+
+The transfer and Convert walks report progress under `'fills'`. `SyncReport.tsx` keeps an exhaustive
+`Record<SyncPhase, string>` of phase headings and an ordered list for its "step 3 of 6" counter, so
+adding a member to the union is a change to a file this branch does not own — and an adapter emitting
+a phase the table has no row for renders a blank heading and an `undefined` inside an aria-label.
+
+**Consequence:** the heading says "Walking the trade history" while the detail line says "deposits
+2019-01-01 to 2019-04-01". Imprecise rather than untrue, but it understates how much of a first sync
+is not trade history at all.
+
+**Fix direction:** add `'transfers'` and `'conversions'` to `SyncPhase` together with their rows in
+`PHASE_LABEL` and `PHASE_ORDER`, on a branch that owns both sides.
+
+### A transfer pending for more than a week is still lost
+
+Found while writing this, and partly fixed. A deposit that is still confirming when its window is
+read is deliberately not committed — units that have not arrived are not inventory — but its
+timestamp stays inside that window forever. The forward pass used to resume strictly above the
+covered high, so once the deposit settled nothing ever looked at it again: silently dropped, and
+visible afterwards only as a coverage gap with no explanation.
+
+The forward pass now restarts seven days below the covered high (`REVISIT_MS`), which costs one
+request per stream per sync and nothing else, because every row in the overlap deduplicates on its
+natural key. Seven days covers chain confirmations and Binance's routine manual-review holds.
+
+**Consequence, still open:** a withdrawal held for compliance review for longer than a week, or a
+deposit on a chain that stalls for longer, settles outside the overlap and is never committed. The
+balance still shows it, so it surfaces as a coverage gap rather than as a wrong number — but the
+transaction behind it is gone until the account is re-synced from scratch.
+
+**Fix direction:** carry the unsettled rows in the cursor and re-poll them by id, rather than
+re-polling a time window and hoping they fall inside it.
+
+### Suspected: `assignOccurrences` cannot disambiguate across pages
+
+Occurrence numbering is computed per committed page, and the unique index is on
+`(natural_key, occurrence)`. Two genuinely distinct transactions with identical keys in *different*
+pages would both be numbered `0`, and the second would be discarded as a duplicate.
+
+The fills path is structurally immune because a page's rows carry unique trade ids, and the transfer
+and Convert paths inherit the same protection from Binance's row ids and order ids. It is recorded
+because the reasoning that makes it safe is a property of the *data*, not of the code, and nothing
+asserts it — a stream whose external ids were not unique would lose rows with no error anywhere.
+
 ## Test coverage
 
 ### Tax rule tables were nearly unguarded

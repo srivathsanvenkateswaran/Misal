@@ -79,6 +79,9 @@ const READ_TERMINALS: ReadonlySet<string> = new Set([
   'hisrec',
   'trade_history',
   'tradehistory',
+  // Binance Convert's history. Its mutating siblings under the same 'convert' segment are
+  // getQuote and acceptQuote, and neither ends in a read terminal, so they stay refused.
+  'tradeflow',
   'list',
   'status',
   'info',

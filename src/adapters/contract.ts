@@ -52,13 +52,50 @@ export interface RawFill {
   readonly occurredAt: Iso8601
 }
 
+/**
+ * Units moving into or out of the exchange account.
+ *
+ * A transfer is **not** a trade and this shape is deliberately unable to describe one: there is no
+ * `price` and no `side`. A deposit moves units in without establishing what they cost, and the only
+ * honest record of it is a `transfer_in` with no price at all - which the fold already models as a
+ * lot whose cost is explicitly unknown. Inventing a market price for the day it arrived would turn
+ * a known unknown into a plausible-looking wrong number in the cost-basis column.
+ */
 export interface RawTransfer {
   readonly externalId: string
   readonly asset: RawAsset
   readonly direction: 'in' | 'out'
+  /** Always positive, in units of `asset`. The direction carries the sign, not this field. */
   readonly quantity: DecimalString
+  /**
+   * Charged on top of `quantity` on the way out, in units of the exchange's choosing. Binance
+   * deducts `transactionFee` in addition to the withdrawn amount, so omitting it would leave the
+   * fold short by exactly the fee and manufacture a coverage gap that is not one.
+   */
+  readonly fee?: { readonly amount: DecimalString; readonly asset: RawAsset }
   readonly occurredAt: Iso8601
   readonly status: 'completed' | 'pending' | 'failed'
+}
+
+/**
+ * A conversion: one asset swapped directly for another, off the order book.
+ *
+ * Unlike a transfer this *does* establish a cost - the units given up are the consideration - so it
+ * is a priced acquisition. It is not a `RawFill` because there is no market and no symbol: Binance
+ * Convert will swap any listed pair whether or not a trading pair exists for it, so there is
+ * nothing for the market catalogue to split. The two assets are named outright instead.
+ */
+export interface RawConversion {
+  readonly externalId: string
+  /** The asset given up. It denominates the cost of what was acquired. */
+  readonly from: RawAsset
+  readonly fromQuantity: DecimalString
+  /** The asset acquired. */
+  readonly to: RawAsset
+  readonly toQuantity: DecimalString
+  /** Units of `from` per unit of `to`, as the exchange reports it. Never recomputed by division. */
+  readonly price: DecimalString
+  readonly occurredAt: Iso8601
 }
 
 /**
@@ -162,6 +199,16 @@ export interface AdapterIssue {
  * there is no cross-symbol endpoint, and the discovery sweep therefore queries every plausible
  * pair the account's assets could have traded in. That is minutes of work at weight 20 a call, and
  * a progress bar is the difference between "this is working" and "this has hung".
+ */
+/**
+ * Deliberately unchanged by the transfer and Convert streams, which report under `'fills'`.
+ *
+ * The screens keep an exhaustive `Record<SyncPhase, string>` of phase headings and an ordered list
+ * for the "step 3 of 6" counter, so a new member here is a UI change rather than an adapter one -
+ * and an adapter that emitted a phase the table has no row for would render a blank heading and an
+ * `undefined` in an aria-label. Deposits, withdrawals and Convert are all history walks, so
+ * `'fills'` is at worst imprecise where a new phase would be actively broken. See
+ * docs/known-issues.md; splitting them out belongs on a branch that owns both sides.
  */
 export type SyncPhase = 'scope' | 'clock' | 'markets' | 'balances' | 'fills' | 'coverage'
 
@@ -267,11 +314,29 @@ export interface ExchangeAdapter {
     markets: readonly MarketSpec[],
   ): AsyncIterable<AcquiredPage<RawFill>>
 
-  /** Optional: not every exchange exposes deposits and withdrawals. */
+  /**
+   * Optional: not every exchange exposes deposits and withdrawals.
+   *
+   * Absent rather than empty where the exchange has no such endpoint. An adapter that returned an
+   * empty stream would be indistinguishable from an account with no transfers, and the difference
+   * is the whole content of the coverage note.
+   */
   fetchTransfers?(
     ctx: AdapterContext,
     cursor: string | null,
   ): AsyncIterable<AcquiredPage<RawTransfer>>
+
+  /**
+   * Optional: direct asset-for-asset conversions that never reach the order book.
+   *
+   * Binance Convert is the case that forced this onto the contract - its fills appear in no trade
+   * history at all, so an account whose holdings were acquired that way reads as units with no
+   * purchase behind them.
+   */
+  fetchConversions?(
+    ctx: AdapterContext,
+    cursor: string | null,
+  ): AsyncIterable<AcquiredPage<RawConversion>>
 
   /**
    * Coverage the adapter knows it cannot provide, stated once per sync so the UI can say so
@@ -313,8 +378,17 @@ export interface GuardedRequest {
   /** Serialised request body, or null. */
   readonly body: string | null
   readonly signing: SigningScheme
-  /** Request weight, for the rate limiter. Defaults to 1. */
+  /** Request weight against the per-IP budget, for the rate limiter. Defaults to 1. */
   readonly weight?: number
+  /**
+   * Weight against the *account* budget, where the exchange keeps a second one.
+   *
+   * Binance's SAPI endpoints are metered twice, and the two figures are not comparable: reading
+   * deposits costs 1 IP weight, reading withdrawals costs 18,000 UID weight out of 180,000 a
+   * minute. Folding that into `weight` would either exhaust an IP budget that was never touched or
+   * let a handful of requests blow the UID budget unnoticed, so the two are counted apart.
+   */
+  readonly uidWeight?: number
 }
 
 /**

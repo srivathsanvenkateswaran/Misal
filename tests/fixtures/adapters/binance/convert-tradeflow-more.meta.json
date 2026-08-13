@@ -1,0 +1,7 @@
+{
+  "method": "GET",
+  "path": "/sapi/v1/convert/tradeFlow",
+  "query": "endTime=1786528800000",
+  "status": 200,
+  "headers": { "content-type": "application/json" }
+}
