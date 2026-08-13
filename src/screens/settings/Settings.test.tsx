@@ -267,7 +267,11 @@ describe('Settings — preferences', () => {
     expect(ttl).toHaveValue('360')
 
     fireEvent.change(ttl, { target: { value: '720' } })
-    fireEvent.click(screen.getAllByRole('button', { name: 'Save' })[1] as HTMLElement)
+    // Scoped to the field's own row rather than a positional index into every Save button on the
+    // screen. The index broke the moment the panel gained a sibling, which says nothing about
+    // whether saving works.
+    const ttlSave = ttl.closest('.set-field')?.querySelector('button')
+    fireEvent.click(ttlSave as HTMLElement)
 
     await waitFor(() => {
       expect(deps.writeSetting).toHaveBeenCalledWith('price_cache_ttl_minutes', '720')
@@ -279,8 +283,12 @@ describe('Settings — preferences', () => {
   it('refuses a fractional count before it reaches the core, and says why', async () => {
     const { container, deps } = await open()
 
-    fireEvent.change(screen.getByLabelText(/Stale-price threshold/u), { target: { value: '2.5' } })
-    fireEvent.click(screen.getAllByRole('button', { name: 'Save' })[2] as HTMLElement)
+    const field = screen.getByLabelText(/Stale-price threshold/u)
+    fireEvent.change(field, { target: { value: '2.5' } })
+    // Scoped to this field's own row. Positionally this test asserted a negative - that no write
+    // happened - which a click on an unrelated button would also satisfy, so it could have passed
+    // while proving nothing.
+    fireEvent.click(field.closest('.set-field')?.querySelector('button') as HTMLElement)
 
     expect(
       await screen.findByText(/must be a whole number of days; “2\.5” is not/u),
