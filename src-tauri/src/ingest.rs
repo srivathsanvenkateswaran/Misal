@@ -1305,4 +1305,142 @@ mod tests {
             "the withheld value must reach the UI as text"
         );
     }
+
+    // -----------------------------------------------------------------------
+    // Migration 0004 — re-keying MF folios off an AMC name slug
+    // -----------------------------------------------------------------------
+
+    const MIGRATION_AMC: &str = include_str!("../migrations/0005-amc-identity.sql");
+
+    /// A database as it stood before migration 0004: schema at version 3, folio identity keys
+    /// still built from a slug of whatever the document printed.
+    fn pre_0004_db() -> (TempDir, Connection) {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("t.db");
+        let conn = db::open_at(&path, TEST_KEY).unwrap();
+        conn.execute_batch(include_str!("../migrations/0001-initial.sql"))
+            .unwrap();
+        (dir, conn)
+    }
+
+    fn add_account(conn: &Connection, id: &str, identity_key: &str) {
+        conn.execute(
+            "INSERT INTO account (id, provider_id, label, external_ref, identity_key, capability,
+                                  base_currency, created_at)
+                  VALUES (?1, 'cams-cas', ?2, '12345678/0', ?3, 'ledger', 'INR', '2026-01-01')",
+            rusqlite::params![id, format!("folio {id}"), identity_key],
+        )
+        .unwrap();
+    }
+
+    fn identity_of(conn: &Connection, id: &str) -> Option<String> {
+        conn.query_row(
+            "SELECT identity_key FROM account WHERE id = ?1",
+            [id],
+            |r| r.get(0),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn migration_0004_converges_two_spellings_of_one_amc_on_one_key() {
+        // The whole point. A folio keyed from a CAMS statement and the *same* folio keyed from an
+        // NSDL eCAS printed the fund name and the legal entity respectively, so the two rows below
+        // are what one folio looked like after two imports under the old code. They must end up on
+        // the same identity, which is also why only one of them can keep it.
+        let (_dir, conn) = pre_0004_db();
+        add_account(&conn, "a1", "mf-folio:hdfc-mutual-fund:12345678/0");
+        add_account(
+            &conn,
+            "a2",
+            "mf-folio:hdfc-asset-management-company-limited:12345678/0",
+        );
+
+        conn.execute_batch(MIGRATION_AMC).unwrap();
+
+        // Both rewrite onto 'mf-folio:hdfc:12345678/0', which the unique index permits exactly one
+        // of. Neither is silently merged and neither is deleted, because the transactions hanging
+        // off them cannot be deduplicated in SQL: natural_key is a hash over account_id.
+        assert_eq!(
+            identity_of(&conn, "a1").as_deref(),
+            Some("mf-folio:hdfc-mutual-fund:12345678/0")
+        );
+        assert_eq!(
+            identity_of(&conn, "a2").as_deref(),
+            Some("mf-folio:hdfc-asset-management-company-limited:12345678/0")
+        );
+    }
+
+    #[test]
+    fn migration_0004_rewrites_a_folio_onto_its_canonical_amc_id() {
+        let (_dir, conn) = pre_0004_db();
+        add_account(&conn, "a1", "mf-folio:hdfc-mutual-fund:12345678/0");
+        add_account(
+            &conn,
+            "a2",
+            "mf-folio:icici-prudential-mutual-fund:91012424/0",
+        );
+        // A rename the folio outlived: units bought under Reliance are held under Nippon India.
+        add_account(&conn, "a3", "mf-folio:reliance-mutual-fund:55555555/1");
+
+        conn.execute_batch(MIGRATION_AMC).unwrap();
+
+        assert_eq!(
+            identity_of(&conn, "a1").as_deref(),
+            Some("mf-folio:hdfc:12345678/0")
+        );
+        assert_eq!(
+            identity_of(&conn, "a2").as_deref(),
+            Some("mf-folio:icici-prudential:91012424/0")
+        );
+        assert_eq!(
+            identity_of(&conn, "a3").as_deref(),
+            Some("mf-folio:nippon-india:55555555/1")
+        );
+    }
+
+    #[test]
+    fn migration_0004_leaves_alone_what_it_cannot_name() {
+        let (_dir, conn) = pre_0004_db();
+        // A demat account, which has no AMC at all.
+        add_account(&conn, "a1", "demat:IN300394-12345678");
+        // A fund house the registry does not know. Rewriting it to anything would be a guess.
+        add_account(&conn, "a2", "mf-folio:novus-capital-mutual-fund:12345678/0");
+        // Not an identity key at all.
+        conn.execute(
+            "INSERT INTO account (id, provider_id, label, capability, base_currency, created_at)
+                  VALUES ('a3', 'cams-cas', 'no identity', 'snapshot', 'INR', '2026-01-01')",
+            [],
+        )
+        .unwrap();
+
+        conn.execute_batch(MIGRATION_AMC).unwrap();
+
+        assert_eq!(
+            identity_of(&conn, "a1").as_deref(),
+            Some("demat:IN300394-12345678")
+        );
+        assert_eq!(
+            identity_of(&conn, "a2").as_deref(),
+            Some("mf-folio:novus-capital-mutual-fund:12345678/0")
+        );
+        assert_eq!(identity_of(&conn, "a3"), None);
+    }
+
+    #[test]
+    fn migration_0004_is_idempotent() {
+        // A key already canonical must survive a second application unchanged, and the temp tables
+        // must not linger to collide with it.
+        let (_dir, conn) = pre_0004_db();
+        add_account(&conn, "a1", "mf-folio:hdfc-mutual-fund:12345678/0");
+
+        conn.execute_batch(MIGRATION_AMC).unwrap();
+        conn.execute_batch(MIGRATION_AMC).unwrap();
+
+        assert_eq!(
+            identity_of(&conn, "a1").as_deref(),
+            Some("mf-folio:hdfc:12345678/0")
+        );
+        assert_eq!(count(&conn, "account"), 1);
+    }
 }

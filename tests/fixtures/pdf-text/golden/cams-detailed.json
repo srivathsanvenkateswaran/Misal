@@ -2,7 +2,7 @@
   "issues": [],
   "records": [
     {
-      "accountKey": "mf-folio:hdfc-mutual-fund:12345678/0",
+      "accountKey": "mf-folio:hdfc:12345678/0",
       "baseCurrency": "INR",
       "capability": "ledger",
       "externalRef": "12345678/0",
@@ -13,11 +13,11 @@
           "amc": "HDFC Mutual Fund",
           "folio": "12345678/0"
         },
-        "ref": "mf-folio:hdfc-mutual-fund:12345678/0"
+        "ref": "mf-folio:hdfc:12345678/0"
       }
     },
     {
-      "accountKey": "mf-folio:hdfc-mutual-fund:12345678/0",
+      "accountKey": "mf-folio:hdfc:12345678/0",
       "amountMinor": "499975",
       "authority": "primary",
       "currency": "INR",
@@ -61,7 +61,7 @@
       "txnType": "buy"
     },
     {
-      "accountKey": "mf-folio:hdfc-mutual-fund:12345678/0",
+      "accountKey": "mf-folio:hdfc:12345678/0",
       "amountMinor": "500000",
       "authority": "primary",
       "currency": "INR",
@@ -105,7 +105,7 @@
       "txnType": "buy"
     },
     {
-      "accountKey": "mf-folio:hdfc-mutual-fund:12345678/0",
+      "accountKey": "mf-folio:hdfc:12345678/0",
       "amountMinor": "500000",
       "authority": "primary",
       "currency": "INR",
@@ -149,7 +149,7 @@
       "txnType": "buy"
     },
     {
-      "accountKey": "mf-folio:hdfc-mutual-fund:12345678/0",
+      "accountKey": "mf-folio:hdfc:12345678/0",
       "amountMinor": "-1000000",
       "authority": "primary",
       "currency": "INR",
@@ -193,7 +193,7 @@
       "txnType": "sell"
     },
     {
-      "accountKey": "mf-folio:hdfc-mutual-fund:12345678/0",
+      "accountKey": "mf-folio:hdfc:12345678/0",
       "amountMinor": "29460",
       "authority": "primary",
       "currency": "INR",
@@ -233,7 +233,7 @@
       "txnType": "dividend"
     },
     {
-      "accountKey": "mf-folio:hdfc-mutual-fund:12345678/0",
+      "accountKey": "mf-folio:hdfc:12345678/0",
       "asOf": "2025-03-31T00:00:00+05:30",
       "asOfDate": "2025-03-31",
       "asOfTz": "Asia/Kolkata",
@@ -251,7 +251,7 @@
           "balance": "147.300",
           "scheme": "HDFC Flexi Cap Fund - Growth Plan"
         },
-        "ref": "mf-folio:hdfc-mutual-fund:12345678/0"
+        "ref": "mf-folio:hdfc:12345678/0"
       },
       "quantity": {
         "scale": 3,
@@ -259,7 +259,7 @@
       }
     },
     {
-      "accountKey": "mf-folio:icici-prudential-mutual-fund:91012424/0",
+      "accountKey": "mf-folio:icici-prudential:91012424/0",
       "baseCurrency": "INR",
       "capability": "ledger",
       "externalRef": "91012424/0",
@@ -270,11 +270,11 @@
           "amc": "ICICI Prudential Mutual Fund",
           "folio": "91012424/0"
         },
-        "ref": "mf-folio:icici-prudential-mutual-fund:91012424/0"
+        "ref": "mf-folio:icici-prudential:91012424/0"
       }
     },
     {
-      "accountKey": "mf-folio:icici-prudential-mutual-fund:91012424/0",
+      "accountKey": "mf-folio:icici-prudential:91012424/0",
       "amountMinor": "2500000",
       "authority": "primary",
       "currency": "INR",
@@ -318,7 +318,7 @@
       "txnType": "buy"
     },
     {
-      "accountKey": "mf-folio:icici-prudential-mutual-fund:91012424/0",
+      "accountKey": "mf-folio:icici-prudential:91012424/0",
       "asOf": "2025-03-31T00:00:00+05:30",
       "asOfDate": "2025-03-31",
       "asOfTz": "Asia/Kolkata",
@@ -336,7 +336,7 @@
           "balance": "500.000",
           "scheme": "ICICI Prudential Bluechip Fund"
         },
-        "ref": "mf-folio:icici-prudential-mutual-fund:91012424/0"
+        "ref": "mf-folio:icici-prudential:91012424/0"
       },
       "quantity": {
         "scale": 3,

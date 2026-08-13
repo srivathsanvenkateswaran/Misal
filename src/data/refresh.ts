@@ -375,6 +375,7 @@ function settingNumber(settings: ReadonlyMap<string, string>, key: string, fallb
   const raw = settings.get(key)
   if (raw === undefined || !/^\d{1,7}$/.test(raw.trim())) return fallback
   // A count of minutes, never a value.
+  // eslint-disable-next-line no-restricted-syntax -- a count of minutes, not a monetary value
   return Number.parseInt(raw.trim(), 10)
 }
 

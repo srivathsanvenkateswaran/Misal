@@ -26,6 +26,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         "exchange-sync",
         include_str!("../migrations/0004-exchange-sync.sql"),
     ),
+    (
+        5,
+        "amc-identity",
+        include_str!("../migrations/0005-amc-identity.sql"),
+    ),
 ];
 
 /// Location of the database file for this platform.

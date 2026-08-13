@@ -50,7 +50,44 @@ Cross-source dedup between a CSV export and an API sync of the same exchange may
 solvable — a CSV that omits trade ids cannot be matched with confidence. If so, say so in the
 import UI rather than silently producing duplicates.
 
-### Account identity depends on an AMC name slug
+### ~~Account identity depends on an AMC name slug~~ — FIXED
+
+Resolved by the canonical AMC registry in `src/ingestion/amc/`. A folio's identity is now
+`mf-folio:<registry id>:<folio>`, resolved from **the ISIN issuer prefix first** and a curated
+alias table on the printed name second. The prefix — the first seven characters of a mutual fund
+ISIN, `INF179K` — is the only AMC identifier these statements carry that does not vary with the
+template, and both families print it: the CAMS scheme line as `- ISIN: …`, the NSDL eCAS in the
+mutual fund folios table. Both parsers now scan the whole document for AMC evidence before any
+identity key is built, because the CAMS CAS prints the folio line *before* the scheme line that
+carries the ISIN, and keying at the folio line is what forked the folio.
+
+That prefixes are AMC-scoped was checked rather than assumed, against AMFI's complete NAV file
+(51 fund houses, ~17,800 scheme rows): no prefix appears under two houses. Registrar codes, which
+the original fix direction proposed, turned out to be the wrong instrument — `Registrar :` names
+CAMS or KFintech, and one registrar services dozens of AMCs.
+
+The fixtures no longer agree by accident: `AMC_SPELLINGS` in `src/ingestion/testing/corpus.ts`
+carries three real forms per house — the fund form, the legal-entity form and a
+punctuation/whitespace variant — the NSDL fixture prints the legal entity by default, and
+`amc-identity.test.ts` imports every pairing and asserts one account.
+
+Migration 0004 re-keys folios already in the database. Two residuals, both deliberate:
+
+- **A database that already forked a folio is not merged.** Where two accounts would rewrite onto
+  the same canonical key, both are left exactly as they were. Merging them cannot fix the totals:
+  `txn.natural_key` is a hash over `account_id`, SQL cannot recompute it, so both copies of every
+  transaction would survive the merge — and deleting one account would discard transactions the
+  user's own statements assert. The pair stays visible as two accounts against one folio number.
+  A repair path belongs in the review queue, where a human can confirm it, not in a migration.
+- **An unrecognised fund house gets a provisional identity, not a canonical one.** The key carries
+  an `unverified~` marker — `~` cannot occur in a registry id — and the import report raises
+  `W_AMC_UNRECOGNISED`. Where the statement printed an ISIN, the provisional token is the unknown
+  issuer prefix, so the folio is still stable across documents. Where it printed only a name that
+  the registry does not list, it is not, and the warning says so in those words.
+
+The original description is kept below, because the failure mode is worth recognising again.
+
+### Account identity depends on an AMC name slug (historical)
 
 `identity_key` for a mutual fund folio is built from a slugified AMC name. The test fixtures print
 "HDFC Mutual Fund" in both documents, but a real NSDL eCAS printing "HDFC Asset Management Company
@@ -62,6 +99,33 @@ fixtures happen to agree.
 
 **Fix direction:** a canonical AMC table keyed on registrar codes, rather than string
 normalisation of a printed name.
+
+### Every NSDL demat holding is attributed to the first demat account in the file
+
+Found while fixing the AMC identity key, and it is the same failure class one layer along.
+`readDematHolding` in `src/ingestion/pdf/nsdl-ecas.ts` picks its account with
+
+```ts
+const account = [...accounts.values()].find((a) => a.key.startsWith('demat:'))
+```
+
+— the *first* demat account the roster declared, for every holding in the file. An NSDL eCAS
+routinely lists more than one demat account, and it lists them precisely because the investor has
+more than one; the holdings sections that follow are per account, and the parser does not track
+which one it is inside. The MF folio path does not have this problem, because a folio number
+appears on its own row and is joined back to the roster.
+
+**Consequence:** with two or more demat accounts, every share lands under the first. Net worth
+totals are unaffected — the holdings are all still counted once — but per-account values are wrong,
+the second account looks empty, and any future per-account cost basis or XIRR is computed against
+the wrong set of transactions. It also makes the position uniqueness constraint
+`(account_id, instrument_id, as_of)` collide when the same ISIN is genuinely held in two accounts,
+so one of the two holdings is silently restated over the other and **that** does lose units.
+
+**Fix direction:** the demat holdings section is introduced by a header naming its DP ID and client
+ID. Carry that as section context the way the CAMS parser carries the folio, and fail the section
+with an issue rather than guessing when no account header has been seen. The single-account
+fixture cannot catch this; a two-demat-account fixture is the first thing the fix needs.
 
 ## Valuation engine
 

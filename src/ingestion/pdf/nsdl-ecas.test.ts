@@ -42,7 +42,7 @@ describe('nsdl ecas', () => {
       .filter((r): r is NormalizedAccount => r.kind === 'account')
       .map((a) => a.accountKey)
       .sort()
-    expect(keys).toEqual(['demat:IN300394-12345678', 'mf-folio:hdfc-mutual-fund:12345678/0'])
+    expect(keys).toEqual(['demat:IN300394-12345678', 'mf-folio:hdfc:12345678/0'])
   })
 
   it('takes the exchange symbol the ISIN cell gives away for free', async () => {

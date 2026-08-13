@@ -209,6 +209,7 @@ function decOf(value: Json | undefined): Dec | null {
  */
 function dateAt(epochSeconds: string, zone: string): IsoDate | null {
   if (!/^\d{1,15}$/.test(epochSeconds)) return null
+  // eslint-disable-next-line no-restricted-syntax -- epoch seconds, not a monetary value
   const at = DateTime.fromSeconds(Number.parseInt(epochSeconds, 10), { zone })
   if (!at.isValid) return null
   return at.toISODate()

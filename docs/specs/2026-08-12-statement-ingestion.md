@@ -148,7 +148,7 @@ interface RawRef {
 interface RawAccount extends RawRef {
   readonly type: 'account';
   /** Stable, realm-qualified identity. See §Account identity. */
-  readonly accountKey: string;         // 'mf-folio:hdfc-mutual-fund:12345678/0'
+  readonly accountKey: string;         // 'mf-folio:hdfc:12345678/0'
   readonly label: string;              // 'HDFC Mutual Fund · 12345678/0'
   readonly externalRef: string;        // '12345678 / 0'
   readonly capability: 'ledger' | 'snapshot';
@@ -678,15 +678,49 @@ introduced them:
 
 | Realm | Key shape | Example |
 |---|---|---|
-| MF folio | `mf-folio:<amc-slug>:<folio>` | `mf-folio:hdfc-mutual-fund:12345678/0` |
+| MF folio | `mf-folio:<amc-id>:<folio>` | `mf-folio:hdfc:12345678/0` |
 | Demat | `demat:<dp-id>-<client-id>` | `demat:IN300394-12345678` |
 | Demat (BO ID only) | `demat:bo:<16-digit-bo-id>` | `demat:bo:1208340012345678` |
 
 Rules:
 
-- Folio numbers are **RTA-scoped, not globally unique**, so the AMC slug is mandatory in the key.
+- Folio numbers are **RTA-scoped, not globally unique**, so the fund house is mandatory in the key.
   The sub-account suffix (`/ 0`) is preserved; folios differing only in suffix are different
   accounts.
+
+#### `<amc-id>` is a registry id, never a slug of the printed name
+
+This draft originally specified `<amc-slug>` — a slugified AMC name — and that was wrong in a way
+worth recording, because it recreated the exact failure the identity key exists to prevent. The two
+families do not print the same string for one fund house: the MF CAS prints the fund as a section
+header ("HDFC Mutual Fund"), the eCAS roster prints the legal entity ("HDFC Asset Management
+Company Limited"), and templates differ in punctuation and spacing. Two slugs, two accounts, units
+counted twice.
+
+The AMC is therefore resolved through a **canonical registry** (`src/ingestion/amc/`), in this
+order:
+
+1. **The ISIN issuer prefix** — the first seven characters of a mutual fund ISIN, `INF179K`. Both
+   families print the ISIN per scheme; it is machine-assigned and identical in every document, and
+   it is the only AMC identifier on these statements that does not vary with the template.
+2. **The printed name**, reduced to a lookup key (casefolded, punctuation stripped, trailing
+   corporate designators removed) and matched **exactly** against a curated alias list. Never
+   fuzzy, never nearest-match.
+3. **Provisional**, marked `unverified~…` in the key and reported as `W_AMC_UNRECOGNISED`. A house
+   the registry does not list never receives a key that looks canonical.
+
+Where the name and the ISIN disagree, the ISIN decides and `W_AMC_NAME_CONFLICT` is raised.
+Demoting the pair to provisional would fork the folio again, which is the bug; the ISIN is
+document-invariant, so resolving on it keeps one folio on one account whatever the disagreement
+means.
+
+Two consequences for plugin authors:
+
+- **Scan before keying.** The MF CAS prints the folio line before the scheme line carrying the
+  ISIN, so a plugin must gather the document's AMC evidence first and build identity keys after.
+  `FolioAmcIndex` does this; both PDF plugins use it.
+- **`Registrar :` is not an AMC identifier.** It names CAMS or KFintech, and one registrar services
+  dozens of fund houses. Neither is the RTA scheme code, whose allocation is unpublished.
 - The key is stored in `account.external_ref`. Resolution looks up by `external_ref` **regardless
   of `provider_id`**; the provider recorded is whichever document created the row first.
 - CDSL BO IDs are the concatenation of DP ID and client ID and are rendered doubled by bold text

@@ -49,6 +49,15 @@ export type WarningCode =
   | 'W_FEES_ABSENT'
   | 'W_CAPABILITY_DOWNGRADE'
   | 'W_UNKNOWN_SECTION'
+  /**
+   * A mutual fund folio's AMC is not in the canonical registry, so the folio holds a provisional
+   * identity rather than a canonical one. Never silent: an unrecognised house is the one case
+   * where the identity key cannot promise that two statements will agree, and the user is the
+   * person who finds out first when they do not.
+   */
+  | 'W_AMC_UNRECOGNISED'
+  /** The AMC name printed against a folio names a different house than its ISIN does. */
+  | 'W_AMC_NAME_CONFLICT'
 
 export type IssueCode = DocumentCode | RowCode | WarningCode
 

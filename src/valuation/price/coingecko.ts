@@ -170,12 +170,14 @@ export function parseSimplePrice(
 function dateAt(epochSeconds: string): IsoDate | null {
   // A count of seconds, never a value. The same exemption `calendar.ts` takes for day counts.
   if (!/^\d{1,15}$/.test(epochSeconds)) return null
+  // eslint-disable-next-line no-restricted-syntax -- epoch seconds, not a monetary value
   const at = DateTime.fromSeconds(Number.parseInt(epochSeconds, 10), { zone: IST })
   return at.isValid ? at.toISODate() : null
 }
 
 function millisAt(epochMillis: string): IsoDate | null {
   if (!/^\d{1,17}$/.test(epochMillis)) return null
+  // eslint-disable-next-line no-restricted-syntax -- epoch millis, not a monetary value
   const at = DateTime.fromMillis(Number.parseInt(epochMillis, 10), { zone: IST })
   return at.isValid ? at.toISODate() : null
 }
