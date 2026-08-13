@@ -8,6 +8,38 @@ forever.
 
 ## Blocking before v1 ships
 
+### Startup blocks on the keychain with no way to say so
+
+`db::open()` is called from Tauri's `setup`, which runs before any UI exists. It calls
+`secrets::database_key()`, which on macOS can raise an authorization prompt — and on Linux blocks
+until a keyring daemon answers.
+
+Found by running the built app rather than by any test: every test injects a key directly and never
+touches the keychain, so the entire real startup path was unexercised.
+
+**Consequence:** the window appears, empty, and the application does nothing. No database is
+created, no error is shown, and the user is left looking at an unexplained system password box with
+no indication of what is asking or why. Denying it produces no visible outcome either. On a fresh
+machine this is the very first thing a new user experiences.
+
+Aggravated in development because each rebuild produces a new unsigned binary, which macOS treats
+as a different application, so approving one build does not carry to the next.
+
+**Fix direction:** do not open the store in `setup`. Let the window render, then open it, and give
+the failure a real screen — "Misal needs access to its encryption key in your keychain, which is
+where your database password is kept" — with a retry. That also makes the Linux passphrase fallback
+reachable, which today it is not, for the same reason.
+
+### App bundle shipped with no icon — FIXED
+
+`tauri.conf.json` had no `bundle.icon` array. The icons existed in `src-tauri/icons/` because
+`tauri icon` generated them, but that command writes files and does not register them in a config
+that was hand-written beforehand. The bundle had no `Contents/Resources` and no `CFBundleIconFile`,
+so the application had no icon on any platform.
+
+Caught by a person looking at the dock, which is the only way it could have been caught: nothing
+about it is observable from a test.
+
 ### ~~Two divergent `natural_key` implementations~~ — FIXED
 
 Resolved by `src/domain/natural-key.ts`, now the single definition used by both subsystems, with
