@@ -8,7 +8,8 @@
  * H2 is structural here. A history-dependent metric at portfolio, class or account scope renders
  * its coverage — the percentage *and* the rupee amount — in the same visual component as the
  * figure. Not in a tooltip, not in a page footnote: the cell says what it covers, next to what it
- * claims.
+ * claims. The *bar* is a different thing from the line: it draws a share of a figure, so it is
+ * rendered only when there is a figure, while the line still speaks when there is not.
  *
  * D1 applies to the grid: all seven dashboard cells are derived, so seven identical dotted `DRV`
  * marks would say nothing seven times. The grid states it once at panel level and carries
@@ -129,8 +130,28 @@ export function ReadoutCell(props: ReadoutCellProps): ReactNode {
               </div>
             ))}
 
-          {state === 'ready' && props.meter !== undefined && (
-            <CoverageMeter pct={props.meter.pct} of={props.meter.of} />
+          {/*
+           * The meter is gated on `props.value.measured`, not only on the meter prop being
+           * supplied. A caller computes the percentage from what was *eligible* — the pairs that
+           * had a price and a usable rate — while the figure itself is solved over the scope as a
+           * whole and refused outright if any part of it is missing. The two decide separately, so
+           * a cell can hold a withheld figure and a well-formed percentage at the same time. Drawn
+           * together they read as one statement: "Not priced" over a bar saying 56.6% covered, or
+           * — when the unpriced pair contributes nothing to either side of the fraction — 100.0%,
+           * the one value this product documents as meaning complete.
+           *
+           * A coverage is a coverage *of a figure*. With no figure there is nothing to cover, so
+           * the bar is not drawn. The coverage line below still states what was excluded, which is
+           * the honest half of the pair and the half H2 actually requires.
+           */}
+          {state === 'ready' && props.meter !== undefined && props.value.measured && (
+            <CoverageMeter
+              pct={props.meter.pct}
+              of={props.meter.of}
+              metric={props.metric}
+              scope={props.scope}
+              coverage={props.value.coverage}
+            />
           )}
 
           {state === 'ready' && props.split !== undefined && (

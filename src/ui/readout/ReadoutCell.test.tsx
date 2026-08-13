@@ -61,6 +61,29 @@ describe('ReadoutCell — the measured branch', () => {
     expect(screen.getByText('USD 23.15%')).toBeInTheDocument()
     assertHonest(container)
   })
+
+  it('binds the meter to the metric it covers, and to that metric’s own coverage', () => {
+    const { container } = render(
+      <ReadoutCell
+        label="XIRR — annualised"
+        metric="xirr"
+        scope="portfolio"
+        basis="ledger"
+        value={fx.xirrValue}
+        meter={{ pct: dec('71.90') }}
+      />,
+    )
+    const meter = container.querySelector('[data-coverage-meter]')
+    expect(meter?.getAttribute('data-metric')).toBe('xirr')
+    expect(meter?.getAttribute('data-scope')).toBe('portfolio')
+    // The figure's coverage, not a second number invented for the bar.
+    const figure = container.querySelector('.metric[data-metric="xirr"]')
+    expect(meter?.getAttribute('data-coverage-minor')).toBe(
+      figure?.getAttribute('data-coverage-minor'),
+    )
+    expect(meter?.getAttribute('data-coverage-pct')).toBe(figure?.getAttribute('data-coverage-pct'))
+    assertHonest(container)
+  })
 })
 
 describe('ReadoutCell — the not-measured branch', () => {
@@ -82,6 +105,55 @@ describe('ReadoutCell — the not-measured branch', () => {
     const figure = container.querySelector('[data-not-measured]')
     expect(figure?.textContent).toBe('Not measuredno transaction history')
     expect(figure?.textContent).not.toMatch(FORBIDDEN_PLACEHOLDER)
+    assertHonest(container)
+  })
+
+  it('draws no coverage meter for a figure that was never computed', () => {
+    /*
+     * The defect: the meter rendered on `state === 'ready' && meter !== undefined`, without ever
+     * consulting the figure. The percentage comes from pair *eligibility*, the figure is solved
+     * over the scope as a whole and refused outright if any part of it is missing, so the two
+     * disagree exactly when it matters. The cell read "Not priced / no price available", then
+     * "Excludes ₹5,53,950 of net worth", then a bar labelled "Coverage 56.6 percent of portfolio
+     * value" — a coverage figure for something nothing covered.
+     */
+    const { container } = render(
+      <ReadoutCell
+        label="XIRR — annualised"
+        metric="xirr"
+        scope="portfolio"
+        basis="ledger"
+        value={fx.notPriced}
+        meter={{ pct: dec('56.60') }}
+      />,
+    )
+    expect(container.querySelector('[data-coverage-meter]')).toBeNull()
+    expect(container.querySelector('.meter-fill')).toBeNull()
+    expect(container.textContent).not.toContain('56.6')
+    // The honest half of the pair survives: the cell still says what it cannot speak for.
+    expect(container.querySelector('[data-coverage-line]')?.textContent).toBe(
+      'Excludes ₹2,40,000 of net worth',
+    )
+    assertHonest(container)
+  })
+
+  it('draws no meter at 100%, the reading that asserts the opposite of the truth', () => {
+    // The variant the reviewers hit second: the unpriced pair contributes to neither side of the
+    // fraction, so eligibility comes out at exactly 100.00 — documented as meaning "complete" —
+    // beside a figure that does not exist.
+    const { container } = render(
+      <ReadoutCell
+        label="XIRR — annualised"
+        metric="xirr"
+        scope="portfolio"
+        basis="ledger"
+        value={fx.notMeasuredXirr}
+        meter={{ pct: dec('100.00') }}
+      />,
+    )
+    expect(container.querySelector('.meter')).toBeNull()
+    expect(screen.queryByRole('img', { name: /Coverage/u })).toBeNull()
+    expect(container.textContent).not.toContain('100.0')
     assertHonest(container)
   })
 })

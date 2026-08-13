@@ -979,6 +979,78 @@ Three rules, the same three the price path holds itself to:
   is named in an `FX_HISTORY_INCOMPLETE` note and picked up next time, so a large backfill finishes
   over a few runs instead of stalling one.
 
+### ~~A crypto quote currency was cast to `CurrencyCode` and starved the FX backfill~~ — FIXED
+
+`neededFxDates` in `src/data/refresh.ts` opened with `const currency = txn.currency as CurrencyCode`
+over every transaction in the table. Exchange fills are not fiat: migration 0002 reserves the `X:`
+namespace for a non-fiat quote currency, so a Binance `BTCUSDT` fill is stored as `X:USDT`. The cast
+asserted otherwise, the row passed both guards, `FxTable.on` had no such bucket to answer it from,
+and every fill date accumulated under an `X:USDT` key. `fxSymbolFor` renders that as `X:USDTINR=X`,
+which Yahoo's symbol pattern rejects locally — so no request ever left the machine — but the slot
+was counted *before* the call, so each cluster still spent one of the eight per-refresh backfill
+slots. Nothing was stored, so the identical dates were re-derived on every subsequent refresh.
+
+**Consequence:** twelve crypto fills across 2021–2023 plus one USD transaction produced eight
+`NO_PRICE_SOURCE` notes for `X:USDT/INR` and an `FX_HISTORY_INCOMPLETE` note listing the real
+`USD/INR` range that was never reached. Because `list_transactions` orders by `occurred_at`, a user
+whose earliest transaction is a crypto fill starved the genuine USD backfill *indefinitely* — which
+recreates, in full, the failure the entry above was written to fix. The advice attached to the note
+("add an exchange or ticker alias") is unactionable for a pair that cannot exist.
+
+Fixed by skipping `isNonFiatCurrency(txn.currency)` — the helper already in `src/data/portfolio.ts`,
+until now imported by nothing — and by narrowing what remains through `currencyCode` instead of
+asserting it. `portfolio.ts` holds the same boundary with `requireCurrency`, which throws; a refresh
+cannot throw over one row without taking every unrelated price down with it, so it skips instead.
+Either way the boundary is *crossed*, which is the thing a cast never does. The same cast at the
+price-seeding site got the same treatment: a stored price in a currency nothing can convert must not
+be allowed to report an instrument as freshly priced and suppress the fetch of one that can be.
+
+`requests += 1` now runs *after* the call and not at all for `NOT_SUPPORTED`, which is decided
+locally. A budget on requests must be spendable only by requests. With the cast gone no fiat pair
+can reach that branch, so this half is defensive and has no test of its own; reverting only the cast
+leaves the crypto notes but no longer starves the USD range, and reverting both reproduces the
+original starvation exactly.
+
+**Standing lesson:** `as` at a data boundary is not a type annotation, it is a claim about the
+database. The identical claim on the identical column threw a `MappingError` twenty files away, and
+this path chose to believe it instead.
+
+### ~~The coverage meter stated a percentage for a figure that was never computed~~ — FIXED
+
+`ReadoutCell.tsx` rendered the meter on `state === 'ready' && props.meter !== undefined`, never
+consulting `props.value.measured`. `Dashboard.tsx` always passes `meter={{ pct: readout.xirrMeterPct }}`,
+and that percentage comes from pair *eligibility* (`valuation/portfolio.ts`), never from whether the
+solve ran. `xirrForScope` refuses a partial XIRR by design, so a single unpriced ledger holding
+withholds the whole figure while the percentage stands undisturbed.
+
+**Consequence:** the cell read "Not priced / no price available", then "Excludes ₹5,53,950 of net
+worth", then a bar labelled "Coverage 56.6 percent of portfolio value" — a completeness figure for
+an answer that does not exist. In the variant where the unpriced pair contributes to neither the
+numerator nor the denominator the bar reads exactly **100.0%**, the one value this product documents
+as meaning "complete". The same held on `NOT_CONVERGED`, on `NO_SIGN_CHANGE` and on the `unstable`
+branch — which every user meets in their first 90 days.
+
+**Why the honesty suite could not see it:** `assertHonest` only ever asked whether a *figure* states
+its coverage. H2 skips elements carrying `data-not-measured`, and the meter was a bare
+`[data-coverage-meter]` div with no metric attributes at all, so the walk went straight past it.
+
+Fixed on both sides. `ReadoutCell` draws the bar only when the figure exists — a coverage is a
+coverage *of* something, and the coverage *line* below it still states what was excluded, which is
+the half H2 actually requires. `CoverageMeter` now carries `data-metric`, `data-scope` and the
+metric's own coverage attributes, so the bar is part of its cell rather than loose geometry.
+
+And the invariant was strengthened rather than the one site patched: `honestyViolations` now asks
+the question in reverse — does a drawn coverage have a measured metric to travel with? The rule is
+attached to `[data-coverage-meter]`, so any component that draws a meter inherits it, and a meter
+inside a metric cell that does not name its metric is itself a violation, because a bar nobody can
+bind cannot be shown to be honest. The scope it is judged within is the cell or row, not the panel,
+so a design specimen in the gallery is not blamed for a withheld metric elsewhere on the page.
+
+**Standing lesson:** the eligibility percentage and the figure are computed by different code with
+different rules, and nothing made them agree. Every honesty invariant so far has been about a figure
+stating its coverage; this was the first about a coverage stating its figure, and the suite had no
+opinion about that direction at all.
+
 ### ~~Coverage percentages rounded half-up, so 99.95% and up printed as "100.0%"~~ — FIXED
 
 `Dashboard.tsx`, `Holdings.tsx` and `CoverageMeter.tsx` each formatted coverage with

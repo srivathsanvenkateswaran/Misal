@@ -11,7 +11,8 @@
  *   H1, H4  — enforced by the type system. `Measured<T>`'s false branch has no `value`, so there is
  *             no expression that produces a number for an unmeasurable metric. Nothing to assert
  *             at runtime; the compiler already refused.
- *   H2      — asserted: coverage travels with the metric.
+ *   H2      — asserted, in both directions: coverage travels with the metric, and a drawn
+ *             coverage has a measured metric to travel with.
  *   H3      — asserted: never a zero, never a blank, never a dash.
  *   H5      — asserted: hatch fidelity, per `<svg>`.
  *   H6      — asserted: provenance completeness, with the D1 panel-scope exemption.
@@ -51,6 +52,23 @@ function scopeOf(element: Element): Element {
   )
 }
 
+/**
+ * The figures a coverage meter is entitled to speak for.
+ *
+ * Tighter than `scopeOf` on purpose: a meter qualifies the figure it was drawn beside, not
+ * everything on the panel, so a section holding a dozen unrelated components must not make one
+ * of them guilty of another's withheld metric. A cell or a row is the binding container; a meter
+ * drawn outside both — the gallery renders three as specimens — is bound to whatever element it
+ * was placed in, which for a real pairing is where the figure would also be.
+ */
+function meterScope(meter: Element): Element {
+  return (
+    meter.closest('tr, [data-cell-metric], [data-row-scope]') ??
+    meter.parentElement ??
+    meter.ownerDocument.body
+  )
+}
+
 export function honestyViolations(
   container: ParentNode,
   options: HonestyOptions = {},
@@ -84,6 +102,42 @@ export function honestyViolations(
       problems.push(
         `H2: history-dependent metric "${metric}" rendered without both a coverage percentage and a coverage amount.`,
       )
+    }
+  }
+
+  // ---- H2 — a coverage meter may not stand beside a figure that was never computed ----
+  //
+  // The loop above asks whether a figure states its coverage. This one asks the reverse, and it
+  // is the half that was missing: whether a coverage states a figure. A meter is not a decoration
+  // and not a statistic in its own right — it is the sentence "this much of the portfolio is
+  // behind the number next to me". When that number was withheld the bar has no subject, and what
+  // the reader gets is a percentage of nothing, printed in the component whose entire job is to
+  // say how complete an answer is. At 100.0% — reachable whenever the missing part contributes to
+  // neither side of the fraction — it asserts the exact opposite of the truth.
+  //
+  // The rule is attached to `[data-coverage-meter]` rather than to any one component, so a screen
+  // that draws its own meter is held to it without knowing this file exists. A meter inside a
+  // metric cell must also name the metric it covers: an unnamed bar cannot be shown to be honest,
+  // and "cannot be shown" is the state this suite exists to fail on.
+  for (const meter of container.querySelectorAll('[data-coverage-meter]')) {
+    const declared = meter.getAttribute('data-metric')
+    const scope = meterScope(meter)
+    const inCell = meter.closest('[data-cell-metric], [data-row-scope]') !== null
+    if (declared === null && inCell) {
+      problems.push(
+        'H2: a coverage meter inside a metric cell does not carry data-metric, so the figure its ' +
+          'percentage claims to cover cannot be identified.',
+      )
+    }
+    for (const figure of scope.querySelectorAll('[data-metric][data-not-measured]')) {
+      if (declared !== null && figure.getAttribute('data-metric') !== declared) continue
+      problems.push(
+        `H2: a coverage meter reading ${meter.getAttribute('data-coverage-meter') ?? '?'}% is ` +
+          `drawn beside "${figure.getAttribute('data-metric') ?? '?'}", which was not measured ` +
+          `(${figure.getAttribute('data-not-measured') ?? '?'}). A share of a figure that was ` +
+          `never computed overstates the coverage the product has.`,
+      )
+      break
     }
   }
 

@@ -10,10 +10,12 @@
  */
 
 import type { ReactNode } from 'react'
+import type { Coverage } from '@domain/measured'
 import { coveragePercent } from '@domain/measured'
 import type { Dec, Minor } from '@domain/numeric'
 import { minor } from '@domain/numeric'
 import { MINUS, cssPercent, formatPct } from '../format'
+import type { MetricId, Scope } from '../metrics'
 import './readout.css'
 
 /** 100.00%, counted in hundredths of a percentage point. */
@@ -57,9 +59,27 @@ export interface CoverageMeterProps {
   readonly pct: Dec
   /** What the coverage is of, for the accessible name. */
   readonly of?: string | undefined
+  /**
+   * The metric this bar speaks for, and that metric's own coverage.
+   *
+   * A meter is never a free-standing percentage: it qualifies a figure. Naming the figure is what
+   * lets `assertHonest` bind the bar to the metric beside it and refuse the pairing when that
+   * metric was withheld — a bar reading "100.0 percent of portfolio value" under the words "Not
+   * priced" states a completeness nothing computed. Optional only because the gallery draws the
+   * component as a specimen with no figure to qualify; a meter inside a metric cell must name it.
+   */
+  readonly metric?: MetricId | undefined
+  readonly scope?: Scope | undefined
+  readonly coverage?: Coverage | undefined
 }
 
-export function CoverageMeter({ pct, of = 'portfolio value' }: CoverageMeterProps): ReactNode {
+export function CoverageMeter({
+  pct,
+  of = 'portfolio value',
+  metric,
+  scope,
+  coverage,
+}: CoverageMeterProps): ReactNode {
   return (
     <>
       <div
@@ -70,6 +90,13 @@ export function CoverageMeter({ pct, of = 'portfolio value' }: CoverageMeterProp
         // put "100.0 percent" in one ear while the sighted line beside it read 99.9%.
         aria-label={`Coverage ${coverageText(pct)} percent of ${of}`}
         data-coverage-meter={pct}
+        // The §5 metric contract, so H2 treats the bar as part of its cell rather than as loose
+        // geometry it has no opinion about. The coverage stated here is the metric's own — the
+        // same `MetricCoverage` the drawn percentage comes from — never a second figure.
+        data-metric={metric}
+        data-scope={scope}
+        data-coverage-pct={coverage === undefined ? undefined : coveragePercent(coverage)}
+        data-coverage-minor={coverage?.covered}
       >
         <span className="meter-fill" style={{ width: cssPercent(pct) }} />
       </div>

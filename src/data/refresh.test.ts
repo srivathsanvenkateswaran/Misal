@@ -18,6 +18,7 @@ import {
   buildProviders,
   describeProviderError,
   foreignCurrencies,
+  neededFxDates,
   refreshPrices,
   ttlGate,
 } from './refresh'
@@ -131,7 +132,56 @@ const USD_INR_2019 = JSON.stringify({
   },
 })
 
+/** USD/INR across 12–15 March 2024, in the same shape as the 2019 span above. */
+const USD_INR_2024 = JSON.stringify({
+  chart: {
+    result: [
+      {
+        meta: {
+          currency: 'INR',
+          symbol: 'USDINR=X',
+          exchangeName: 'CCY',
+          exchangeTimezoneName: 'Europe/London',
+        },
+        timestamp: [1710201600, 1710288000, 1710374400, 1710460800],
+        indicators: { quote: [{ close: [82.8, 82.91, 82.97, 83.05] }] },
+      },
+    ],
+    error: null,
+  },
+})
+
 const BTC = JSON.stringify({ bitcoin: { inr: 6061005.018552231, last_updated_at: 1786594890 } })
+
+/** A transaction as a sync writes one, with only the fields a test varies spelled out. */
+function txn(over: Partial<PortfolioRows['transactions'][number]>): PortfolioRows['transactions'][number] {
+  return {
+    id: 't-1',
+    accountId: 'a-kite',
+    instrumentId: 'i-aapl',
+    type: 'buy',
+    occurredAt: '2024-03-15T09:30:00-04:00',
+    occurredTz: null,
+    quantity: '10.0000',
+    price: '190.0000',
+    amountMinor: '190000',
+    brokerageMinor: '0',
+    sttMinor: '0',
+    gstMinor: '0',
+    stampDutyMinor: '0',
+    otherFeesMinor: '0',
+    tdsMinor: '0',
+    currency: 'USD',
+    // No per-row rate, so the daily table is the only place a rate can come from.
+    fxRate: null,
+    sourceDocumentId: 'd-1',
+    naturalKey: 'nk-1',
+    occurrence: 0,
+    authority: 'primary',
+    createdAt: NOW,
+    ...over,
+  }
+}
 
 function rows(over: Partial<PortfolioRows> = {}): PortfolioRows {
   return {
@@ -551,6 +601,99 @@ describe('what gets written', () => {
     const { call, fetcher, urls } = harness(ALL_GOOD)
     await refreshPrices({ rows: dated, call, fetcher, now: () => NOW, sleep: () => Promise.resolve() })
     expect(urls.some((url) => url.includes('period1'))).toBe(false)
+  })
+
+  it('asks for no rate against a crypto quote currency, and does not spend a slot on one', async () => {
+    /*
+     * The defect: `neededFxDates` cast every transaction's currency to a `CurrencyCode`. Exchange
+     * fills are stored in the `X:` namespace migration 0002 reserves — a Binance `BTCUSDT` fill is
+     * `X:USDT` — and under the cast they passed both guards, found no bucket in `FxTable.on`, and
+     * piled every fill date under an `X:USDT` key. `fxSymbolFor` turns that into `X:USDTINR=X`,
+     * which Yahoo's symbol pattern rejects locally, so no request left the machine — but the slot
+     * was counted before the call, so each cluster still spent one of the eight per-refresh
+     * backfill slots, and since nothing was stored the same dates were re-derived every refresh.
+     *
+     * `list_transactions` orders by `occurred_at`, so a user whose earliest transaction is a
+     * crypto fill had the twelve impossible clusters consume the budget before the real USD range
+     * was ever reached — the exact failure `backfillFxHistory` was written to fix, with the note
+     * advising an exchange or ticker alias for a pair that cannot exist.
+     */
+    const cryptoFirst = rows({
+      transactions: [
+        // Twelve fills across 2021-2023, each more than the 60-day clustering gap from the last,
+        // so they would have become twelve separate range requests. Listed first, because that is
+        // the order the database hands them back in.
+        ...[
+          '2021-02-05',
+          '2021-05-04',
+          '2021-08-03',
+          '2021-11-02',
+          '2022-02-01',
+          '2022-05-03',
+          '2022-08-02',
+          '2022-11-01',
+          '2023-01-31',
+          '2023-05-02',
+          '2023-08-01',
+          '2023-10-31',
+        ].map((date, index) =>
+          txn({
+            id: `t-fill-${String(index)}`,
+            instrumentId: 'i-btc',
+            occurredAt: `${date}T08:00:00.000Z`,
+            currency: 'X:USDT',
+            amountMinor: null,
+            naturalKey: `binance:btcusdt:${date}`,
+          }),
+        ),
+        txn({
+          id: 't-vest-2024',
+          instrumentId: 'i-aapl',
+          occurredAt: '2024-03-15T09:30:00-04:00',
+          occurredTz: 'America/New_York',
+          currency: 'USD',
+          amountMinor: '190000',
+          naturalKey: 'etrade:aapl:2024-03-15',
+        }),
+      ],
+    })
+
+    // Nothing in the map is quoted in anything a rate could exist for but INR's counterparties.
+    expect([...neededFxDates(cryptoFirst, 'INR').keys()]).toEqual(['USD'])
+
+    const { call, fetcher, urls, commands } = harness([
+      { match: /USDINR=X\?period1/, status: 200, body: USD_INR_2024 },
+      ...ALL_GOOD,
+    ])
+    const outcome = await refreshPrices({
+      rows: cryptoFirst,
+      call,
+      fetcher,
+      now: () => NOW,
+      sleep: () => Promise.resolve(),
+    })
+
+    // The genuine backfill is reached and answered, rather than starved behind twelve pairs that
+    // cannot exist. Opened three days early, as `FxTable.on` reads back.
+    const history = urls.filter((url) => url.includes('USDINR=X?period1'))
+    expect(history).toHaveLength(1)
+    expect(history[0]).toContain('period1=1710201600')
+    const fxRows = commands
+      .filter((c) => c.command === 'save_fx_rates')
+      .flatMap((c) => (c.args?.rows as Record<string, unknown>[] | undefined) ?? [])
+    expect(fxRows).toContainEqual({
+      base: 'USD',
+      quote: 'INR',
+      asOf: '2024-03-15',
+      rate: '83.05',
+      source: 'yahoo',
+    })
+
+    // Nothing is said about a pair that cannot exist, and nothing is left outstanding. The old
+    // advice — add an exchange or ticker alias — was unactionable for `X:USDT/INR`.
+    const subjects = outcome.notes.flatMap((note) => note.subjects)
+    expect(subjects.filter((subject) => subject.includes('X:USDT'))).toEqual([])
+    expect(outcome.notes.some((note) => note.code === 'FX_HISTORY_INCOMPLETE')).toBe(false)
   })
 
   it('does not ask for FX at all when nothing foreign is held', async () => {
