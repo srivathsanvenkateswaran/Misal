@@ -10,7 +10,11 @@
 import type { CurrencyCode, Dec } from '@domain/numeric'
 import type { AssetClass, InstrumentRef, IsoDate, IsoInstant } from '../types'
 
-export type PriceSource = 'amfi' | 'twelvedata' | 'manual'
+/**
+ * Must stay in step with the CHECK constraint on `price.source` in migration 0001. A source the
+ * database accepts but this type rejects is a row that can be written and never read back.
+ */
+export type PriceSource = 'amfi' | 'twelvedata' | 'yahoo' | 'coingecko' | 'manual'
 
 /**
  * Either a specific date or the most recent row.

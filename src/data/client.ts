@@ -46,6 +46,13 @@ export interface InstrumentRow {
   readonly fmv31Jan2018: string | null
 }
 
+export interface AliasRow {
+  readonly instrumentId: string
+  readonly scheme: string
+  readonly value: string
+  readonly providerId: string | null
+}
+
 export interface TxnRow {
   readonly id: string
   readonly accountId: string
@@ -106,6 +113,7 @@ export const storageStatus = (): Promise<StorageStatus> => invoke<StorageStatus>
 export const listAccounts = (): Promise<AccountRow[]> => invoke<AccountRow[]>('list_accounts')
 export const listInstruments = (): Promise<InstrumentRow[]> =>
   invoke<InstrumentRow[]>('list_instruments')
+export const listAliases = (): Promise<AliasRow[]> => invoke<AliasRow[]>('list_aliases')
 export const listTransactions = (): Promise<TxnRow[]> => invoke<TxnRow[]>('list_transactions')
 export const listPositions = (): Promise<PositionRow[]> => invoke<PositionRow[]>('list_positions')
 export const listPrices = (): Promise<PriceRow[]> => invoke<PriceRow[]>('list_prices')
@@ -119,6 +127,7 @@ export const getSettings = async (): Promise<ReadonlyMap<string, string>> =>
 export interface PortfolioRows {
   readonly accounts: readonly AccountRow[]
   readonly instruments: readonly InstrumentRow[]
+  readonly aliases: readonly AliasRow[]
   readonly transactions: readonly TxnRow[]
   readonly positions: readonly PositionRow[]
   readonly prices: readonly PriceRow[]
@@ -134,15 +143,16 @@ export interface PortfolioRows {
  * during an import, which for a net-worth figure reads as a bug rather than as loading.
  */
 export async function loadPortfolioRows(): Promise<PortfolioRows> {
-  const [accounts, instruments, transactions, positions, prices, unresolved, settings] =
+  const [accounts, instruments, aliases, transactions, positions, prices, unresolved, settings] =
     await Promise.all([
       listAccounts(),
       listInstruments(),
+      listAliases(),
       listTransactions(),
       listPositions(),
       listPrices(),
       listUnresolved(),
       getSettings(),
     ])
-  return { accounts, instruments, transactions, positions, prices, unresolved, settings }
+  return { accounts, instruments, aliases, transactions, positions, prices, unresolved, settings }
 }

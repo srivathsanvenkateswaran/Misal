@@ -71,6 +71,15 @@ pub struct TxnRow {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AliasRow {
+    pub instrument_id: String,
+    pub scheme: String,
+    pub value: String,
+    pub provider_id: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PositionRow {
     pub id: String,
     pub account_id: String,
@@ -153,6 +162,29 @@ pub fn list_instruments(state: tauri::State<'_, AppState>) -> Result<Vec<Instrum
             currency: row.get(5)?,
             precision: row.get(6)?,
             fmv31_jan2018: row.get(7)?,
+        })
+    })?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+/// Instrument aliases.
+///
+/// Needed by the price layer, not merely by resolution: an AMFI scheme code is how the keyless
+/// NAV provider recognises a fund, so an instrument that reaches valuation without its aliases is
+/// simply unpriceable.
+#[tauri::command]
+pub fn list_aliases(state: tauri::State<'_, AppState>) -> Result<Vec<AliasRow>> {
+    let conn = state.conn.lock().expect("storage mutex poisoned");
+    let mut stmt = conn.prepare(
+        "SELECT instrument_id, scheme, value, provider_id FROM instrument_alias
+          ORDER BY instrument_id, scheme",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(AliasRow {
+            instrument_id: row.get(0)?,
+            scheme: row.get(1)?,
+            value: row.get(2)?,
+            provider_id: row.get(3)?,
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)

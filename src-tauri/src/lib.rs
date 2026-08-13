@@ -56,6 +56,7 @@ pub fn run() {
             storage_status,
             queries::list_accounts,
             queries::list_instruments,
+            queries::list_aliases,
             queries::list_transactions,
             queries::list_positions,
             queries::list_prices,
