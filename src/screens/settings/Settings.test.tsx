@@ -7,14 +7,31 @@
  *   - a malformed price is refused before it reaches the core, with a sentence naming the problem;
  *   - the network disclosure is whatever the core reported, not a list this file believes;
  *   - a manual override is presented as taking precedence, with the fetched value it outranks
- *     still shown as kept rather than replaced.
+ *     still shown as kept rather than replaced;
+ *   - a dismissed review entry is still on screen, still labelled, and still inside the withheld
+ *     total — the failure migration 0006 split the columns to prevent;
+ *   - an irreversible delete states what it destroys, in figures, and cannot be reached by the
+ *     reflex that opened it.
  */
 
 import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fullCoverage, measured, notMeasured } from '@domain/measured'
+import { minor } from '@domain/numeric'
 import { assertHonest } from '@ui/testing/assert-honest'
-import type { SettingsSnapshot } from '../../data/settings'
-import { Settings, type InstrumentOption, type SettingsRuntime } from './Settings'
+import { moneyFigure } from '@ui/figure'
+import type {
+  AccountDeletionOutcome,
+  AccountDeletionPreview,
+  ReviewQueueEntry,
+  SettingsSnapshot,
+} from '../../data/settings'
+import {
+  Settings,
+  type AccountSummary,
+  type InstrumentOption,
+  type SettingsRuntime,
+} from './Settings'
 
 const SNAPSHOT: SettingsSnapshot = {
   settings: [
@@ -122,6 +139,97 @@ const INSTRUMENTS: InstrumentOption[] = [
   { id: 'i-aapl', displayName: 'Apple Inc', isin: 'US0378331005', currency: 'USD' },
 ]
 
+const ACCOUNTS: AccountSummary[] = [
+  {
+    id: 'a-dcx',
+    label: 'CoinDCX main',
+    providerId: 'coindcx',
+    shortCode: 'DCX',
+    capability: 'snapshot',
+    value: measured(moneyFigure(minor('118640000')), fullCoverage(minor('118640000'))),
+    valueUnavailable: null,
+  },
+  {
+    id: 'a-cas',
+    label: 'HDFC folio',
+    providerId: 'cams-cas',
+    shortCode: 'CAS',
+    capability: 'ledger',
+    value: notMeasured('no_price', minor('4200000')),
+    valueUnavailable: null,
+  },
+]
+
+const PREVIEW: AccountDeletionPreview = {
+  accountId: 'a-dcx',
+  label: 'CoinDCX main',
+  providerId: 'coindcx',
+  capability: 'snapshot',
+  transactions: 412,
+  holdings: 9,
+  positionRows: 31,
+  queueEntries: 1,
+  documentsRemoved: 6,
+  documentsShared: 2,
+  hasCredential: true,
+  syncCursors: 3,
+}
+
+const OUTCOME: AccountDeletionOutcome = {
+  label: 'CoinDCX main',
+  transactions: 412,
+  positions: 31,
+  queueEntries: 1,
+  documentsRemoved: 6,
+  documentsKeptShared: 2,
+  credentialForgotten: true,
+}
+
+function entry(over: Partial<ReviewQueueEntry> = {}): ReviewQueueEntry {
+  return {
+    id: 'u1',
+    accountId: 'a-cas',
+    accountLabel: 'HDFC folio',
+    providerShortCode: 'CAS',
+    rawIdentifier: 'isin:INF179K01YV8',
+    rawName: 'Some Unlisted Fund',
+    assetClassHint: 'mutual_fund',
+    observedQuantity: '1234.5670',
+    observedValueMinor: '11864000',
+    currency: 'INR',
+    firstSeenAt: '2026-07-01T00:00:00Z',
+    lastSeenAt: '2026-08-01T00:00:00Z',
+    ignoredAt: null,
+    mappedAt: null,
+    mappedInstrumentId: null,
+    mappedInstrumentName: null,
+    state: 'open',
+    ...over,
+  }
+}
+
+const QUEUE: ReviewQueueEntry[] = [
+  entry(),
+  entry({
+    id: 'u2',
+    rawIdentifier: 'provider-local:XYZ',
+    rawName: 'Dismissed thing',
+    observedValueMinor: '5000000',
+    ignoredAt: '2026-07-14T00:00:00Z',
+    state: 'dismissed',
+  }),
+  entry({
+    id: 'u3',
+    rawIdentifier: 'amfi:120503',
+    rawName: 'Named but not landed',
+    observedValueMinor: '2500000',
+    mappedAt: '2026-07-20T00:00:00Z',
+    mappedInstrumentId: 'i-ppfc',
+    mappedInstrumentName: 'Parag Parikh Flexi Cap',
+    state: 'mapped',
+  }),
+]
+
 function runtime(over: Partial<SettingsRuntime> = {}): SettingsRuntime {
   return {
     load: vi.fn().mockResolvedValue(SNAPSHOT),
@@ -131,6 +239,12 @@ function runtime(over: Partial<SettingsRuntime> = {}): SettingsRuntime {
     clearProviderKey: vi.fn().mockResolvedValue(SNAPSHOT.providers[0]),
     setManualPrice: vi.fn().mockResolvedValue(undefined),
     deleteManualPrice: vi.fn().mockResolvedValue(undefined),
+    listAccounts: vi.fn().mockResolvedValue(ACCOUNTS),
+    previewDeletion: vi.fn().mockResolvedValue(PREVIEW),
+    deleteAccount: vi.fn().mockResolvedValue(OUTCOME),
+    loadReviewQueue: vi.fn().mockResolvedValue(QUEUE),
+    restoreReviewEntry: vi.fn().mockResolvedValue(undefined),
+    dismissReviewEntry: vi.fn().mockResolvedValue(undefined),
     ...over,
   }
 }
@@ -380,6 +494,206 @@ describe('Settings — what leaves this machine', () => {
         /no account, no sign-in, no server and no telemetry\. Nothing is uploaded, and nothing is sent on a schedule\./u,
       ),
     ).toBeInTheDocument()
+  })
+})
+
+/**
+ * The queue's reason to exist is a rupee figure that survives a dismissal.
+ *
+ * Before migration 0006, dismissing an entry set `resolved_at` and the withheld total fell to zero —
+ * the dashboard then stated, of a holding it had never identified, that every identifier in every
+ * document was mapped. These assertions are that failure written as tests: a dismissed entry stays
+ * on screen, stays labelled, stays counted, and can be put back.
+ */
+describe('Settings — review queue', () => {
+  it('keeps a dismissed entry visible, labelled and counted in the withheld total', async () => {
+    const { container } = await open()
+
+    // ₹1,18,640 open + ₹50,000 dismissed + ₹25,000 mapped, all three withheld.
+    expect(await screen.findByText('₹1,93,640')).toBeInTheDocument()
+    expect(screen.getByText('Dismissed thing', { exact: false })).toBeInTheDocument()
+
+    const dismissed = container.querySelector('[data-queue-state="dismissed"]')
+    expect(dismissed).not.toBeNull()
+    expect(dismissed?.textContent).toContain('₹50,000')
+    expect(dismissed?.textContent).toContain('withheld from every total')
+    expect(
+      screen.getByText(/dismissing stopped the question, not the withholding/u),
+    ).toBeInTheDocument()
+    assertHonest(container)
+  })
+
+  it('shows a mapped entry as still withholding, because its rows have not landed', async () => {
+    const { container } = await open()
+
+    expect(screen.getByText('Mapped — waiting for a statement')).toBeInTheDocument()
+    const mapped = container.querySelector('[data-queue-state="mapped"]')
+    expect(mapped?.textContent).toContain('Parag Parikh Flexi Cap')
+    expect(mapped?.textContent).toContain('₹25,000')
+    expect(
+      screen.getByText(/the value stays withheld until a document carrying them is imported/u),
+    ).toBeInTheDocument()
+    assertHonest(container)
+  })
+
+  it('puts a dismissed entry back and says what that did and did not change', async () => {
+    const { deps } = await open()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Put back' }))
+
+    await waitFor(() => {
+      expect(deps.restoreReviewEntry).toHaveBeenCalledWith('u2')
+    })
+    expect(
+      await screen.findByText(
+        /its value was withheld the whole time it was dismissed, and still is/u,
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('dismisses an open entry from the standing queue as well as from an import', async () => {
+    const { deps } = await open()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Dismiss' }))
+
+    await waitFor(() => {
+      expect(deps.dismissReviewEntry).toHaveBeenCalledWith('u1')
+    })
+    expect(
+      await screen.findByText(/stays on this list and its value stays out of every total/u),
+    ).toBeInTheDocument()
+  })
+
+  /**
+   * An entry whose source printed no value withholds an unknown amount, not zero.
+   *
+   * Folding it in as zero would understate the withheld figure while looking like a complete total,
+   * which is the precise shape of lie the queue exists to prevent.
+   */
+  it('names an entry with no stated value rather than counting it as nothing', async () => {
+    const { container } = await open({
+      loadReviewQueue: vi
+        .fn()
+        .mockResolvedValue([
+          entry({ id: 'u9', observedValueMinor: null, currency: null }),
+          entry({ id: 'u10', observedValueMinor: '11864000' }),
+        ]),
+    })
+
+    expect(await screen.findByText('Amount unknown')).toBeInTheDocument()
+    expect(container.textContent).toContain('1 entry whose source stated no value')
+    expect(container.textContent).toContain('the amount those withhold is unknown, not zero')
+    expect(container.querySelector('.set-withheld-figure')?.textContent).toBe('₹1,18,640')
+    assertHonest(container)
+  })
+
+  it('reports an empty queue as nothing withheld rather than as an empty panel', async () => {
+    const { container } = await open({ loadReviewQueue: vi.fn().mockResolvedValue([]) })
+    expect(await screen.findByText('Nothing is being withheld')).toBeInTheDocument()
+    assertHonest(container)
+  })
+})
+
+/**
+ * Deletion is irreversible and destroys imported history, so the confirmation is the feature.
+ */
+describe('Settings — deleting an account', () => {
+  async function openConfirmation(over: Partial<SettingsRuntime> = {}): Promise<{
+    container: HTMLElement
+    deps: SettingsRuntime
+  }> {
+    const opened = await open(over)
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Delete…' }))[0] as HTMLElement)
+    return opened
+  }
+
+  it('states the label, the transactions, the holdings and the value before offering to delete', async () => {
+    const { container, deps } = await openConfirmation()
+
+    await waitFor(() => {
+      expect(deps.previewDeletion).toHaveBeenCalledWith('a-dcx')
+    })
+    const danger = await screen.findByRole('group', { name: 'Delete CoinDCX main' })
+    expect(danger.textContent).toContain('412')
+    expect(danger.textContent).toContain('transactions')
+    expect(danger.textContent).toContain('9')
+    expect(danger.textContent).toContain('holdings')
+    expect(danger.textContent).toContain('₹11,86,400')
+    expect(danger.textContent).toContain('There is no undo and no backup is taken')
+    expect(danger.textContent).toContain('6')
+    expect(danger.textContent).toContain('2')
+    expect(danger.textContent).toContain('not this account’s to destroy')
+    expect(danger.textContent).toContain('keychain is deleted first')
+    assertHonest(container)
+  })
+
+  it('will not delete until the account name is typed exactly', async () => {
+    const { deps } = await openConfirmation()
+
+    const button = await screen.findByRole('button', {
+      name: 'Delete this account permanently',
+    })
+    expect(button).toBeDisabled()
+
+    fireEvent.change(screen.getByLabelText(/Type/u), { target: { value: 'CoinDCX' } })
+    expect(button).toBeDisabled()
+
+    fireEvent.change(screen.getByLabelText(/Type/u), { target: { value: 'CoinDCX main' } })
+    expect(button).toBeEnabled()
+    expect(deps.deleteAccount).not.toHaveBeenCalled()
+
+    fireEvent.click(button)
+    await waitFor(() => {
+      expect(deps.deleteAccount).toHaveBeenCalledWith('a-dcx')
+    })
+    expect(
+      await screen.findByText(/The API key was deleted from your keychain\./u),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/412 transactions, 31 holdings and 6 statements removed/u))
+      .toBeInTheDocument()
+  })
+
+  /**
+   * The account that broke valuation is the one most likely to need deleting, so a value that
+   * cannot be computed must not become a blank in the middle of the warning — nor a reason the
+   * delete is unreachable.
+   */
+  it('says why a value is unknown instead of printing a figure it does not have', async () => {
+    const { container } = await open()
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Delete…' }))[1] as HTMLElement)
+
+    const danger = await screen.findByRole('group', { name: 'Delete HDFC folio' })
+    expect(danger.textContent).toContain('a value Misal could not compute — no price available')
+    expect(danger.textContent).not.toContain('₹0.00')
+    assertHonest(container)
+  })
+
+  it('refuses to offer a delete it could not count first', async () => {
+    await openConfirmation({
+      previewDeletion: vi.fn().mockRejectedValue(new Error('database is locked')),
+    })
+
+    expect(
+      await screen.findByText(/could not read what this would destroy/u),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Delete this account permanently' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('reports a refused delete without claiming anything was removed', async () => {
+    const { deps } = await openConfirmation({
+      deleteAccount: vi.fn().mockRejectedValue(new Error('keychain unavailable: locked')),
+    })
+
+    fireEvent.change(await screen.findByLabelText(/Type/u), {
+      target: { value: 'CoinDCX main' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Delete this account permanently' }))
+
+    expect(await screen.findByText(/keychain unavailable: locked/u)).toBeInTheDocument()
+    expect(screen.queryByText(/Deleted CoinDCX main/u)).not.toBeInTheDocument()
+    expect(deps.listAccounts).toHaveBeenCalledTimes(1)
   })
 })
 

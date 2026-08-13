@@ -169,11 +169,175 @@
   color: var(--ink-3);
 }
 
+/* ---------------------------------------------- review queue
+
+   Borrowed wholesale from the import screen's queue item geometry
+   (.imp-queue-item): the same entry, in the same three columns, so a
+   dismissed row is recognisably the row the user dismissed there.
+   The only addition is the state grouping, which the import screen
+   has no need for because it only ever shows open entries. */
+
+.set-withheld {
+  border: 1px solid var(--rule);
+  background: var(--surface-2);
+  padding: 9px 11px;
+  margin-bottom: 14px;
+}
+
+.set-withheld-figure {
+  font-size: var(--fs-val);
+  font-weight: 700;
+  color: var(--ink-1);
+  font-variant-numeric: tabular-nums;
+}
+
+.set-withheld p {
+  margin: 3px 0 0;
+}
+
+.set-queue-group {
+  border-top: 1px solid var(--rule);
+  padding-top: 11px;
+  margin-top: 11px;
+}
+
+.set-queue-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.set-queue-group-count {
+  font-size: var(--fs-label);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.set-queue-group > .conf {
+  margin: 3px 0 8px;
+  max-width: 92ch;
+}
+
+.set-queue-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 12px;
+  align-items: start;
+  border-top: 1px solid var(--rule);
+  padding: 9px 0;
+}
+
+/* A dismissed entry is quieter but never hidden: its money is still missing
+   from every total, and a row nobody can see is a row nobody can restore. */
+.set-queue-item[data-queue-state='dismissed'] {
+  opacity: 0.82;
+}
+
+.set-queue-amount {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.set-queue-amount .acct-prov,
+.set-queue-item .acct-prov {
+  display: block;
+}
+
+.set-queue-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ---------------------------------------------- accounts and deletion */
+
+.set-accounts {
+  margin-top: 14px;
+}
+
+.set-accounts td,
+.set-accounts th {
+  vertical-align: top;
+}
+
+/* The one destructive control in the product, marked as such rather than
+   styled like every other panel. The rule colour is the crit token the
+   badge already uses, so this is not a new visual idea either. */
+.set-danger {
+  border: 1px solid var(--st-crit);
+  border-left-width: 3px;
+  background: var(--surface-2);
+  padding: 11px 13px;
+  margin-top: 14px;
+}
+
+.set-danger-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.set-danger-title {
+  font-size: var(--fs-base);
+  font-weight: 700;
+}
+
+.set-danger-lede {
+  font-size: var(--fs-body);
+  color: var(--ink-1);
+  margin: 0 0 8px;
+  max-width: 92ch;
+}
+
+.set-danger-list {
+  font-size: var(--fs-body);
+  color: var(--ink-2);
+  margin: 0 0 12px;
+  padding-left: 18px;
+  max-width: 92ch;
+}
+
+.set-danger-list li {
+  margin-bottom: 4px;
+}
+
+.set-danger-form {
+  display: grid;
+  gap: 4px;
+}
+
+.btn-danger {
+  border-color: var(--st-crit);
+  color: var(--neg);
+  font-weight: 700;
+}
+
+.btn-danger:hover:enabled {
+  background: var(--st-crit);
+  color: var(--surface);
+  border-color: var(--st-crit);
+}
+
+.btn-danger:disabled {
+  opacity: 0.5;
+}
+
 /* ---------------------------------------------- responsive floor: 1024px */
 
 @media (max-width: 1140px) {
   .set-price-form {
     grid-template-columns: 1fr;
     align-items: stretch;
+  }
+
+  .set-queue-item {
+    grid-template-columns: 1fr;
+  }
+
+  .set-queue-amount {
+    text-align: left;
   }
 }

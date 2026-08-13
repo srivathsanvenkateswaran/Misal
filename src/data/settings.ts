@@ -1,8 +1,9 @@
 /**
- * The settings half of the IPC boundary: preferences, provider keys and manual price overrides.
+ * The settings half of the IPC boundary: preferences, provider keys, manual price overrides,
+ * account deletion and the standing review queue.
  *
- * `client.ts` reads portfolio rows; this module reads and writes the four things the settings
- * screen owns. Three rules shape it.
+ * `client.ts` reads portfolio rows; this module reads and writes the things the settings screen
+ * owns. Three rules shape it.
  *
  * **A secret travels one way.** `setProviderKey` takes a key and returns a status. There is no
  * command that reads one back, no field on any type below that could hold one, and therefore no
@@ -132,6 +133,114 @@ export const deleteManualPrice = (
   asOf: string,
   call: Invoker = tauriInvoke,
 ): Promise<void> => call('settings_delete_manual_price', { instrumentId, asOf })
+
+// ---------------------------------------------------------------------------
+// Deleting an account
+// ---------------------------------------------------------------------------
+
+/**
+ * What deleting an account would destroy, counted by the core before anything is destroyed.
+ *
+ * Read separately from the delete, and shown before it, because deletion is irreversible and
+ * "this will delete your data" is not a sentence anyone can weigh. Every field here appears on
+ * screen; none of them is decorative.
+ *
+ * No secret and no keychain reference is in this type. `hasCredential` is a boolean, which is the
+ * most the screen is allowed to know.
+ */
+export interface AccountDeletionPreview {
+  readonly accountId: string
+  readonly label: string
+  readonly providerId: string
+  readonly capability: 'ledger' | 'snapshot'
+  readonly transactions: number
+  /** Distinct instruments held. A holding restated on four dates is one holding, not four. */
+  readonly holdings: number
+  readonly positionRows: number
+  readonly queueEntries: number
+  /** Imported statements that go with the account, because nothing else references them. */
+  readonly documentsRemoved: number
+  /** Statements other accounts' rows still cite. Kept, and detached from this account. */
+  readonly documentsShared: number
+  readonly hasCredential: boolean
+  readonly syncCursors: number
+}
+
+/** What was actually removed, so the screen reports an outcome rather than repeating a warning. */
+export interface AccountDeletionOutcome {
+  readonly label: string
+  readonly transactions: number
+  readonly positions: number
+  readonly queueEntries: number
+  readonly documentsRemoved: number
+  readonly documentsKeptShared: number
+  readonly credentialForgotten: boolean
+}
+
+export const previewAccountDeletion = (
+  accountId: string,
+  call: Invoker = tauriInvoke,
+): Promise<AccountDeletionPreview> => call('account_deletion_preview', { accountId })
+
+/**
+ * Delete an account, its rows and its keychain entry.
+ *
+ * Irreversible, and there is no undo anywhere behind it: the core removes the transactions, the
+ * positions, the sync cursors, the credential reference and the stored secret in one transaction.
+ * The caller is responsible for having shown `previewAccountDeletion` first.
+ */
+export const deleteAccount = (
+  accountId: string,
+  call: Invoker = tauriInvoke,
+): Promise<AccountDeletionOutcome> => call('account_delete', { accountId })
+
+// ---------------------------------------------------------------------------
+// The standing review queue
+// ---------------------------------------------------------------------------
+
+/**
+ * What the user has done about an entry — never whether the money has come back.
+ *
+ * `open` — nobody has looked at it yet.
+ * `dismissed` — the user asked not to be asked again. Still withheld from every total.
+ * `mapped` — the instrument has been named, so the next statement resolves without asking, but the
+ * rows this import withheld are still not in the ledger. Still withheld.
+ *
+ * There is no fourth state here, because the fourth state leaves the queue: `resolved_at` means the
+ * rows landed, and only then does the disclosure stop.
+ */
+export type ReviewEntryState = 'open' | 'dismissed' | 'mapped'
+
+export interface ReviewQueueEntry {
+  readonly id: string
+  readonly accountId: string
+  readonly accountLabel: string
+  readonly providerShortCode: string
+  readonly rawIdentifier: string
+  readonly rawName: string | null
+  readonly assetClassHint: string | null
+  readonly observedQuantity: string | null
+  /** Minor units as a string. The one figure in the product meant to be believed literally. */
+  readonly observedValueMinor: string | null
+  readonly currency: string | null
+  readonly firstSeenAt: string
+  readonly lastSeenAt: string | null
+  readonly ignoredAt: string | null
+  readonly mappedAt: string | null
+  readonly mappedInstrumentId: string | null
+  readonly mappedInstrumentName: string | null
+  readonly state: ReviewEntryState
+}
+
+export const loadReviewQueue = (call: Invoker = tauriInvoke): Promise<readonly ReviewQueueEntry[]> =>
+  call('review_queue_list')
+
+/** Undo a dismissal. Clears `ignored_at` and nothing else — the sighting date is not rewritten. */
+export const restoreReviewEntry = (entryId: string, call: Invoker = tauriInvoke): Promise<void> =>
+  call('review_queue_restore', { entryId })
+
+export const dismissReviewEntry = (entryId: string, call: Invoker = tauriInvoke): Promise<void> =>
+  call('review_queue_dismiss', { entryId })
 
 // ---------------------------------------------------------------------------
 // Validation at the boundary

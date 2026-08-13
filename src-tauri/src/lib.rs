@@ -1,3 +1,4 @@
+pub mod accounts;
 pub mod db;
 pub mod disconnect;
 pub mod error;
@@ -79,6 +80,11 @@ pub fn run() {
             http::fetch_market_data,
             export::save_export_file,
             disconnect::exchange_disconnect_account,
+            accounts::account_deletion_preview,
+            accounts::account_delete,
+            accounts::review_queue_list,
+            accounts::review_queue_restore,
+            accounts::review_queue_dismiss,
             refresh::save_prices,
             refresh::save_fx_rates,
             refresh::record_price_refresh,
