@@ -5,6 +5,7 @@ pub mod http;
 pub mod ingest;
 pub mod queries;
 pub mod secrets;
+pub mod settings;
 
 use error::Result;
 use serde::Serialize;
@@ -78,7 +79,13 @@ pub fn run() {
             ingest::ingest_map_unresolved,
             ingest::ingest_ignore_unresolved,
             ingest::pick_statement_file,
-            ingest::read_statement_bytes
+            ingest::read_statement_bytes,
+            settings::settings_snapshot,
+            settings::settings_write,
+            settings::settings_set_provider_key,
+            settings::settings_clear_provider_key,
+            settings::settings_set_manual_price,
+            settings::settings_delete_manual_price
         ])
         .run(tauri::generate_context!())
         .expect("error while running Misal");

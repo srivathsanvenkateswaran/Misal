@@ -1,0 +1,179 @@
+/* ============================================================
+   Screen 06 — Settings.
+
+   The approved mockup (docs/design/mockups/final-consolidated.html)
+   has no settings screen, so nothing here is a new visual idea.
+   The panel, the label, the button, the badge, the definition-style
+   help line and the data table all come from @ui/base.css and the
+   screen chrome; this file only arranges them.
+
+   Two borrowings are deliberate and worth naming:
+     * .set-field-row reuses the import screen's field geometry
+       (.imp-field), because a labelled control with a button beside
+       it should look the same in both places.
+     * .set-note reuses .imp-status, the import screen's factual
+       status line, for exactly the same purpose: a sentence stating
+       what happened, which stays on screen rather than toasting away.
+   ============================================================ */
+
+.set-screen {
+  padding: 16px;
+}
+
+.set-grid {
+  margin-bottom: 14px;
+  align-items: stretch;
+}
+
+/* Preferences and provider keys sit side by side, and their content is
+   different enough in length that stretching reads better than topping. */
+.set-grid > .panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.set-grid > .panel > .panel-body {
+  flex: 1;
+}
+
+.set-panel {
+  margin-bottom: 14px;
+}
+
+/* ---------------------------------------------- fields */
+
+.set-fields {
+  display: grid;
+  gap: 14px;
+}
+
+.set-field {
+  display: grid;
+  gap: 2px;
+}
+
+.set-field-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.set-field-row input,
+.set-field-row select,
+.set-field select,
+.set-field input {
+  font: inherit;
+  font-size: var(--fs-body);
+  color: var(--ink-1);
+  background: var(--surface);
+  border: 1px solid var(--rule-2);
+  padding: 5px 7px;
+  min-width: 0;
+}
+
+.set-field-row input {
+  flex: 1;
+  min-width: 120px;
+}
+
+.set-field-row button {
+  flex: none;
+}
+
+/* A stated outcome, not a toast: the sentence stays until the next action
+   replaces it, because a figure that changed silently is a figure nobody
+   can audit. */
+.set-note {
+  font-size: var(--fs-body);
+  color: var(--ink-2);
+  background: var(--surface-2);
+  border-left: 3px solid var(--st-good);
+  padding: 6px 9px;
+  margin: 4px 0 0;
+}
+
+.set-note-bad {
+  border-left-color: var(--st-crit);
+}
+
+.set-lede {
+  font-size: var(--fs-body);
+  color: var(--ink-2);
+  margin: 0 0 12px;
+  max-width: 92ch;
+}
+
+/* ---------------------------------------------- provider keys */
+
+.set-keyless {
+  border: 1px solid var(--rule);
+  background: var(--surface-2);
+  padding: 9px 11px;
+  margin-bottom: 14px;
+}
+
+.set-keyless p {
+  font-size: var(--fs-body);
+  color: var(--ink-2);
+  margin: 3px 0 0;
+}
+
+.set-provider {
+  display: grid;
+  gap: 4px;
+  border-top: 1px solid var(--rule);
+  padding-top: 11px;
+}
+
+.set-provider-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.set-provider-name {
+  font-size: var(--fs-base);
+  font-weight: 700;
+}
+
+.set-provider p {
+  margin: 0;
+}
+
+/* ---------------------------------------------- manual prices */
+
+.set-price-form {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) 150px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+  margin-bottom: 8px;
+}
+
+.set-overrides,
+.set-network {
+  margin-top: 14px;
+}
+
+.set-overrides td,
+.set-overrides th,
+.set-network td,
+.set-network th {
+  vertical-align: top;
+}
+
+.set-mono {
+  font-family: var(--mono);
+  color: var(--ink-3);
+}
+
+/* ---------------------------------------------- responsive floor: 1024px */
+
+@media (max-width: 1140px) {
+  .set-price-form {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+}
