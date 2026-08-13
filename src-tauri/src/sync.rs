@@ -15,7 +15,10 @@
 //!     canonical list lives below, in Rust, so a compromised or buggy webview cannot widen it.
 //!     Neither can it choose a host - `hostUrl` from the caller is discarded and the URL is looked
 //!     up from the adapter's own table, because a signed request carries the user's API key and
-//!     must not be aimable at an arbitrary origin.
+//!     must not be aimable at an arbitrary origin. Nor can it choose *which* key: the account id
+//!     and the adapter id arrive in the same object, so the pairing is re-derived from
+//!     `account.provider_id` before a stored credential is read. Pinning the origin without
+//!     pinning the credential would only decide which third party receives the secret.
 //!
 //!   * **The store.** One command per `SyncStore` method in `src/adapters/sync/store.ts`, mapped
 //!     mechanically, following `ingest.rs`: money and quantities cross as strings in both
@@ -201,6 +204,51 @@ fn refused(adapter: &str, reason: &str) -> MisalError {
 }
 
 // ---------------------------------------------------------------------------
+// Account ownership
+// ---------------------------------------------------------------------------
+
+/// Which exchange this account belongs to, as the database records it, or `None` if it does not
+/// exist yet.
+///
+/// `account.provider_id` holds exactly the `AdapterSpec::id` string, written by
+/// `commit_credential` and by nothing else, which is what makes it comparable to the adapter id a
+/// request names.
+fn account_provider(conn: &Connection, account_id: &str) -> Result<Option<String>> {
+    Ok(conn
+        .query_row(
+            "SELECT provider_id FROM account WHERE id = ?1",
+            [account_id],
+            |row| row.get(0),
+        )
+        .optional()?)
+}
+
+/// Refuse an account that does not belong to the adapter the caller named.
+///
+/// The adapter id and the account id arrive in one object and nothing in the wire format makes
+/// them agree. Pinning the origin is only half of it: a request aimed at `api.binance.com` while
+/// carrying the CoinDCX account's key would put a trade-and-withdrawal credential - CoinDCX issues
+/// no read-only ones - into a third party's request log, having passed every other check here. So
+/// the pairing is re-derived from the `account` table rather than trusted, exactly as the host,
+/// the method, the path and the signing scheme already are.
+///
+/// The mismatch is named in the error rather than being allowed to look like an absent row,
+/// because "no credential is stored" would send a contributor looking at the wrong thing.
+fn require_account_provider(conn: &Connection, account_id: &str, adapter_id: &str) -> Result<()> {
+    match account_provider(conn, account_id)? {
+        Some(provider) if provider == adapter_id => Ok(()),
+        Some(provider) => Err(refused(
+            adapter_id,
+            &format!("account {account_id} belongs to {provider}, not {adapter_id}"),
+        )),
+        None => Err(refused(
+            adapter_id,
+            &format!("there is no account {account_id}"),
+        )),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Credentials
 // ---------------------------------------------------------------------------
 
@@ -325,6 +373,19 @@ pub fn commit_credential(
         .ok_or_else(|| MisalError::Other(format!("no staged credential {handle}")))?;
     spec_for(&account.provider_id)?;
 
+    // An account that already exists under another exchange is never re-pointed at this one. The
+    // upsert below leaves `provider_id` alone, so the row would keep its old exchange while
+    // `credential_ref` gained this key: the same credential confusion the transport guards
+    // against, arriving through the connect flow instead.
+    if let Some(existing) = account_provider(conn, &account.id)? {
+        if existing != account.provider_id {
+            return Err(refused(
+                &account.provider_id,
+                &format!("account {} already belongs to {existing}", account.id),
+            ));
+        }
+    }
+
     let blob = serde_json::to_string(&CredentialBlob {
         api_key: staged.api_key.to_text(),
         api_secret: staged.api_secret.to_text(),
@@ -364,6 +425,10 @@ pub fn commit_credential(
 ///
 /// Read for the duration of one signing operation and no longer. A public endpoint never touches
 /// the keychain at all.
+///
+/// The stored credential is looked up by account **and** by exchange. A staged handle is exempt
+/// because it is not borrowed from anywhere: it is the credential the caller just supplied, in a
+/// connect flow whose account row does not exist yet.
 fn credential_for(
     conn: &Connection,
     state: &ExchangeState,
@@ -381,10 +446,18 @@ fn credential_for(
             .ok_or_else(|| MisalError::Other(format!("no staged credential {handle}")));
     }
 
+    require_account_provider(conn, &request.account_id, &request.adapter_id)?;
+
+    // Joined rather than filtered afterwards, so the account's exchange is part of what selects
+    // the row: there is no order of statements here in which the key is read first and checked
+    // second.
     let keychain_key: String = conn
         .query_row(
-            "SELECT keychain_key FROM credential_ref WHERE account_id = ?1",
-            [&request.account_id],
+            "SELECT c.keychain_key
+               FROM credential_ref c
+               JOIN account a ON a.id = c.account_id
+              WHERE c.account_id = ?1 AND a.provider_id = ?2",
+            rusqlite::params![&request.account_id, &request.adapter_id],
             |row| row.get(0),
         )
         .optional()?
@@ -665,6 +738,13 @@ fn new_id() -> String {
 // Documents, runs and issues
 // ---------------------------------------------------------------------------
 
+/// Record the page a sync just fetched, or recognise one already stored.
+///
+/// The descriptor names both an account and a provider, which is the same pairing `credential_for`
+/// checks and the same one nothing in the wire format enforces. An unchecked pair would attribute
+/// a Binance page to a CoinDCX account: `start_run` reads the provider back off this row to stamp
+/// the run's parser version, and every transaction committed under it would cite a document whose
+/// provenance is a fiction.
 pub fn upsert_document(conn: &Connection, descriptor: &DocumentDescriptor) -> Result<DocumentRef> {
     if descriptor.kind != "api-response" {
         return Err(MisalError::Other(format!(
@@ -672,6 +752,7 @@ pub fn upsert_document(conn: &Connection, descriptor: &DocumentDescriptor) -> Re
             descriptor.kind
         )));
     }
+    require_account_provider(conn, &descriptor.account_id, &descriptor.provider_id)?;
 
     if let Some(id) = conn
         .query_row(
@@ -1417,6 +1498,21 @@ mod tests {
             .unwrap()
     }
 
+    /// A second account, on the other exchange, holding a credential of its own.
+    ///
+    /// `a1` from the base fixture is Binance; `c1` is CoinDCX and has the stored `credential_ref`
+    /// row. Every existing guard test uses one account, which is why none of them could construct
+    /// this: a credential can only be aimed at the wrong exchange when there are two.
+    fn add_coindcx_account(conn: &Connection) {
+        conn.execute_batch(
+            "INSERT INTO account (id, provider_id, label, capability, base_currency, created_at)
+               VALUES ('c1', 'coindcx', 'CoinDCX', 'snapshot', 'INR', 'now');
+             INSERT INTO credential_ref (account_id, keychain_key, kind, created_at)
+               VALUES ('c1', 'secret/c1', 'api-key-secret', 'now');",
+        )
+        .unwrap();
+    }
+
     fn request(adapter: &str, method: Method, path: &str, host: HostKey) -> ExchangeRequest {
         ExchangeRequest {
             adapter_id: adapter.to_string(),
@@ -1493,6 +1589,127 @@ mod tests {
         let state = ExchangeState::new();
         let borrowed = request("coindcx", Method::Get, "/api/v3/myTrades", HostKey::Primary);
         assert!(prepare(&conn, &state, &borrowed).is_err());
+    }
+
+    /// The two-account test the single-account fixture could not express.
+    ///
+    /// Every other guard here pins the *origin*. This one pins the credential aimed at it: with
+    /// the join removed, `{adapterId: 'binance', accountId: 'c1'}` passes the adapter, host, path
+    /// and scheme checks and opens TLS to `api.binance.com` carrying `X-MBX-APIKEY: <CoinDCX
+    /// key>`. CoinDCX issues no read-only keys, so what lands in a third party's request log can
+    /// trade and withdraw.
+    ///
+    /// Asserted on the message, not merely on `is_err`: without the join the lookup still fails,
+    /// one step later and for the wrong reason - it finds the key, then cannot read the keychain
+    /// entry - so `is_err()` alone would pass against the defect.
+    #[test]
+    fn one_adapter_cannot_sign_with_another_accounts_credential() {
+        let (_dir, conn) = open_test_db();
+        add_coindcx_account(&conn);
+        let state = ExchangeState::new();
+
+        let mut borrowed = request("binance", Method::Get, "/api/v3/myTrades", HostKey::Primary);
+        borrowed.account_id = "c1".to_string();
+        borrowed.signing = SigningScheme::BinanceQuery;
+
+        let error = prepare(&conn, &state, &borrowed).unwrap_err().to_string();
+        assert!(
+            error.contains("account c1 belongs to coindcx"),
+            "the CoinDCX key was aimed at Binance and the refusal did not say so: {error}"
+        );
+    }
+
+    #[test]
+    fn the_check_runs_in_both_directions() {
+        let (_dir, conn) = open_test_db();
+        add_coindcx_account(&conn);
+        let state = ExchangeState::new();
+
+        let mut borrowed = request(
+            "coindcx",
+            Method::Post,
+            "/exchange/v1/users/balances",
+            HostKey::Primary,
+        );
+        // a1 is the Binance account, and its key would be signed CoinDCX-style into a body.
+        borrowed.signing = SigningScheme::CoindcxBody;
+
+        let error = prepare(&conn, &state, &borrowed).unwrap_err().to_string();
+        assert!(error.contains("account a1 belongs to binance"), "{error}");
+    }
+
+    /// The other half of the assertion: the check refuses a mismatch, not everything.
+    ///
+    /// A matching pair reaches the credential lookup and stops there, because this account has no
+    /// stored credential - which is also why no test in this module touches the real keychain.
+    #[test]
+    fn an_account_on_its_own_exchange_reaches_the_credential_lookup() {
+        let (_dir, conn) = open_test_db();
+        add_coindcx_account(&conn);
+        let state = ExchangeState::new();
+
+        let mut matched = request("binance", Method::Get, "/api/v3/myTrades", HostKey::Primary);
+        matched.signing = SigningScheme::BinanceQuery;
+
+        let error = prepare(&conn, &state, &matched).unwrap_err().to_string();
+        assert!(
+            error.contains("no credential is stored for account a1"),
+            "an account was refused its own exchange: {error}"
+        );
+    }
+
+    #[test]
+    fn a_page_cannot_be_filed_under_an_account_on_another_exchange() {
+        // `start_run` reads the provider back off this row to stamp the run, so an unchecked pair
+        // would give every transaction under it a provenance that is a fiction.
+        let (_dir, conn) = open_test_db();
+        add_coindcx_account(&conn);
+        let error = upsert_document(
+            &conn,
+            &DocumentDescriptor {
+                provider_id: "binance".to_string(),
+                account_id: "c1".to_string(),
+                kind: "api-response".to_string(),
+                content_hash: "hash-borrowed".to_string(),
+                page_ref: "binance:myTrades BTCUSDT fromId=0".to_string(),
+                period_start: None,
+                period_end: None,
+            },
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("account c1 belongs to coindcx"), "{error}");
+        assert_eq!(count(&conn, "source_document"), 1); // d1 alone
+    }
+
+    #[test]
+    fn a_credential_cannot_be_committed_onto_an_account_of_another_exchange() {
+        // The connect-flow door to the same confusion: the upsert leaves `provider_id` alone, so
+        // this would leave a CoinDCX account row pointing at a Binance key.
+        let (_dir, mut conn) = open_test_db();
+        add_coindcx_account(&conn);
+        let state = ExchangeState::new();
+        let handle = state.stage("public-identifier", "0123456789abcdef");
+
+        let account = AccountIdentity {
+            id: "c1".to_string(),
+            provider_id: "binance".to_string(),
+            label: "Not CoinDCX".to_string(),
+            base_currency: "INR".to_string(),
+        };
+        let error = commit_credential(&mut conn, &state, &handle, &account)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("already belongs to coindcx"), "{error}");
+
+        let stored: String = conn
+            .query_row(
+                "SELECT keychain_key FROM credential_ref WHERE account_id = 'c1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(stored, "secret/c1", "the stored credential was repointed");
     }
 
     #[test]
