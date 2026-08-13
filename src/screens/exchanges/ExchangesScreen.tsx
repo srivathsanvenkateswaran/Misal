@@ -24,6 +24,13 @@
  *   - **No progress claim the runner did not make.** Phase, count and detail come from `ctx.report`;
  *     the elapsed and last-update clocks are the screen's own, and are labelled as time rather than
  *     as progress.
+ *   - **No second account for a second key.** This panel is the only path a rotated key can take —
+ *     there is no reconnect button, and the sync report sends a user here when their key gains
+ *     withdrawal permission — so a key for an exchange already connected is a *replacement*, and is
+ *     presented as one. Minting a fresh account id for it left the old account's last balance
+ *     snapshot standing as the newest row for its own instruments, and one bitcoin was reported as
+ *     two. The account id is reused here and the identity is settled in the core, which has the
+ *     final say; see `resolve_account` in `src-tauri/src/sync.rs`.
  */
 
 import type { ReactNode } from 'react'
@@ -186,10 +193,25 @@ export function ExchangesScreen(props: ExchangesScreenProps): ReactNode {
     [runtime, reload, props.onSynced],
   )
 
+  /**
+   * The account a key pasted for this exchange belongs to, if Misal already holds one.
+   *
+   * There is no reconnect button anywhere on this screen, and the sync report tells a user whose
+   * key has gained withdrawal permission to "disconnect this account, create a new key with
+   * withdrawals disabled, and connect that one" — so the Connect panel *is* the rotation path, and
+   * treating a second key for an exchange as a second account is what turns one bitcoin into two.
+   */
+  const existing = connections.find((connection) => connection.providerId === providerId) ?? null
+
   const onSubmit = (submission: CredentialSubmission): void => {
     const disclosure = providerDisclosure(providerId)
-    const accountId = runtime.newAccountId()
-    const label = submission.label === '' ? disclosure.displayName : submission.label
+    // Reused rather than minted. The core has the last word — it resolves the account from the
+    // identity the exchange reports — but this is what makes the ordinary case ordinary.
+    const accountId = existing?.accountId ?? runtime.newAccountId()
+    const label =
+      submission.label === ''
+        ? (existing?.label ?? disclosure.displayName)
+        : submission.label
     // Held in this call's locals for one purpose: scrubbing them out of a failure message that an
     // exchange, a proxy or a WAF may have echoed them into. Never assigned to state, never logged,
     // and gone when this closure is.
@@ -213,11 +235,17 @@ export function ExchangesScreen(props: ExchangesScreenProps): ReactNode {
         }
         setConnectNote({
           text:
-            `${label} is connected. The key is in this machine’s keychain and nowhere else, and ` +
-            'the first sync has started below.',
+            existing === null
+              ? `${label} is connected. The key is in this machine’s keychain and nowhere else, ` +
+                'and the first sync has started below.'
+              : `The key for ${label} has been replaced. It is in this machine’s keychain and ` +
+                'nowhere else, the balances and trades already synced are untouched, and a sync ' +
+                'has started below.',
           bad: false,
         })
-        startSync(accountId, providerId, label)
+        // The core's id, not the proposed one: a replaced key lands on the account that already
+        // holds the balances, and syncing anything else would create the duplicate all over again.
+        startSync(outcome.accountId, providerId, label)
       })
       .catch((error: unknown) => {
         const message = describeSafely(error, entered)
@@ -335,6 +363,7 @@ export function ExchangesScreen(props: ExchangesScreenProps): ReactNode {
 
         <ConnectPanel
           providerId={providerId}
+          replacing={existing === null ? null : existing.label}
           onProvider={(next) => {
             setProviderId(next)
             setConnectNote(null)

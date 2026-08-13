@@ -232,6 +232,102 @@ fn account_provider(conn: &Connection, account_id: &str) -> Result<Option<String
         .optional()?)
 }
 
+// ---------------------------------------------------------------------------
+// Account identity
+// ---------------------------------------------------------------------------
+
+/// What Misal records in `account.identity_key` for an exchange it cannot ask "who am I?".
+///
+/// Migration 0001 put that column there for precisely this: two documents describing the same
+/// holding must land on one account row, or the units are counted twice and net worth doubles. An
+/// exchange account reached over an API has the same problem in a different disguise - the API key
+/// is not the account, it is one credential naming it, and rotating a key must not mint a second
+/// account holding the same coins.
+///
+/// CoinDCX exposes nothing to key on. Its allowlisted surface is three endpoints - markets,
+/// balances and trade history - and none of them names the account or the user; the exchange has
+/// no scope endpoint at all, which is why `describeScope` there answers without making a request.
+/// The only per-account identifier CoinDCX ever hands over is the API key itself, which is exactly
+/// the thing a rotation changes. So the identity for such an exchange is the exchange: one
+/// CoinDCX account per database, enforced by `idx_account_identity` rather than by the screen
+/// remembering to look. That is a real limitation and it is stated in docs/known-issues.md.
+fn generic_identity(provider_id: &str) -> String {
+    format!("exchange:{provider_id}")
+}
+
+fn account_identity(conn: &Connection, account_id: &str) -> Result<Option<String>> {
+    Ok(conn
+        .query_row(
+            "SELECT identity_key FROM account WHERE id = ?1",
+            [account_id],
+            |row| row.get(0),
+        )
+        .optional()?
+        .flatten())
+}
+
+/// The account already carrying this identity, if any. The index makes it at most one.
+fn account_with_identity(conn: &Connection, identity_key: &str) -> Result<Option<String>> {
+    Ok(conn
+        .query_row(
+            "SELECT id FROM account WHERE identity_key = ?1",
+            [identity_key],
+            |row| row.get(0),
+        )
+        .optional()?)
+}
+
+/// Which account row this credential belongs on, and the identity to write there.
+///
+/// The caller proposes an id. It is only a proposal: the connect screen mints a fresh uuid when it
+/// has no better idea, and a uuid can never collide with an existing row, so honouring it blindly
+/// is how one Binance account becomes two - each holding the same coins, each the newest snapshot
+/// for its own `(account_id, instrument_id)` pairs, and the dashboard adding them up.
+///
+/// So the identity decides, and the id follows:
+///
+///   * a row already carrying this identity **is** the account - the credential lands there and
+///     the caller is told which id it actually got;
+///   * an identity nothing claims yet is written onto the proposed row;
+///   * a row whose identity says it is a *different* account at the same exchange is refused
+///     rather than repointed, because folding two exchange accounts into one row would merge two
+///     sets of holdings as surely as splitting one would double them;
+///   * a generic identity offered for a row that already knows its exchange-side account id is
+///     ignored rather than written, so a probe that could not reach the exchange this time does
+///     not erase what a previous connect learned.
+fn resolve_account(
+    conn: &Connection,
+    account: &AccountIdentity,
+) -> Result<(String, Option<String>)> {
+    let proposed = account.identity_key.as_deref().map(str::trim);
+    let Some(identity) = proposed.filter(|key| !key.is_empty()) else {
+        return Ok((account.id.clone(), None));
+    };
+
+    if let Some(owner) = account_with_identity(conn, identity)? {
+        return Ok((owner, None));
+    }
+
+    match account_identity(conn, &account.id)? {
+        None => Ok((account.id.clone(), Some(identity.to_string()))),
+        // The exchange named itself this time and did not last time: the same account, better
+        // identified.
+        Some(held) if held == generic_identity(&account.provider_id) => {
+            Ok((account.id.clone(), Some(identity.to_string())))
+        }
+        // We learned nothing this time. Keep what is there rather than blunting it.
+        Some(_) if identity == generic_identity(&account.provider_id) => {
+            Ok((account.id.clone(), None))
+        }
+        Some(_) => Err(refused(
+            &account.provider_id,
+            "this key belongs to a different account at that exchange than the one it would \
+             replace. Connect it as its own account, or replace the key on the account it \
+             belongs to.",
+        )),
+    }
+}
+
 /// Refuse an account that does not belong to the adapter the caller named.
 ///
 /// The adapter id and the account id arrive in one object and nothing in the wire format makes
@@ -365,7 +461,53 @@ fn json_error(what: &str, error: impl std::fmt::Display) -> MisalError {
     MisalError::Other(format!("{what}: {error}"))
 }
 
+/// Create or find the account row a credential belongs on, and return its id.
+///
+/// Separated from the keychain write so the decision - which is the whole of the duplicate guard -
+/// can be tested against a real database without a real keychain.
+fn upsert_exchange_account(conn: &Connection, account: &AccountIdentity) -> Result<String> {
+    let (account_id, identity) = resolve_account(conn, account)?;
+
+    // An account that already exists under another exchange is never re-pointed at this one. The
+    // upsert below leaves `provider_id` alone, so the row would keep its old exchange while
+    // `credential_ref` gained this key: the same credential confusion the transport guards
+    // against, arriving through the connect flow instead.
+    if let Some(existing) = account_provider(conn, &account_id)? {
+        if existing != account.provider_id {
+            return Err(refused(
+                &account.provider_id,
+                &format!("account {account_id} already belongs to {existing}"),
+            ));
+        }
+    }
+
+    // `identity_key` is COALESCEd rather than overwritten: `resolve_account` passes NULL when this
+    // connect learned nothing the row does not already know, and NULL there must mean "leave it"
+    // rather than "forget it".
+    conn.execute(
+        "INSERT INTO account (id, provider_id, label, identity_key, capability, base_currency,
+             created_at)
+         VALUES (?1, ?2, ?3, ?4, 'snapshot', ?5, ?6)
+         ON CONFLICT (id) DO UPDATE SET
+             label = excluded.label,
+             identity_key = COALESCE(excluded.identity_key, identity_key)",
+        rusqlite::params![
+            account_id,
+            account.provider_id,
+            account.label,
+            identity,
+            account.base_currency,
+            now_iso(),
+        ],
+    )?;
+    Ok(account_id)
+}
+
 /// Write the credential to the keychain and record the account and the reference that names it.
+///
+/// Returns the account id the credential was actually filed under, which is not always the one
+/// asked for: see `resolve_account`. A caller that ignores the return value and goes on syncing
+/// the id it proposed would sync an account that does not exist.
 ///
 /// The database rows are staged first and the keychain written inside the same window, so a
 /// failure on either side leaves neither: a rollback drops the rows, and a failed commit deletes
@@ -376,50 +518,26 @@ pub fn commit_credential(
     state: &ExchangeState,
     handle: &str,
     account: &AccountIdentity,
-) -> Result<()> {
+) -> Result<String> {
     let staged = state
         .take(handle)
         .ok_or_else(|| MisalError::Other(format!("no staged credential {handle}")))?;
     spec_for(&account.provider_id)?;
-
-    // An account that already exists under another exchange is never re-pointed at this one. The
-    // upsert below leaves `provider_id` alone, so the row would keep its old exchange while
-    // `credential_ref` gained this key: the same credential confusion the transport guards
-    // against, arriving through the connect flow instead.
-    if let Some(existing) = account_provider(conn, &account.id)? {
-        if existing != account.provider_id {
-            return Err(refused(
-                &account.provider_id,
-                &format!("account {} already belongs to {existing}", account.id),
-            ));
-        }
-    }
 
     let blob = serde_json::to_string(&CredentialBlob {
         api_key: staged.api_key.to_text(),
         api_secret: staged.api_secret.to_text(),
     })
     .map_err(|e| json_error("could not encode the credential", e))?;
-    let keychain_key = secrets::account_secret_key(&account.id);
 
     let tx = conn.transaction()?;
-    tx.execute(
-        "INSERT INTO account (id, provider_id, label, capability, base_currency, created_at)
-         VALUES (?1, ?2, ?3, 'snapshot', ?4, ?5)
-         ON CONFLICT (id) DO UPDATE SET label = excluded.label",
-        rusqlite::params![
-            account.id,
-            account.provider_id,
-            account.label,
-            account.base_currency,
-            now_iso(),
-        ],
-    )?;
+    let account_id = upsert_exchange_account(&tx, account)?;
+    let keychain_key = secrets::account_secret_key(&account_id);
     tx.execute(
         "INSERT INTO credential_ref (account_id, keychain_key, kind, created_at)
          VALUES (?1, ?2, 'api-key-secret', ?3)
          ON CONFLICT (account_id) DO UPDATE SET keychain_key = excluded.keychain_key",
-        rusqlite::params![account.id, keychain_key, now_iso()],
+        rusqlite::params![account_id, keychain_key, now_iso()],
     )?;
 
     secrets::store_secret(&keychain_key, &blob)?;
@@ -427,7 +545,7 @@ pub fn commit_credential(
         let _ = secrets::delete_secret(&keychain_key);
         return Err(error.into());
     }
-    Ok(())
+    Ok(account_id)
 }
 
 /// The api key and secret to sign this request with, or empty values for an unsigned one.
@@ -605,6 +723,8 @@ pub async fn exchange_send(
 // ---------------------------------------------------------------------------
 
 /// Enough to create the account a credential belongs to, on first connect.
+///
+/// `id` is what the caller *proposes*; `identity_key` is what decides. See `resolve_account`.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AccountIdentity {
@@ -612,6 +732,10 @@ pub struct AccountIdentity {
     pub provider_id: String,
     pub label: String,
     pub base_currency: String,
+    /// Absent only from a caller that predates identity, which is a caller that can still create
+    /// the duplicate this column exists to prevent. Every path in `src/data/sync.ts` sends one.
+    #[serde(default)]
+    pub identity_key: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1233,13 +1357,15 @@ pub fn exchange_discard_credential(
     Ok(())
 }
 
+/// Returns the account id the credential was filed under, which the caller must sync rather than
+/// the one it proposed - a replaced key lands on the account that already holds the balances.
 #[tauri::command]
 pub fn exchange_commit_credential(
     state: tauri::State<'_, AppState>,
     exchange: tauri::State<'_, ExchangeState>,
     handle: String,
     account: AccountIdentity,
-) -> Result<()> {
+) -> Result<String> {
     let mut conn = state.conn.lock().expect("storage mutex poisoned");
     commit_credential(&mut conn, &exchange, &handle, &account)
 }
@@ -1705,6 +1831,7 @@ mod tests {
             provider_id: "binance".to_string(),
             label: "Not CoinDCX".to_string(),
             base_currency: "INR".to_string(),
+            identity_key: Some("exchange:binance:uid:77".to_string()),
         };
         let error = commit_credential(&mut conn, &state, &handle, &account)
             .unwrap_err()
@@ -1833,6 +1960,7 @@ mod tests {
             provider_id: "binance".to_string(),
             label: "Binance".to_string(),
             base_currency: "INR".to_string(),
+            identity_key: Some("exchange:binance:uid:42".to_string()),
         };
         assert!(
             commit_credential(&mut conn, &state, &handle, &account).is_err(),
@@ -1856,9 +1984,168 @@ mod tests {
             provider_id: "zerodha-kite".to_string(),
             label: "Not an exchange".to_string(),
             base_currency: "INR".to_string(),
+            identity_key: Some("exchange:zerodha-kite".to_string()),
         };
         assert!(commit_credential(&mut conn, &state, &handle, &account).is_err());
         assert_eq!(count(&conn, "credential_ref"), 0);
+    }
+
+    // -- rotating a key -----------------------------------------------------
+    //
+    // These exercise `upsert_exchange_account` rather than `commit_credential`, which is the same
+    // decision without the keychain write: a test that stored a secret would put real key material
+    // in the developer's login keychain and would fail outright on a machine with no keyring
+    // daemon. What is under test is which account row a connect lands on, and that is all here.
+
+    /// The connect screen proposes an id. A fresh uuid is what it proposes when it has nothing
+    /// better, and a fresh uuid never collides - so without an identity this is two accounts.
+    fn connecting(id: &str, identity: &str) -> AccountIdentity {
+        AccountIdentity {
+            id: id.to_string(),
+            provider_id: "binance".to_string(),
+            label: "Binance".to_string(),
+            base_currency: "USD".to_string(),
+            identity_key: Some(identity.to_string()),
+        }
+    }
+
+    /// The defect, in the smallest form that still shows it.
+    ///
+    /// A user is told - by Misal's own sync report - to make a new key and connect it. Before the
+    /// identity was written, the second connect inserted a second account holding the same coins,
+    /// and every balance the first account had ever committed was still the newest row for its
+    /// `(account_id, instrument_id)` pair. One bitcoin, counted twice.
+    #[test]
+    fn replacing_a_key_lands_on_the_account_it_replaces_rather_than_a_second_one() {
+        let (_dir, conn) = open_test_db();
+        let before = count(&conn, "account");
+
+        let first = upsert_exchange_account(&conn, &connecting("u1", "exchange:binance:uid:42"))
+            .expect("first connect");
+        let second = upsert_exchange_account(
+            &conn,
+            &connecting("u2-a-fresh-uuid", "exchange:binance:uid:42"),
+        )
+        .expect("second connect");
+
+        assert_eq!(first, "u1");
+        assert_eq!(
+            second, "u1",
+            "the replaced key was filed under a new account"
+        );
+        assert_eq!(
+            count(&conn, "account"),
+            before + 1,
+            "a key rotation created a second account"
+        );
+        assert_eq!(count(&conn, "account WHERE id = 'u2-a-fresh-uuid'"), 0);
+    }
+
+    #[test]
+    fn the_identity_is_written_so_the_unique_index_can_do_its_job() {
+        let (_dir, conn) = open_test_db();
+        upsert_exchange_account(&conn, &connecting("u1", "exchange:binance:uid:42")).unwrap();
+
+        assert_eq!(
+            account_identity(&conn, "u1").unwrap().as_deref(),
+            Some("exchange:binance:uid:42")
+        );
+        // And the index is what makes it exclusive, rather than this code remembering to look.
+        assert!(conn
+            .execute(
+                "INSERT INTO account (id, provider_id, label, identity_key, capability,
+                     base_currency, created_at)
+                 VALUES ('u3', 'binance', 'Binance', 'exchange:binance:uid:42', 'snapshot', 'USD',
+                     'now')",
+                [],
+            )
+            .is_err());
+    }
+
+    /// A CoinDCX account has no identity of its own to write - the exchange names none anywhere in
+    /// its allowlisted surface - so the provider is the identity, and a second one is impossible.
+    #[test]
+    fn an_exchange_that_names_no_account_still_gets_one_account() {
+        let (_dir, conn) = open_test_db();
+        let coindcx = |id: &str| AccountIdentity {
+            id: id.to_string(),
+            provider_id: "coindcx".to_string(),
+            label: "CoinDCX".to_string(),
+            base_currency: "INR".to_string(),
+            identity_key: Some(generic_identity("coindcx")),
+        };
+
+        let first = upsert_exchange_account(&conn, &coindcx("c-first")).unwrap();
+        let second = upsert_exchange_account(&conn, &coindcx("c-second")).unwrap();
+        assert_eq!(first, "c-first");
+        assert_eq!(second, "c-first");
+        assert_eq!(count(&conn, "account WHERE provider_id = 'coindcx'"), 1);
+    }
+
+    #[test]
+    fn a_key_for_a_different_account_at_the_same_exchange_is_refused_rather_than_folded_in() {
+        // The opposite error to the one this fix is about, and it arrives through the same door:
+        // pasting the key of a *second* Binance account into the replace form would otherwise
+        // merge two accounts' holdings onto one row.
+        let (_dir, conn) = open_test_db();
+        upsert_exchange_account(&conn, &connecting("u1", "exchange:binance:uid:42")).unwrap();
+
+        let error = upsert_exchange_account(&conn, &connecting("u1", "exchange:binance:uid:99"))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("different account at that exchange"),
+            "{error}"
+        );
+        assert_eq!(
+            account_identity(&conn, "u1").unwrap().as_deref(),
+            Some("exchange:binance:uid:42")
+        );
+    }
+
+    #[test]
+    fn an_identity_the_exchange_did_not_name_this_time_does_not_erase_the_one_it_named_before() {
+        // The probe is allowed to fail: it is one read against an exchange that may be rate
+        // limiting us. What it must never do is downgrade an account that already knows itself.
+        let (_dir, conn) = open_test_db();
+        upsert_exchange_account(&conn, &connecting("u1", "exchange:binance:uid:42")).unwrap();
+
+        let same = upsert_exchange_account(&conn, &connecting("u1", "exchange:binance")).unwrap();
+        assert_eq!(same, "u1");
+        assert_eq!(
+            account_identity(&conn, "u1").unwrap().as_deref(),
+            Some("exchange:binance:uid:42")
+        );
+    }
+
+    #[test]
+    fn an_account_that_could_not_name_itself_is_named_when_the_exchange_finally_does() {
+        let (_dir, conn) = open_test_db();
+        upsert_exchange_account(&conn, &connecting("u1", "exchange:binance")).unwrap();
+
+        let same =
+            upsert_exchange_account(&conn, &connecting("u1", "exchange:binance:uid:42")).unwrap();
+        assert_eq!(same, "u1");
+        assert_eq!(
+            account_identity(&conn, "u1").unwrap().as_deref(),
+            Some("exchange:binance:uid:42")
+        );
+    }
+
+    #[test]
+    fn an_account_that_predates_identity_is_left_alone_by_a_caller_that_sends_none() {
+        // `a1` is the fixture account: it has no identity, exactly like every exchange account
+        // created before this change. A caller that offers none must not be turned away.
+        let (_dir, conn) = open_test_db();
+        let account = AccountIdentity {
+            id: "a1".to_string(),
+            provider_id: "binance".to_string(),
+            label: "Binance".to_string(),
+            base_currency: "USD".to_string(),
+            identity_key: None,
+        };
+        assert_eq!(upsert_exchange_account(&conn, &account).unwrap(), "a1");
+        assert_eq!(account_identity(&conn, "a1").unwrap(), None);
     }
 
     // -- the store ----------------------------------------------------------

@@ -11,17 +11,22 @@
  *   - a running sync always shows something moving, with the count the runner reported;
  *   - the fold-versus-balance gap is printed digit for digit, and the Binance Convert blind spot is
  *     stated rather than left to be inferred from a balance with no trades behind it;
- *   - disconnecting is about the keychain entry, and a failure says the key is still there.
+ *   - disconnecting is about the keychain entry, and a failure says the key is still there;
+ *   - a second key for an exchange already connected replaces the first rather than founding a
+ *     second account holding the same coins.
  */
 
 import { describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { ProgressReporter, ScopeReport, SyncOutcome } from '@adapters/index'
 import { AdapterError } from '@adapters/index'
-import { dec } from '@domain/numeric'
+import { addDec, dec, ZERO_DEC } from '@domain/numeric'
+import { derivePortfolioPositions } from '@valuation/index'
 import { assertHonest } from '@ui/testing/assert-honest'
+import type { AccountRow, PortfolioRows, PositionRow } from '../../data/client'
+import { buildAccounts, buildInstruments } from '../../data/portfolio'
 import { ExchangesScreen } from './ExchangesScreen'
-import type { ConnectionView, ExchangeRuntime } from './runtime'
+import type { ConnectionView, ConnectRequest, ExchangeRuntime } from './runtime'
 
 const KEY = 'sentinel-key-4b81f0c2d3e5'
 const SECRET = 'sentinel-secret-9f2c1a4e9b7d'
@@ -116,7 +121,12 @@ function runtime(over: Partial<ExchangeRuntime> = {}): ExchangeRuntime {
   return {
     listConnections: vi.fn().mockResolvedValue([]),
     instrumentNames: vi.fn().mockResolvedValue(new Map([['i-btc', 'Bitcoin'], ['i-eth', 'Ether']])),
-    connect: vi.fn().mockResolvedValue({ status: 'connected', scope: READ_ONLY, risk: { blocking: [], advisory: [] } }),
+    connect: vi.fn().mockResolvedValue({
+      status: 'connected',
+      scope: READ_ONLY,
+      risk: { blocking: [], advisory: [] },
+      accountId: 'acct-new',
+    }),
     sync: vi.fn().mockResolvedValue(OUTCOME),
     disconnect: vi.fn().mockResolvedValue(undefined),
     newAccountId: () => 'acct-new',
@@ -454,7 +464,12 @@ describe('Exchanges — what the sync could not see', () => {
     const { container } = await open({
       connect: vi
         .fn()
-        .mockResolvedValue({ status: 'connected', scope: UNSCOPABLE, risk: { blocking: [], advisory: [] } }),
+        .mockResolvedValue({
+          status: 'connected',
+          scope: UNSCOPABLE,
+          risk: { blocking: [], advisory: [] },
+          accountId: 'acct-new',
+        }),
       sync: vi.fn().mockResolvedValue({ ...OUTCOME, scope: UNSCOPABLE }),
     })
     chooseCoindcx()
@@ -579,6 +594,241 @@ describe('Exchanges — connected accounts', () => {
   it('reports an unreadable account list rather than showing none', async () => {
     await open({ listConnections: vi.fn().mockRejectedValue(new Error('database is locked')) })
     expect(await screen.findByRole('alert')).toHaveTextContent(/database is locked/u)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Replacing a key
+// ---------------------------------------------------------------------------
+
+/**
+ * The smallest core that can still show the defect.
+ *
+ * `connect` files the account under the id it is handed and nothing else, which is exactly what
+ * `exchange_commit_credential` used to do: its `ON CONFLICT (id)` cannot fire on an id that was
+ * minted a millisecond ago, and it wrote no identity, so any number of anonymous duplicates were
+ * legal. `sync` commits a balance snapshot for whichever account it is given, appending rather than
+ * replacing, because that is what `commit_positions` does — the snapshot an account committed last
+ * year is still the newest row for its instruments today.
+ *
+ * So this fixture is the *un*fixed core on purpose. What it exercises is the screen's half of the
+ * problem: which account id the connect panel proposes. The core's own guard — the identity, and
+ * the resolution that folds a replacement onto the account already carrying it — is tested against
+ * a real database in `src-tauri/src/sync.rs`.
+ */
+interface FakeCore {
+  readonly accounts: Map<string, AccountRow>
+  readonly positions: PositionRow[]
+  readonly runtime: ExchangeRuntime
+}
+
+function accountRow(id: string, label: string): AccountRow {
+  return {
+    id,
+    providerId: 'binance',
+    label,
+    externalRef: null,
+    identityKey: null,
+    capability: 'snapshot',
+    baseCurrency: 'USD',
+    createdAt: '2026-01-01',
+    providerShortCode: 'BIN',
+  }
+}
+
+function fakeCore(): FakeCore {
+  const accounts = new Map<string, AccountRow>([['acct-binance', accountRow('acct-binance', 'Binance spot')]])
+  // One bitcoin, committed by the sync that ran before the key was rotated.
+  const positions: PositionRow[] = [
+    {
+      id: 'pos-1',
+      accountId: 'acct-binance',
+      instrumentId: 'i-btc',
+      quantity: '1',
+      asOf: '2026-08-12',
+      sourceDocumentId: 'doc-1',
+    },
+  ]
+  let day = 12
+
+  const core: FakeCore = {
+    accounts,
+    positions,
+    runtime: runtime({
+      listConnections: () =>
+        Promise.resolve(
+          [...accounts.values()].map(
+            (account): ConnectionView => ({
+              accountId: account.id,
+              providerId: 'binance',
+              label: account.label,
+              baseCurrency: account.baseCurrency,
+              capability: 'snapshot',
+              credentialStored: true,
+              balancesAsOf:
+                positions
+                  .filter((row) => row.accountId === account.id)
+                  .map((row) => row.asOf)
+                  .sort()
+                  .at(-1) ?? null,
+            }),
+          ),
+        ),
+      connect: vi.fn((request: ConnectRequest) => {
+        accounts.set(request.accountId, accountRow(request.accountId, request.label))
+        return Promise.resolve({
+          status: 'connected' as const,
+          scope: READ_ONLY,
+          risk: { blocking: [], advisory: [] },
+          accountId: request.accountId,
+        })
+      }),
+      sync: vi.fn((accountId: string) => {
+        day += 1
+        positions.push({
+          id: `pos-${accountId}-${String(day)}`,
+          accountId,
+          instrumentId: 'i-btc',
+          quantity: '1',
+          asOf: `2026-08-${String(day)}`,
+          sourceDocumentId: `doc-${String(day)}`,
+        })
+        return Promise.resolve(OUTCOME)
+      }),
+      newAccountId: vi.fn(() => 'acct-a-fresh-uuid'),
+    }),
+  }
+  return core
+}
+
+/**
+ * What the dashboard would show, through the code that computes it.
+ *
+ * Not a hand-rolled sum: `derivePortfolioPositions` keys on `(accountId, instrumentId)` and takes
+ * the newest snapshot within each, which is precisely the step that counts a stale account and a
+ * new one as two separate holdings.
+ */
+function bitcoinHeld(core: FakeCore): string {
+  const rows: PortfolioRows = {
+    accounts: [...core.accounts.values()],
+    instruments: [
+      {
+        id: 'i-btc',
+        assetClass: 'crypto',
+        taxRegime: 'vda',
+        displayName: 'Bitcoin',
+        isin: null,
+        currency: 'USD',
+        precision: 8,
+        fmv31Jan2018: null,
+      },
+    ],
+    aliases: [],
+    transactions: [],
+    positions: core.positions,
+    prices: [],
+    fxRates: [],
+    unresolved: [],
+    settings: new Map(),
+  }
+  const instruments = buildInstruments(rows, [])
+  const derived = derivePortfolioPositions(buildAccounts(rows, instruments, '2026-08-31'))
+  if (!derived.ok) throw new Error('the fixture could not be valued')
+  return derived.value
+    .filter((position) => position.instrumentId === 'i-btc')
+    .reduce((sum, position) => addDec(sum, position.quantity), ZERO_DEC)
+    .toString()
+}
+
+describe('Exchanges — replacing the key on an account already connected', () => {
+  /**
+   * The defect, end to end.
+   *
+   * Misal's own sync report tells a user whose key has gained withdrawal permission to make a new
+   * key and connect it, and this panel is the only place a key can be pasted. Before the fix the
+   * screen minted a fresh uuid for it, the core happily created a second account, and the first
+   * account's last balance snapshot went on being the newest row for its own instruments: one
+   * bitcoin, reported as two, with nothing anywhere saying so.
+   */
+  it('does not create a second account, and does not report one bitcoin as two', async () => {
+    const core = fakeCore()
+    render(<ExchangesScreen runtime={core.runtime} tickMillis={50_000} />)
+    await screen.findByText('Connected accounts')
+    expect(bitcoinHeld(core)).toBe('1')
+
+    paste()
+    fireEvent.click(screen.getByRole('button', { name: /^Check this key and/u }))
+    await screen.findByText('Binance sync report')
+
+    // First, because it is the whole of the defect: reverting the reuse in `onSubmit` makes this
+    // line read 2, and every other assertion here is an explanation of why.
+    expect(bitcoinHeld(core)).toBe('1')
+    expect([...core.accounts.keys()]).toEqual(['acct-binance'])
+    expect(core.runtime.newAccountId).not.toHaveBeenCalled()
+    expect(core.runtime.connect).toHaveBeenCalledWith(
+      expect.objectContaining({ accountId: 'acct-binance' }),
+    )
+    // The sync after the rotation is the same account's next snapshot, not a second holding.
+    expect(core.runtime.sync).toHaveBeenCalledWith('acct-binance', 'binance', expect.any(Function))
+  })
+
+  it('syncs the account the core filed the key under rather than the one the screen proposed', async () => {
+    // The core has the last word: it resolves the account from the identity the exchange reports,
+    // and a screen that ignored the answer would sync an account that may not exist.
+    const { deps } = await open({
+      connect: vi.fn().mockResolvedValue({
+        status: 'connected',
+        scope: READ_ONLY,
+        risk: { blocking: [], advisory: [] },
+        accountId: 'acct-the-core-chose',
+      }),
+    })
+    paste()
+    fireEvent.click(screen.getByRole('button', { name: 'Check this key and connect' }))
+
+    await waitFor(() => {
+      expect(deps.sync).toHaveBeenCalledWith('acct-the-core-chose', 'binance', expect.any(Function))
+    })
+  })
+
+  it('says it is replacing a key, and which account it belongs to, rather than saying connect', async () => {
+    const core = fakeCore()
+    const { container } = render(<ExchangesScreen runtime={core.runtime} tickMillis={50_000} />)
+    await screen.findByText('Connected accounts')
+
+    expect(screen.getByText('Replace the key for Binance spot')).toBeInTheDocument()
+    expect(screen.queryByText('Connect an exchange account')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Check this key and replace' })).toBeInTheDocument()
+    // And it says what a replacement does to everything already synced, which is the part a user
+    // reading the word "connect" would have guessed wrong.
+    expect(
+      screen.getByText(/keeps the balances and trades it has already synced/u),
+    ).toBeInTheDocument()
+    assertHonest(container)
+
+    paste()
+    fireEvent.click(screen.getByRole('button', { name: 'Check this key and replace' }))
+    expect(await screen.findByText(/The key for Binance spot has been replaced/u)).toBeInTheDocument()
+  })
+
+  it('still offers a first connection for an exchange that has none', async () => {
+    const core = fakeCore()
+    render(<ExchangesScreen runtime={core.runtime} tickMillis={50_000} />)
+    await screen.findByText('Connected accounts')
+
+    // Binance is connected; CoinDCX is not, and a key for it is a new account rather than a
+    // replacement — the guard is per exchange, not "any account will do".
+    chooseCoindcx()
+    expect(screen.getByText('Connect an exchange account')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('checkbox'))
+    paste()
+    fireEvent.click(screen.getByRole('button', { name: 'Check this key and connect' }))
+
+    await waitFor(() => {
+      expect(core.runtime.connect).toHaveBeenCalledWith(
+        expect.objectContaining({ providerId: 'coindcx', accountId: 'acct-a-fresh-uuid' }),
+      )
+    })
   })
 })
 

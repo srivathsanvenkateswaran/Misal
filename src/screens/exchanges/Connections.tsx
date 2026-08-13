@@ -132,8 +132,9 @@ export function Connections(props: ConnectionsProps): ReactNode {
                 The API key and secret are deleted from the operating system’s keychain, and Misal
                 will not contact {providerDisclosure(connection.providerId).displayName} for this
                 account again. The balances and trades already synced stay exactly where they are.
-                To sync this account later you will need to create a new key and connect it again —
-                there is no command that reads a stored key back, so this one cannot be recovered.
+                To sync this account later, create a new key and paste it into the panel below: it
+                replaces the key on this same account rather than adding a second one. There is no
+                command that reads a stored key back, so this one cannot be recovered.
               </p>
               <div className="exch-actions">
                 <button

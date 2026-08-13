@@ -1360,6 +1360,78 @@ carries the NULL/NULL, mixed and foreign cases.
 
 ## Exchange adapters
 
+### ~~Rotating an API key doubled the holdings it was rotated for~~ — FIXED
+
+`ExchangesScreen.onSubmit` called `runtime.newAccountId()` — a fresh `crypto.randomUUID()` — on
+every connect submit, and nothing consulted the accounts already connected.
+`exchange_commit_credential` then inserted an `account` row whose `ON CONFLICT (id)` could not fire
+on an id minted a millisecond earlier, and wrote neither `identity_key` nor `external_ref`, so
+exchange accounts carried no identity at all. `idx_account_identity` is partial
+(`WHERE identity_key IS NOT NULL`), so any number of anonymous duplicates was legal.
+
+The trigger is something the app itself instructs. The sync report tells a user whose key has
+gained withdrawal permission to make a new key and connect it, and the Connect panel was the only
+place a key could be pasted — there is no reconnect path anywhere on the screen.
+
+**Consequence, both reproduced:** `disconnect.rs` deletes only the keychain entry, so the old
+account's last balance snapshot stayed the newest row for its `(account_id, instrument_id)` pairs.
+`derivePortfolioPositions` keys on that pair, counted both, and **1 BTC was reported as 2 BTC** with
+nothing on any screen saying so. Separately, `accountId` is part of `NaturalKeyParts`, so the whole
+fill history re-landed under the new id and the transactions duplicated independently of the
+balances.
+
+Fixed in two layers, because a screen-level guard on a data-level problem is only as good as the
+next screen.
+
+*The screen.* `onSubmit` reuses the account id of the connection already held for that provider, and
+the panel presents itself as **"Replace the key for &lt;account&gt;"** with a button reading "Check
+this key and replace" — a user who reads "connect" and gets a replacement has been misled by a word,
+and the two differ in what happens to everything already synced. The disconnect confirmation and the
+quarantine notice now point at that panel instead of saying "connect that one".
+
+*The core.* `commit_credential` writes `account.identity_key` and resolves the account from it
+rather than from the id the caller proposed, returning the id it actually filed under —
+`resolve_account` in `src-tauri/src/sync.rs`. A row already carrying the identity *is* the account;
+an unclaimed identity is written onto the proposed row; a row whose identity says it is a different
+account at the same exchange is refused rather than repointed, so pasting a second Binance
+account's key into the replace form cannot merge two accounts either.
+
+**What identifies an exchange account.** For Binance, the exchange's own `uid`, read from
+`GET /api/v3/account` — already on both copies of the allowlist, and documented there since it was
+written as being read "for `permissions` and `uid`" and never for scope, since its
+`canTrade`/`canWithdraw` describe the account rather than the key. The probe signs with the staging
+handle, before the secret is written, because the identity is what decides which row exists. Any
+failure answers `null` rather than costing the user a connect, and the core will not overwrite a
+uid it already knows with the weaker fallback.
+
+**For CoinDCX there is nothing stable to key on, and this is stated rather than worked around.** Its
+whole allowlisted surface is `markets_details`, `users/balances` and `orders/trade_history`; none of
+them names a user or an account, and the exchange has no scope endpoint at all — `describeScope`
+answers without making a request. The only per-account identifier CoinDCX ever hands over is the API
+key itself, which is precisely what a rotation changes. So a CoinDCX account is keyed on the
+exchange (`exchange:coindcx`), which the unique index turns into **one CoinDCX account per
+database**. Nothing is lost that exists today — the screen offers no way to create a second one —
+but it is a real limitation, not an oversight.
+
+**What the guard does not cover, and it matters:**
+
+- **Databases that already hold duplicates are not repaired.** Adding a migration was out of scope
+  for this branch, and the identity is written only when a key is next connected: the account the
+  screen picks gets the identity, and the stale twin keeps its anonymous row and its stale snapshot
+  and goes on double-counting. It has to be deleted from the accounts screen by hand.
+- **Two accounts at the same exchange are unreachable through the UI**, for Binance as much as for
+  CoinDCX. The core can now tell them apart — it refuses the second key rather than merging it —
+  but there is no screen that can create the second account, so the refusal is a dead end with an
+  explanation.
+- **A Binance connect makes two extra requests** (`/api/v3/time` and `/api/v3/account`, weight 21 of
+  6,000 a minute) and falls back silently when they fail, so an account can end up keyed on
+  `exchange:binance` and be upgraded to its uid only on a later connect.
+
+**Fix direction for the remainder:** a migration that keys existing exchange accounts on
+`(provider_id)` where only one exists and quarantines the rest for the user to merge, and a
+"connect another account at this exchange" path on the screen once there is a way to tell the user
+which account they are looking at.
+
 ### ~~Deposits and withdrawals were never fetched~~ — FIXED
 
 `fetchTransfers` was declared on the adapter contract and implemented by neither exchange, so the

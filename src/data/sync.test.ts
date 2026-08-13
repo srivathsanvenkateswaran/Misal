@@ -88,7 +88,10 @@ function fakeCore(exchange: 'binance' | 'coindcx', fixtures: readonly string[]) 
         const account = arg<ExchangeAccount>('account')
         staged.delete(handle)
         stored.set(account.id, { account, credential })
-        return undefined
+        // The account the core filed it under. Its own resolution can differ from the id proposed
+        // - a key that replaces another lands on the account already carrying that identity - so
+        // the command answers with an id rather than with nothing.
+        return account.id
       }
       case 'exchange_has_credential':
         return stored.has(arg<string>('accountId'))
@@ -276,6 +279,60 @@ describe('connecting a read-only key', () => {
     // The handle is opaque. Neither the key nor the secret crosses back out of the core.
     expect(JSON.stringify(core.sent())).not.toContain(CREDENTIAL.apiSecret)
   })
+
+  /**
+   * Who the account is, as opposed to which key currently opens it.
+   *
+   * `account.identity_key` is what stops a rotated key founding a second account holding the same
+   * coins, and for Binance it can be the exchange's own `uid`. The fixture here is the account
+   * whose `canWithdraw` is *true*: that field describes the account rather than the key, this call
+   * reads nothing from it but the uid, and the key is stored anyway because the scope decision was
+   * made from `/sapi/v1/account/apiRestrictions` before this ever ran. A regression that started
+   * reading scope from here would store nothing and fail this test.
+   */
+  it('records which Binance account the key belongs to, from the exchange’s own uid', async () => {
+    const core = fakeCore('binance', ['time', 'api-restrictions-read-only', 'account-can-withdraw'])
+    const outcome = await connectExchangeAccount({
+      accountId: 'account-1',
+      providerId: 'binance',
+      credential: CREDENTIAL,
+      now: () => NOW,
+      call: core.call,
+    })
+
+    expect(outcome.status).toBe('connected')
+    const commit = core.commands.find((c) => c.command === 'exchange_commit_credential')
+    expect(commit?.args['account']).toMatchObject({
+      id: 'account-1',
+      identityKey: 'exchange:binance:uid:123456789',
+    })
+    // Signed with the staged handle, because the account row does not exist yet: asking after the
+    // credential was committed would mean asking after the row it decides had been created.
+    const probe = core.sent().filter((r) => r.path === '/api/v3/account')
+    expect(probe).toHaveLength(1)
+    expect(probe[0]?.credentialHandle).not.toBeNull()
+  })
+
+  /**
+   * The probe is one read against an exchange that may be rate limiting us, and a connect must not
+   * turn on it. Without a uid the account is keyed on the exchange alone - weaker, still an
+   * identity, and the core refuses to overwrite a uid it already knows with it.
+   */
+  it('falls back to the exchange itself when the uid cannot be read, rather than failing', async () => {
+    const core = fakeCore('binance', ['time', 'api-restrictions-read-only'])
+    const outcome = await connectExchangeAccount({
+      accountId: 'account-1',
+      providerId: 'binance',
+      credential: CREDENTIAL,
+      now: () => NOW,
+      call: core.call,
+    })
+
+    expect(outcome.status).toBe('connected')
+    expect(core.stored.has('account-1')).toBe(true)
+    const commit = core.commands.find((c) => c.command === 'exchange_commit_credential')
+    expect(commit?.args['account']).toMatchObject({ identityKey: 'exchange:binance' })
+  })
 })
 
 describe('an exchange with no permission model', () => {
@@ -292,6 +349,31 @@ describe('an exchange with no permission model', () => {
     expect(pending.status).toBe('needs_acknowledgement')
     expect(core.stored.size).toBe(0)
     expect(names(core)).not.toContain('exchange_commit_credential')
+  })
+
+  /**
+   * CoinDCX names no account anywhere Misal is allowed to look: markets, balances and trade
+   * history are the whole allowlist, none of them carries a user or account id, and there is no
+   * scope endpoint at all. The only per-account identifier it ever hands over is the API key, which
+   * is exactly what a rotation changes - so the identity is the exchange, and one CoinDCX account
+   * is all the database will hold. Written down in docs/known-issues.md, and asserted here so the
+   * fallback stays a decision rather than an accident.
+   */
+  it('keys a CoinDCX account on the exchange alone, because it names no account of its own', async () => {
+    const core = fakeCore('coindcx', ['markets-details'])
+    await connectExchangeAccount({
+      accountId: 'account-2',
+      providerId: 'coindcx',
+      credential: CREDENTIAL,
+      acknowledgedRisk: true,
+      now: () => NOW,
+      call: core.call,
+    })
+
+    const commit = core.commands.find((c) => c.command === 'exchange_commit_credential')
+    expect(commit?.args['account']).toMatchObject({ identityKey: 'exchange:coindcx' })
+    // And it asked the exchange nothing extra to find that out: there is nothing to ask.
+    expect(core.sent().filter((r) => r.signing !== 'none')).toHaveLength(0)
   })
 })
 
