@@ -271,3 +271,123 @@ describe('XIRR scopes', () => {
     expect(result.value.rate.startsWith('0.16')).toBe(true)
   })
 })
+
+describe('a realised gain on a US holding, in a snapshot denominated in rupees', () => {
+  // Worth doing end to end: `realised` is rendered beside `netWorthMinor`, and `netWorthMinor` is
+  // paise. A disposal that reported cents put ₹1,000 on the dashboard where the truth was ₹87,000 —
+  // understated eighty-sevenfold, netted against genuine rupee gains in the same sum, fully
+  // `measured`, at full coverage, with no reason shown anywhere.
+  function usPortfolio() {
+    const instruments = instrumentMap(infy, aapl)
+    const store = new InMemoryPriceStore()
+    store.put(price('infy', '1500.00', '2026-08-12'))
+    store.put(price('aapl', '200.00', '2026-08-12', 'USD'))
+    const prices = new PriceService({ store, instruments, now: () => AS_OF })
+    const fx = new FxTable([
+      { base: 'USD', quote: 'INR', asOf: '2024-01-10', rate: dec('83.00'), source: 'seed' },
+      { base: 'USD', quote: 'INR', asOf: '2026-05-10', rate: dec('86.00'), source: 'seed' },
+      { base: 'USD', quote: 'INR', asOf: '2026-06-12', rate: dec('87.00'), source: 'seed' },
+      { base: 'USD', quote: 'INR', asOf: '2026-08-12', rate: dec('88.00'), source: 'seed' },
+    ])
+    resetIds()
+    const rupees: FoldInput = {
+      accountId: 'acc-inr',
+      capability: 'ledger',
+      txns: [
+        txn({ type: 'buy', date: '2024-01-10', quantity: '100', amount: '10000000', instrumentId: 'infy', accountId: 'acc-inr' }),
+      ],
+      snapshots: [],
+      instruments,
+      asOf: AS_OF,
+    }
+    const dollars: FoldInput = {
+      accountId: 'acc-usd',
+      capability: 'ledger',
+      txns: [
+        // 20 shares at $100.
+        txn({ type: 'buy', date: '2024-01-10', quantity: '20', amount: '200000', currency: 'USD', instrumentId: 'aapl', accountId: 'acc-usd' }),
+        // 10 shares at $200: a $1,000 gain, realised on a day the dollar was worth ₹87.
+        txn({ type: 'sell', date: '2026-06-12', quantity: '10', amount: '200000', currency: 'USD', instrumentId: 'aapl', accountId: 'acc-usd' }),
+        // A $50 dividend, on a day the dollar was worth ₹86.
+        txn({ type: 'dividend', date: '2026-05-10', quantity: '0', amount: '5000', currency: 'USD', instrumentId: 'aapl', accountId: 'acc-usd' }),
+      ],
+      snapshots: [],
+      instruments,
+      asOf: AS_OF,
+    }
+    const result = valuePortfolio({
+      accounts: [rupees, dollars],
+      instruments,
+      prices,
+      fx,
+      unresolved: [],
+      asOf: AS_OF,
+    })
+    if (!result.ok) throw new Error(`valuation failed: ${result.error.message}`)
+    return result.value
+  }
+
+  it('reports the gain in the same units as the net worth it is shown beside', () => {
+    const valued = usPortfolio()
+    const foreign = valued.realised.byRegime.get('foreign_equity')!
+    expect(foreign.ltcgMinor).toBe('8700000')
+    expect(valued.realised.currency).toBe('INR')
+    // ₹1,00,000 of Infosys plus 10 shares at $200 × ₹88.
+    expect(valued.netWorthMinor).toBe('32600000')
+  })
+
+  it('converts dividend income at each row’s own date rather than summing cents into paise', () => {
+    const valued = usPortfolio()
+    const dividend = valued.realised.dividendIncomeMinor
+    // $50 at ₹86 is ₹4,300. Unconverted it accumulated as 5000, which reads as ₹50.
+    expect(dividend.measured && dividend.value).toBe('430000')
+  })
+
+  it('keeps realised P&L at full coverage, because nothing here is withheld', () => {
+    const valued = usPortfolio()
+    expect(valued.realisedCoverage.excludedValueMinor).toBe('0')
+    expect(valued.disposals.every((d) => d.currency === 'INR')).toBe(true)
+  })
+
+  it('withholds both the gain and the dividend when no rate covers their dates', () => {
+    const instruments = instrumentMap(aapl)
+    const store = new InMemoryPriceStore()
+    store.put(price('aapl', '200.00', '2026-08-12', 'USD'))
+    const prices = new PriceService({ store, instruments, now: () => AS_OF })
+    // Only a current rate: neither the 2026-06-12 disposal nor the 2026-05-10 dividend has one
+    // within `MAX_FX_BACKFILL_DAYS`, and today's rate is not allowed to stand in for either.
+    const fx = new FxTable([
+      { base: 'USD', quote: 'INR', asOf: '2026-08-12', rate: dec('88.00'), source: 'seed' },
+    ])
+    resetIds()
+    const dollars: FoldInput = {
+      accountId: 'acc-usd',
+      capability: 'ledger',
+      txns: [
+        txn({ type: 'buy', date: '2024-01-10', quantity: '20', amount: '200000', currency: 'USD', fxRate: '83.00', instrumentId: 'aapl', accountId: 'acc-usd' }),
+        txn({ type: 'sell', date: '2026-06-12', quantity: '10', amount: '200000', currency: 'USD', instrumentId: 'aapl', accountId: 'acc-usd' }),
+        txn({ type: 'dividend', date: '2026-05-10', quantity: '0', amount: '5000', currency: 'USD', instrumentId: 'aapl', accountId: 'acc-usd' }),
+      ],
+      snapshots: [],
+      instruments,
+      asOf: AS_OF,
+    }
+    const result = valuePortfolio({
+      accounts: [dollars],
+      instruments,
+      prices,
+      fx,
+      unresolved: [],
+      asOf: AS_OF,
+    })
+    if (!result.ok) throw new Error('valuation failed')
+    const valued = result.value
+    expect(valued.realised.byRegime.size).toBe(0)
+    expect(valued.realised.unavailableDisposals[0]!.reason).toBe('NO_FX_RATE')
+    expect(valued.realised.dividendIncomeMinor.measured).toBe(false)
+    // The holding itself is still valued — 10 shares at $200 × ₹88 — because present value uses the
+    // current rate, which exists. Only the figures needing a historical rate are withheld.
+    expect(valued.netWorthMinor).toBe('17600000')
+    expect(valued.realisedCoverage.coveredMinor).toBe('0')
+  })
+})

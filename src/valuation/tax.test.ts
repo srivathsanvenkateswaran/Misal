@@ -4,18 +4,20 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { REASON_TEXT } from '@domain/measured'
-import { instrument, instrumentMap, resetIds, txn } from './__fixtures__/build'
+import { type Measured, REASON_TEXT, fullCoverage, measured } from '@domain/measured'
+import { type Minor, minor, subMinor } from '@domain/numeric'
+import { inrOnlyFx, instrument, instrumentMap, resetIds, txn, usdFx } from './__fixtures__/build'
 import { daysBetween, financialYear, isLongTerm } from './calendar'
 import { type FoldInput, buildLots } from './fold'
 import { ruleFor } from './tax-rules'
 import { classifyDisposal, summariseRealised } from './tax'
-import type { Disposal } from './tax'
+import type { Disposal, IncomeInput } from './tax'
+import type { FxService } from './fx'
 import type { InstrumentRef, TxnRow } from './types'
 
 const AS_OF = '2026-08-12T18:30:00+05:30'
 
-function disposalsFor(txns: readonly TxnRow[], inst: InstrumentRef): Disposal[] {
+function disposalsFor(txns: readonly TxnRow[], inst: InstrumentRef, fx: FxService = inrOnlyFx()): Disposal[] {
   const input: FoldInput = {
     accountId: 'acc-1',
     capability: 'ledger',
@@ -27,7 +29,24 @@ function disposalsFor(txns: readonly TxnRow[], inst: InstrumentRef): Disposal[] 
   const folded = buildLots(input)
   if (!folded.ok) throw new Error('fold failed')
   const ledger = folded.value.get(inst.id)!
-  return ledger.consumptions.map((c) => classifyDisposal(c, inst)).filter((d): d is Disposal => d !== null)
+  return ledger.consumptions.map((c) => classifyDisposal(c, inst, fx)).filter((d): d is Disposal => d !== null)
+}
+
+/** Income already converted to INR by the portfolio layer, which is what `summariseRealised` takes. */
+function income(amounts: {
+  dividendIncomeMinor?: string
+  interestIncomeMinor?: string
+  tdsCreditMinor?: string
+}): IncomeInput {
+  const inr = (raw: string | undefined): Measured<Minor> => {
+    const value = minor(raw ?? '0')
+    return measured(value, fullCoverage(value))
+  }
+  return {
+    dividendIncomeMinor: inr(amounts.dividendIncomeMinor),
+    interestIncomeMinor: inr(amounts.interestIncomeMinor),
+    tdsCreditMinor: inr(amounts.tdsCreditMinor),
+  }
 }
 
 describe('holding period', () => {
@@ -154,14 +173,14 @@ describe('virtual digital assets', () => {
 
     const summary = summariseRealised(
       disposals,
-      { dividendIncomeMinor: '0' as never, interestIncomeMinor: '0' as never, tdsCreditMinor: '5000' as never },
+      income({ tdsCreditMinor: '5000' }),
       'FY2025-26',
     )
     expect(summary.vda.grossGainMinor).toBe('3000000')
     expect(summary.vda.grossLossMinor).toBe('2000000')
     expect(summary.vda.disposalCount).toBe(2)
     // TDS under section 194S is a prepayment of tax, not an expense of transfer.
-    expect(summary.tdsCreditMinor).toBe('5000')
+    expect(summary.tdsCreditMinor.measured && summary.tdsCreditMinor.value).toBe('5000')
     expect(summary.byRegime.size).toBe(0)
   })
 })
@@ -181,14 +200,14 @@ describe('realised summary', () => {
     )
     const summary = summariseRealised(
       disposals,
-      { dividendIncomeMinor: '12500' as never, interestIncomeMinor: '0' as never, tdsCreditMinor: '0' as never },
+      income({ dividendIncomeMinor: '12500' }),
       'FY2025-26',
     )
     const s112a = summary.byRegime.get('s112a_listed_equity')!
     // +₹5,000 on the first lot and −₹2,000 on the second, netted within the regime.
     expect(s112a.ltcgMinor).toBe('300000')
     expect(s112a.exemptionAppliedMinor).toBe('300000')
-    expect(summary.dividendIncomeMinor).toBe('12500')
+    expect(summary.dividendIncomeMinor.measured && summary.dividendIncomeMinor.value).toBe('12500')
   })
 
   it('lists disposals it could not classify instead of dropping them', () => {
@@ -203,12 +222,74 @@ describe('realised summary', () => {
     )
     const summary = summariseRealised(
       disposals,
-      { dividendIncomeMinor: '0' as never, interestIncomeMinor: '0' as never, tdsCreditMinor: '0' as never },
+      income({}),
       'FY2025-26',
     )
     expect(summary.unavailableDisposals).toHaveLength(1)
     expect(summary.unavailableDisposals[0]!.reason).toBe('UNKNOWN_TAX_REGIME')
     expect(summary.byRegime.size).toBe(0)
+  })
+})
+
+describe('a disposal in a foreign currency', () => {
+  // `us_equity` maps to `foreign_equity` with no user classification at all, so this fires for
+  // anyone holding a US share — no opt-in, no warning, nothing to misconfigure.
+  const aapl = instrument({ id: 'inst-1', assetClass: 'us_equity', currency: 'USD' })
+  const trades = [
+    txn({ type: 'buy', date: '2024-01-10', quantity: '20', amount: '200000', currency: 'USD' }),
+    txn({ type: 'sell', date: '2026-01-12', quantity: '10', amount: '200000', currency: 'USD' }),
+  ]
+  // ₹87 to the dollar on the day of the sale.
+  const fx = usdFx(['2024-01-10', '83.00'], ['2026-01-12', '87.00'])
+
+  it('converts the gain at the disposal-date rate instead of reporting cents as paise', () => {
+    resetIds()
+    const [disposal] = disposalsFor(trades, aapl, fx)
+    // 20 bought at $100, 10 sold at $200: a $1,000 gain, which is ₹87,000 — not the ₹1,000 that
+    // 100,000 *cents* rendered as when it landed in a rupee total.
+    expect(disposal!.gain.measured && disposal!.gain.value).toBe('8700000')
+    expect(disposal!.grossConsiderationMinor).toBe('17400000')
+    expect(disposal!.costMinor).toBe('8700000')
+    expect(disposal!.currency).toBe('INR')
+    expect(disposal!.fxRate).toBe('87.00')
+    expect(disposal!.bucket).toEqual({ kind: 'ltcg', regime: 'foreign_equity' })
+  })
+
+  it('keeps gain === gross − expenses − deemed cost in the units it reports', () => {
+    resetIds()
+    const [disposal] = disposalsFor(trades, aapl, fx)
+    if (!disposal!.deemedCost.measured || !disposal!.gain.measured) throw new Error('expected figures')
+    expect(
+      subMinor(
+        subMinor(disposal!.grossConsiderationMinor, disposal!.transferExpensesMinor),
+        disposal!.deemedCost.value,
+      ),
+    ).toBe(disposal!.gain.value)
+  })
+
+  it('withholds the disposal entirely when no rate covers the day it happened', () => {
+    resetIds()
+    // A rate five weeks stale is past `MAX_FX_BACKFILL_DAYS`, so there is no rate for this date.
+    const stale = usdFx(['2024-01-10', '83.00'])
+    const [disposal] = disposalsFor(trades, aapl, stale)
+    expect(disposal!.bucket).toEqual({ kind: 'unavailable', reason: 'NO_FX_RATE' })
+    expect(disposal!.gain.measured).toBe(false)
+    if (disposal!.gain.measured) return
+    expect(disposal!.gain.reason).toBe('no_fx_rate')
+    // Nothing is emitted in the transaction's own currency as a consolation figure: an unconverted
+    // 200000 here would be read as ₹2,000 by everything downstream.
+    expect(disposal!.grossConsiderationMinor).toBe('0')
+    expect(disposal!.costMinor).toBe('0')
+    expect(disposal!.fxRate).toBeNull()
+  })
+
+  it('is not netted into a rupee regime total when it cannot be converted', () => {
+    resetIds()
+    const disposals = disposalsFor(trades, aapl, usdFx(['2024-01-10', '83.00']))
+    const summary = summariseRealised(disposals, income({}), 'FY2025-26')
+    expect(summary.byRegime.size).toBe(0)
+    expect(summary.unavailableDisposals[0]!.reason).toBe('NO_FX_RATE')
+    expect(summary.currency).toBe('INR')
   })
 })
 
@@ -233,6 +314,6 @@ describe('transfers out', () => {
     expect(ledger.quantity).toBe('6')
     expect(ledger.consumptions).toHaveLength(1)
     // Moving units between demat accounts is not a transfer for capital-gains purposes.
-    expect(classifyDisposal(ledger.consumptions[0]!, equity)).toBeNull()
+    expect(classifyDisposal(ledger.consumptions[0]!, equity, inrOnlyFx())).toBeNull()
   })
 })

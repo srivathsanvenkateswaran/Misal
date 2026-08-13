@@ -16,8 +16,26 @@
  */
 
 import Decimal from 'decimal.js'
-import { type Dec, dec } from '@domain/numeric'
+import { type Dec, type Minor, dec, isNegativeMinor, negMinor } from '@domain/numeric'
 import { ValuationAssertionError } from './types'
+
+/**
+ * The magnitude of a signed money amount.
+ *
+ * The counterpart of `magnitude` in `fold.ts`, and it exists for exactly the same reason: the sign
+ * on a row is the ingestion adapter's convention, not a fact about the transaction. A CAMS/KFintech
+ * CAS prints a redemption as units `(150.000)` and amount `(10,000.00)`, and the parser
+ * canonicalises both to negatives — deliberately, because that is what the statement says — while a
+ * broker CSV prints the same redemption as `150` and `10000.00`. Direction belongs to `txn.type`
+ * and to nothing else, so every reader of an amount takes its magnitude first and lets the type
+ * decide which way the money went.
+ *
+ * The quantity half of this rule was applied and the money half was not, which turned a ₹1,000
+ * realised gain into a ₹19,000 realised loss and an XIRR of −29.76% on a portfolio that was up.
+ */
+export function magnitudeMinor(amount: Minor): Minor {
+  return isNegativeMinor(amount) ? negMinor(amount) : amount
+}
 
 /**
  * decimal.js prints in exponential notation outside the configured `toExpNeg`/`toExpPos` window,

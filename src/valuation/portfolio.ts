@@ -37,7 +37,7 @@ import {
   coverageReport,
   metricCoverage,
 } from './coverage'
-import type { FoldInput } from './fold'
+import type { FoldInput, IncomeEvent, IncomeKind } from './fold'
 import type { FxService } from './fx'
 import { type DerivedPosition, derivePortfolioPositions } from './positions'
 import { priceAge } from './price/staleness'
@@ -163,6 +163,43 @@ function fxRateOn(fx: FxService, currency: CurrencyCode, date: string): Dec | nu
   return result.ok ? result.value.rate : null
 }
 
+/**
+ * Income converted at each row's own date, and withheld outright when one row cannot be converted.
+ *
+ * The same rule as every other money total in the engine: a dividend of $12 and a dividend of ₹12
+ * are not 24 of anything. Withholding the whole figure rather than the unconvertible part is
+ * deliberate — a partial sum labelled "dividend income" reads as the total, which is the
+ * plausible-looking wrong answer this layer exists to refuse.
+ */
+class IncomeAccumulator {
+  private totalMinor: Minor = ZERO_MINOR
+  private blocked = false
+
+  add(events: readonly IncomeEvent[], kind: IncomeKind, fx: FxService): void {
+    for (const event of events) {
+      if (event.kind !== kind) continue
+      if (event.currency === 'INR') {
+        this.totalMinor = addMinor(this.totalMinor, event.amountMinor)
+        continue
+      }
+      const rate = event.fxRate ?? fxRateOn(fx, event.currency, event.date)
+      if (rate === null) {
+        this.blocked = true
+        continue
+      }
+      this.totalMinor = addMinor(
+        this.totalMinor,
+        decToMinor(mulDec(minorToDec(event.amountMinor, event.currency), rate), 'INR'),
+      )
+    }
+  }
+
+  get value(): Measured<Minor> {
+    if (this.blocked) return notMeasured('no_fx_rate', ZERO_MINOR)
+    return measured(this.totalMinor, fullCoverage(this.totalMinor))
+  }
+}
+
 function pairFxUsable(txns: readonly TxnRow[], fx: FxService, currency: CurrencyCode): boolean {
   if (currency === 'INR') return true
   return txns.every(
@@ -203,9 +240,9 @@ export function valuePortfolio(input: PortfolioInput): Result<ValuationSnapshot>
   let stalePriceCount = 0
   let stalestPriceAgeDays: number | null = null
 
-  let dividendIncomeMinor = ZERO_MINOR
-  let interestIncomeMinor = ZERO_MINOR
-  let tdsCreditMinor = ZERO_MINOR
+  const dividendIncome = new IncomeAccumulator()
+  const interestIncome = new IncomeAccumulator()
+  const tdsCredit = new IncomeAccumulator()
 
   for (const position of derived.value) {
     const instrument = input.instruments.get(position.instrumentId)
@@ -290,12 +327,12 @@ export function valuePortfolio(input: PortfolioInput): Result<ValuationSnapshot>
     const ledger = position.ledger
     let disposalsClassified = true
     if (ledger !== null) {
-      dividendIncomeMinor = addMinor(dividendIncomeMinor, ledger.income.dividendMinor)
-      interestIncomeMinor = addMinor(interestIncomeMinor, ledger.income.interestMinor)
-      tdsCreditMinor = addMinor(tdsCreditMinor, ledger.income.tdsMinor)
+      dividendIncome.add(ledger.income.events, 'dividend', input.fx)
+      interestIncome.add(ledger.income.events, 'interest', input.fx)
+      tdsCredit.add(ledger.income.events, 'tds', input.fx)
       if (position.measurement === 'measured') {
         for (const consumption of ledger.consumptions) {
-          const disposal = classifyDisposal(consumption, instrument)
+          const disposal = classifyDisposal(consumption, instrument, input.fx)
           if (disposal === null) continue
           disposals.push(disposal)
           if (disposal.bucket.kind === 'unavailable') disposalsClassified = false
@@ -346,7 +383,11 @@ export function valuePortfolio(input: PortfolioInput): Result<ValuationSnapshot>
 
   const realised = summariseRealised(
     disposals,
-    { dividendIncomeMinor, interestIncomeMinor, tdsCreditMinor },
+    {
+      dividendIncomeMinor: dividendIncome.value,
+      interestIncomeMinor: interestIncome.value,
+      tdsCreditMinor: tdsCredit.value,
+    },
     financialYear(valuationDate),
   )
 

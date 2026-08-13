@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { addMinor, divDec, minorToDec, roundDec } from '@domain/numeric'
-import { instrument, instrumentMap, resetIds, snapshot, txn } from './__fixtures__/build'
+import { casRedemption, inrOnlyFx, instrument, instrumentMap, resetIds, snapshot, txn } from './__fixtures__/build'
 import { type FoldInput, TYPE_RANK, buildLots, openCostMinor, sortTxns } from './fold'
 import { derivePortfolioPositions, derivePositions } from './positions'
 import { classifyDisposal } from './tax'
@@ -104,7 +104,7 @@ describe('worked example: FIFO with a partial disposal and grandfathering', () =
   it('grandfathers the pre-2018 lot and not the post-2018 one', () => {
     const ledger = ledgerOf(foldInput(txns))
     const inst = instrument({ fmv: '1130.00' })
-    const disposals = ledger.consumptions.map((c) => classifyDisposal(c, inst)!)
+    const disposals = ledger.consumptions.map((c) => classifyDisposal(c, inst, inrOnlyFx())!)
 
     const [lotA, lotB] = disposals
     expect(lotA!.grandfathered).toBe(true)
@@ -130,10 +130,66 @@ describe('worked example: FIFO with a partial disposal and grandfathering', () =
     // Falling back would overstate the taxable gain by the whole 2001–2018 appreciation.
     const ledger = ledgerOf(foldInput(txns))
     const noFmv = instrument({})
-    const lotA = classifyDisposal(ledger.consumptions[0]!, noFmv)!
+    const lotA = classifyDisposal(ledger.consumptions[0]!, noFmv, inrOnlyFx())!
     expect(lotA.bucket).toEqual({ kind: 'unavailable', reason: 'GRANDFATHER_FMV_UNAVAILABLE' })
     expect(lotA.gain.measured).toBe(false)
     expect(lotA.deemedCost.measured).toBe(false)
+  })
+})
+
+describe('a redemption whose amount is negative, as a CAMS/KFintech CAS records it', () => {
+  // The reviewers' scenario, verbatim: 300 units bought for ₹18,000, then 150 of them redeemed for
+  // ₹10,000 — printed by the statement as units (150.000) and amount (10,000.00), and held in the
+  // store as -150 and -1000000. The truth is a ₹1,000 realised gain.
+  const txns = [
+    txn({ type: 'buy', date: '2020-01-10', quantity: '300', amount: '1800000' }),
+    casRedemption({ date: '2026-01-10', quantity: '150', amount: '1000000' }),
+  ]
+
+  it('reads the sale’s gross consideration as money received, not as money owed', () => {
+    resetIds()
+    const ledger = ledgerOf(foldInput(txns))
+    const consumption = ledger.consumptions[0]!
+    // Taken verbatim this was '-1000000', which is not a gross consideration in any currency.
+    expect(consumption.grossConsiderationMinor).toBe('1000000')
+    expect(consumption.costMinor).toBe('900000')
+    // ₹10,000 over 150 units. A negative amount over a positive quantity gave −₹66.67 a unit, which
+    // grandfathering would then have compared against a positive 31-Jan-2018 value.
+    expect(consumption.unitConsideration?.startsWith('66.666')).toBe(true)
+  })
+
+  it('reports a ₹1,000 long-term gain, not a ₹19,000 long-term loss', () => {
+    resetIds()
+    const ledger = ledgerOf(foldInput(txns))
+    const disposal = classifyDisposal(ledger.consumptions[0]!, instrument({ fmv: '1130.00' }), inrOnlyFx())!
+    // Was measured: true, value '-1900000' — a confident figure, wrong by ₹20,000 and in the wrong
+    // direction, with nothing in the honesty machinery able to see it.
+    expect(disposal.gain.measured && disposal.gain.value).toBe('100000')
+    expect(disposal.bucket).toEqual({ kind: 'ltcg', regime: 's112a_listed_equity' })
+    expect(disposal.grossConsiderationMinor).toBe('1000000')
+  })
+
+  it('leaves the open lot and the quantity exactly as they already were', () => {
+    resetIds()
+    // The quantity half of the sign rule was always applied, so this half of the fold was never
+    // wrong; asserted so the fix stays confined to the money.
+    const ledger = ledgerOf(foldInput(txns))
+    expect(ledger.quantity).toBe('150')
+    expect(ledger.open).toHaveLength(1)
+    expect(ledger.open[0]!.costMinor).toBe('900000')
+    expect(ledger.measurement).toBe('measured')
+  })
+
+  it('takes a bracketed purchase amount and a bracketed fee as magnitudes too', () => {
+    resetIds()
+    // Same statement, same convention, other columns: nothing about a buy's direction is carried by
+    // the sign either, and a negative fee would otherwise *add* to a lot's cost.
+    const ledger = ledgerOf(
+      foldInput([
+        txn({ type: 'buy', date: '2020-01-10', quantity: '300', amount: '-1800000', fees: '-4000' }),
+      ]),
+    )
+    expect(ledger.open[0]!.costMinor).toBe('1804000')
   })
 })
 

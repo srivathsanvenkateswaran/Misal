@@ -7,6 +7,7 @@
  */
 
 import { type CurrencyCode, type Dec, type Minor, dec, minor } from '@domain/numeric'
+import { type FxRateRow, type FxService, FxTable } from '../fx'
 import type { AliasRef, AssetClass, InstrumentRef, PositionRow, TaxRegime, TxnRow, TxnType } from '../types'
 
 let counter = 0
@@ -52,6 +53,56 @@ export function txn(spec: TxnSpec): TxnRow {
     naturalKey: spec.naturalKey ?? `nk-${id}`,
     createdAt: `${spec.date}T10:00:00+05:30`,
   }
+}
+
+/**
+ * A redemption exactly as a CAMS/KFintech CAS records one: **both** the units and the amount
+ * negative.
+ *
+ * This is not a hypothetical adapter's convention, it is the primary one. The statement prints
+ * `(150.000)` and `(10,000.00)`, `canonicalDecimal` turns both into negatives,
+ * `normalizeTransaction` passes the amount through with its sign, and
+ * `src/ingestion/pdf/cams-kfin-cas.test.ts` pins `amountMinor === '-1000000'` as *correct* — so a
+ * negative gross for a sale is a legitimate state of the store, not a corruption.
+ *
+ * Every `sell` fixture in this engine's tests used to be written the other way, with a positive
+ * amount, which is why the fold could use a sale's amount verbatim as gross consideration for as
+ * long as it did: a ₹1,000 realised gain came out as a ₹19,000 realised *loss*, flagged `measured`,
+ * and XIRR read −29.76% on a portfolio that was up. Nothing in the honesty machinery could see it,
+ * because a signed number is not a missing one.
+ *
+ * `quantity` and `amount` are given as the magnitudes a reader would say out loud; this negates
+ * both, so a test cannot accidentally write the convention it is meant to be testing against.
+ */
+export function casRedemption(spec: Omit<TxnSpec, 'type'>): TxnRow {
+  const negated: TxnSpec = { ...spec, type: 'sell', quantity: negate(spec.quantity) }
+  return txn({
+    ...negated,
+    ...(spec.amount === undefined ? {} : { amount: negate(spec.amount) }),
+    ...(spec.fees === undefined ? {} : { fees: negate(spec.fees) }),
+  })
+}
+
+function negate(value: string): string {
+  if (value.startsWith('-')) return value.slice(1)
+  return /^0(\.0*)?$/.test(value) ? value : `-${value}`
+}
+
+/** An FX table holding nothing: INR converts to INR by identity and nothing else converts at all. */
+export function inrOnlyFx(): FxService {
+  return new FxTable([])
+}
+
+/** A USD/INR table, in the direction `fx.ts` fixes: INR per one USD. */
+export function usdFx(...rates: readonly (readonly [string, string])[]): FxService {
+  const rows: FxRateRow[] = rates.map(([asOf, rate]) => ({
+    base: 'USD',
+    quote: 'INR',
+    asOf,
+    rate: dec(rate),
+    source: 'fixture',
+  }))
+  return new FxTable(rows)
 }
 
 export interface InstrumentSpec {
