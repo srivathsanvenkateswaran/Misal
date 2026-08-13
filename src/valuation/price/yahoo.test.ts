@@ -125,6 +125,50 @@ const USD_INR = JSON.stringify({
   },
 })
 
+/**
+ * INFY mid-session, with the trading period Yahoo really sends.
+ *
+ * Captured against `query2.finance.yahoo.com/v8/finance/chart/INFY.NS?range=1d&interval=1d` while
+ * the NSE was open. `currentTradingPeriod.regular` is 1786592700–1786615200, which is 09:15 to
+ * 15:30 IST on 2026-08-13, and `regularMarketTime` 1786609994 is 14:03 IST — a live quote. There
+ * is no `marketState` field anywhere in the chart meta; this pair of epoch seconds is the only
+ * thing the endpoint says about the session.
+ */
+const INFY_OPEN = JSON.stringify({
+  chart: {
+    result: [
+      {
+        meta: {
+          currency: 'INR',
+          symbol: 'INFY.NS',
+          exchangeName: 'NSI',
+          instrumentType: 'EQUITY',
+          regularMarketTime: 1786609994,
+          gmtoffset: 19800,
+          timezone: 'IST',
+          exchangeTimezoneName: 'Asia/Kolkata',
+          regularMarketPrice: 1170.4,
+          chartPreviousClose: 1176.1,
+          currentTradingPeriod: {
+            pre: { timezone: 'IST', start: 1786592700, end: 1786592700, gmtoffset: 19800 },
+            regular: { timezone: 'IST', start: 1786592700, end: 1786615200, gmtoffset: 19800 },
+            post: { timezone: 'IST', start: 1786615200, end: 1786615200, gmtoffset: 19800 },
+          },
+          priceHint: 2,
+        },
+        timestamp: [1786609994],
+        indicators: { quote: [{ close: [1170.4] }] },
+      },
+    ],
+    error: null,
+  },
+})
+
+/** 14:05 IST on 2026-08-13 — inside the session above. */
+const DURING_SESSION = '2026-08-13T14:05:00+05:30'
+/** 16:00 IST, half an hour after the bell. */
+const AFTER_THE_BELL = '2026-08-13T16:00:00+05:30'
+
 /** A replay transport. Records what was asked for, so "it did not ask" is assertable. */
 function replay(routes: readonly { match: RegExp; status: number; body: string }[]): {
   fetcher: (url: string, signal: AbortSignal) => Promise<{ status: number; body: string }>
@@ -144,10 +188,17 @@ function replay(routes: readonly { match: RegExp; status: number; body: string }
 
 function provider(
   routes: readonly { match: RegExp; status: number; body: string }[],
+  now?: string,
 ): { instance: YahooProvider; calls: string[] } {
   const { fetcher, calls } = replay(routes)
   return {
-    instance: new YahooProvider({ fetcher, sleep: () => Promise.resolve() }),
+    instance: new YahooProvider({
+      fetcher,
+      sleep: () => Promise.resolve(),
+      // Default well after any session in these fixtures, so a test that does not care about the
+      // clock gets the settled reading rather than a time-dependent one.
+      now: () => now ?? '2026-08-14T20:00:00+05:30',
+    }),
     calls,
   }
 }
@@ -382,6 +433,47 @@ describe('fetching the latest price', () => {
     expect(results[1]?.ok).toBe(false)
   })
 
+  it('marks a quote taken during an open session as intraday, not as the day’s close', async () => {
+    // The defect this replaces: a refresh at 11:00 wrote the live quote into the `price` table
+    // dated today, where every historical calculation afterwards reads it as that day's close —
+    // and no later refresh could tell it from a real one in order to correct it.
+    const { instance } = provider(
+      [{ match: /INFY\.NS/, status: 200, body: INFY_OPEN }],
+      DURING_SESSION,
+    )
+    const [quote] = await instance.fetchLatest([nse()], NEVER_ABORTED)
+    expect(quote?.ok).toBe(true)
+    if (quote?.ok !== true) return
+    expect(quote.intraday).toBe(true)
+    // The reading itself is still returned, unaltered and undisguised. Nothing is fabricated in
+    // its place, and `chartPreviousClose` is not promoted into a close under a guessed date.
+    expect(quote.price).toEqual({ value: '1170.4', currency: 'INR' })
+  })
+
+  it('calls the same reading a close once the session has ended', async () => {
+    const { instance } = provider(
+      [{ match: /INFY\.NS/, status: 200, body: INFY_OPEN }],
+      AFTER_THE_BELL,
+    )
+    const [quote] = await instance.fetchLatest([nse()], NEVER_ABORTED)
+    expect(quote?.ok).toBe(true)
+    if (quote?.ok !== true) return
+    // `regularMarketTime` is unchanged and still sits inside the session window — the last trade
+    // printed at 14:03 and nothing traded after it. Reading the session from the stamp rather
+    // than from the clock would call this intraday all evening and never store a close at all.
+    expect(quote.intraday).toBe(false)
+  })
+
+  it('treats a response with no trading period as settled rather than guessing', async () => {
+    // Unknown is not "open". A close wrongly withheld can never be recovered, while a row written
+    // for today is replaced by the next refresh; the recoverable direction is the safe default.
+    const { instance } = provider([{ match: /INFY\.NS/, status: 200, body: INFY_NS }])
+    const [quote] = await instance.fetchLatest([nse()], NEVER_ABORTED)
+    expect(quote?.ok).toBe(true)
+    if (quote?.ok !== true) return
+    expect(quote.intraday).toBe(false)
+  })
+
   it('does not fetch once the refresh has been cancelled', async () => {
     const controller = new AbortController()
     controller.abort()
@@ -477,6 +569,92 @@ describe('exchange rates', () => {
     if (quote?.ok !== true) return
     expect(quote.rate).toBe('94.5')
     expect(quote.asOf).toBe('2026-08-09')
+  })
+
+  it('reads a historical span in one request, dated by Yahoo’s own bars', async () => {
+    /*
+     * Captured from `chart/USDINR=X?period1=1546300800&period2=1546905600&interval=1d`.
+     *
+     * Three things this fixture is not edited to hide, all of which the implementation depends on:
+     * the bars are stamped at midnight UTC under a `Europe/London` pseudo-exchange, there is **no
+     * bar at all** for the 5th and 6th because that weekend had no session, and the closes carry
+     * Yahoo's float32 rounding — 69.71 arrives as 69.70999908447266 and is stored as sent.
+     */
+    const series = JSON.stringify({
+      chart: {
+        result: [
+          {
+            meta: {
+              currency: 'INR',
+              symbol: 'USDINR=X',
+              exchangeName: 'CCY',
+              instrumentType: 'CURRENCY',
+              exchangeTimezoneName: 'Europe/London',
+            },
+            timestamp: [1546300800, 1546387200, 1546473600, 1546560000, 1546819200, 1546905600],
+            indicators: {
+              quote: [
+                {
+                  close: [
+                    69.70999908447266, 69.70999908447266, 69.95999908447266, 70.30000305175781,
+                    69.5250015258789, 69.80999755859375,
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+        error: null,
+      },
+    })
+    const { instance, calls } = provider([{ match: /USDINR/, status: 200, body: series }])
+    const out = await instance.fetchFxHistory(
+      { base: 'USD', quote: 'INR' },
+      '2019-01-01',
+      '2019-01-08',
+      NEVER_ABORTED,
+    )
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toContain('/v8/finance/chart/USDINR=X')
+    expect(calls[0]).toContain('period1=1546300800')
+    expect(out.ok).toBe(true)
+    if (!out.ok) return
+    expect(out.value.map((row) => row.asOf)).toEqual([
+      '2019-01-01',
+      '2019-01-02',
+      '2019-01-03',
+      '2019-01-04',
+      '2019-01-07',
+      '2019-01-08',
+    ])
+    // The weekend is absent rather than filled. Nothing invents a Saturday rate.
+    expect(out.value.some((row) => row.asOf === '2019-01-05')).toBe(false)
+    expect(out.value[0]?.rate).toBe('69.70999908447266')
+  })
+
+  it('refuses a historical span that came back quoted in something else', async () => {
+    const wrong = JSON.stringify({
+      chart: {
+        result: [
+          {
+            meta: { currency: 'USD', exchangeTimezoneName: 'Europe/London' },
+            timestamp: [1546300800],
+            indicators: { quote: [{ close: [69.71] }] },
+          },
+        ],
+        error: null,
+      },
+    })
+    const { instance } = provider([{ match: /USDINR/, status: 200, body: wrong }])
+    const out = await instance.fetchFxHistory(
+      { base: 'USD', quote: 'INR' },
+      '2019-01-01',
+      '2019-01-08',
+      NEVER_ABORTED,
+    )
+    expect(out.ok).toBe(false)
+    if (out.ok) return
+    expect(out.error.code).toBe('MALFORMED_RESPONSE')
   })
 
   it('reports a rate limit on the FX path too', async () => {

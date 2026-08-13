@@ -131,3 +131,60 @@ function yearOf(date: IsoDate): number {
 export function fetchedAt(point: PricePoint): IsoInstant {
   return point.fetchedAt
 }
+
+// ---------------------------------------------------------------------------
+// Exchange rates
+// ---------------------------------------------------------------------------
+
+/**
+ * How old an exchange rate may be before it is called stale, and then very stale.
+ *
+ * Calendar days, and shorter than the seven at which `FxTable.latest` refuses the rate outright.
+ * That bound answers a different question — "may this still be presented as the current rate at
+ * all" — and until this pair of thresholds existed there was nothing between "converted, silently"
+ * and "dropped out of net worth". Three days is a long weekend, which is the whole of the ordinary
+ * slack in a daily feed; past five, a run of refreshes has failed and the user should be told
+ * before the holding disappears rather than when it does.
+ */
+export const FX_STALE_AFTER_DAYS = 3
+export const FX_VERY_STALE_AFTER_DAYS = 5
+
+/** The same shape as `PriceAge`, for the other factor every foreign holding is multiplied by. */
+export interface FxRateAge {
+  /** `USD/INR`, as the pair is written throughout the FX subsystem. */
+  readonly pair: string
+  readonly asOf: IsoDate
+  /** Calendar days from `asOf` to the valuation date. Never negative. */
+  readonly ageDays: number
+  readonly staleness: Staleness
+}
+
+/**
+ * The age of the rate a holding was converted at.
+ *
+ * A holding's value is a price times a rate, and until this existed only one of the two factors
+ * could be reported as old. A week-old rate moved net worth by whatever the currency had done in
+ * that week and said nothing, while a week-old *price* was counted, flagged and named — so the
+ * quieter of the two errors was the one with no indicator.
+ *
+ * A rate dated after the valuation date is not from the future in any meaningful sense: a provider
+ * quoting on a calendar ahead of IST puts one there routinely. Its age is zero, not negative.
+ */
+export function fxRateAge(input: {
+  readonly pair: string
+  readonly asOf: IsoDate
+  readonly valuationDate: IsoDate
+}): FxRateAge {
+  const raw = daysBetween(input.asOf, input.valuationDate)
+  const ageDays = raw < 0 ? 0 : raw
+  return {
+    pair: input.pair,
+    asOf: input.asOf,
+    ageDays,
+    staleness: classify(ageDays, {
+      unit: 'calendar_days',
+      staleAfter: FX_STALE_AFTER_DAYS,
+      veryStaleAfter: FX_VERY_STALE_AFTER_DAYS,
+    }),
+  }
+}

@@ -270,6 +270,11 @@ export class CoinGeckoProvider implements PriceProvider {
         // /simple/price carries no prior close, so day change is unavailable from this call. Null
         // rather than a repeat of today's figure, which would render as a flat 0.00%.
         previousClose: null,
+        // Crypto never closes, so there is no session to be inside and no closing price to be
+        // pre-empted: a row here means "the price at the moment it was fetched", which is what
+        // `fetchedAt` records and what the calendar-hours staleness thresholds in `staleness.ts`
+        // are written against. Withholding these would leave crypto permanently unpriced.
+        intraday: false,
       })
     }
     return results

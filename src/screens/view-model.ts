@@ -53,7 +53,9 @@ import {
   type PriceService,
   type ValuationSnapshot,
   type XirrError,
+  type FxRateAge,
   FxTable,
+  fxRateAge,
   xirrForScope,
 } from '@valuation/index'
 import type { Figure } from '@ui/figure'
@@ -478,6 +480,7 @@ function buildPosition(
   instruments: ReadonlyMap<string, InstrumentRef>,
   prices: PriceService,
   netWorthMinor: Minor,
+  fxAges: ReadonlyMap<CurrencyCode, FxRateAge>,
 ): PositionView | null {
   const instrument = instruments.get(pair.instrumentId)
   const account = accounts.get(pair.accountId)
@@ -530,15 +533,40 @@ function buildPosition(
 
   const read = prices.priceAt(pair.instrumentId, 'latest')
   const age = pair.priceAge
-  const staleDays = age !== null && age.staleness !== 'fresh' ? age.ageDays : undefined
   const lastPrice: Measured<Figure> = read.ok
     ? measured(
         qtyFigure(read.value.close, { precision: priceDecimals(instrument.assetClass) }),
         fullCoverage(valueMinor),
       )
     : notMeasured('no_price', valueMinor)
+
+  /*
+   * A foreign holding's rupee value is a price times a rate, and both factors can be old. Until
+   * this line existed only the price could say so: a holding converted at a week-old rate showed
+   * no stale marker at all, while a week-old *price* was counted, hatched and named — so the
+   * quieter of the two errors was the one with no indicator, and the coverage panel's stale count
+   * agreed with it.
+   *
+   * The staler of the two governs, because the figure on screen is no fresher than its oldest
+   * input. A rupee holding has no rate and is unaffected.
+   */
+  const fxAge = fxAges.get(instrument.currency) ?? null
+  const priceStale = age !== null && age.staleness !== 'fresh'
+  const fxStale = fxAge !== null && fxAge.staleness !== 'fresh'
+  const staleDays = !priceStale && !fxStale
+    ? undefined
+    : fxStale && (age === null || fxAge.ageDays > age.ageDays)
+      ? fxAge.ageDays
+      : (age?.ageDays ?? fxAge?.ageDays)
+
   const priceNote =
-    age === null ? undefined : `${instrument.currency} · ${age.ageDays.toString()} d old`
+    age === null
+      ? fxAge === null
+        ? undefined
+        : `${instrument.currency} · rate ${fxAge.ageDays.toString()} d old`
+      : fxStale
+        ? `${instrument.currency} · ${age.ageDays.toString()} d old · rate ${fxAge.ageDays.toString()} d old`
+        : `${instrument.currency} · ${age.ageDays.toString()} d old`
 
   const reference =
     account.capability === 'ledger'
@@ -730,6 +758,38 @@ function fxTableFrom(rows: PortfolioRows): FxTable {
       source: row.source,
     })),
   )
+}
+
+/**
+ * How old the rate each foreign holding was converted at is, by currency.
+ *
+ * Only currencies actually held are asked about, and only rates the engine would actually have
+ * used: `FxTable.latest` is the same read `valueFromRows` converts through, so what this reports
+ * is the age of the number in the total rather than the age of the newest row in the table.
+ *
+ * A currency whose rate `latest` refuses — older than `MAX_FX_LATEST_AGE_DAYS`, or never stored —
+ * yields no entry. That is not an omission: those holdings are out of net worth entirely and the
+ * engine already raises a warning naming them, which is a louder signal than an age. This map is
+ * for the band below that bound, where the conversion happens and nothing said how old it was.
+ */
+function fxAgesFrom(
+  fx: FxTable,
+  instruments: ReadonlyMap<string, InstrumentRef>,
+  pairs: readonly PairValue[],
+  valuationDate: IsoDate,
+): ReadonlyMap<CurrencyCode, FxRateAge> {
+  const ages = new Map<CurrencyCode, FxRateAge>()
+  for (const pair of pairs) {
+    const currency = instruments.get(pair.instrumentId)?.currency
+    if (currency === undefined || currency === 'INR' || ages.has(currency)) continue
+    const rate = fx.latest(currency, 'INR', valuationDate)
+    if (!rate.ok) continue
+    ages.set(
+      currency,
+      fxRateAge({ pair: `${currency}/INR`, asOf: rate.value.asOf, valuationDate }),
+    )
+  }
+  return ages
 }
 
 /**
@@ -1067,8 +1127,12 @@ function build(rows: PortfolioRows, asOf: IsoInstant): PortfolioData {
   const netWorth = snapshot.netWorthMinor
   const asOfDate = asOf.slice(0, 10)
 
+  const fxAges = fxAgesFrom(fxTableFrom(rows), instruments, snapshot.pairs, asOfDate)
+
   const positions = snapshot.pairs
-    .map((pair) => buildPosition(pair, rows, accounts, instruments, bundle.prices, netWorth))
+    .map((pair) =>
+      buildPosition(pair, rows, accounts, instruments, bundle.prices, netWorth, fxAges),
+    )
     .filter((position): position is PositionView => position !== null)
     .sort((a, b) => -compareMinor(a.valueMinor, b.valueMinor))
 
@@ -1171,6 +1235,14 @@ function build(rows: PortfolioRows, asOf: IsoInstant): PortfolioData {
   })
 
   const stalePositions = positions.filter((position) => position.staleDays !== undefined)
+  /*
+   * Stale rates are counted beside stale prices, in the same indicator, because they are the same
+   * defect in the other factor. `coverage.stalePriceCount` comes from the engine and counts price
+   * age alone — the residual the FX bound entry in `docs/known-issues.md` left open — so the rates
+   * are added here, one per currency rather than one per holding, which is how many rates there
+   * actually are and how many separate things can be wrong.
+   */
+  const staleFxRates = [...fxAges.values()].filter((age) => age.staleness !== 'fresh')
   const priceFetchedAt = [...rows.prices.map((price) => price.fetchedAt)].sort()
   const latestFetch = priceFetchedAt[priceFetchedAt.length - 1]
   const sources = [...new Set(rows.prices.map((price) => price.source))].sort()
@@ -1249,13 +1321,16 @@ function build(rows: PortfolioRows, asOf: IsoInstant): PortfolioData {
     historyBegins,
     coverageByMetric,
     dataQuality: {
-      stalePrices: coverage.stalePriceCount,
+      stalePrices: coverage.stalePriceCount + staleFxRates.length,
       staleNote:
-        stalePositions.length === 0
-          ? 'Every price is within its tolerance'
-          : stalePositions
-              .map((position) => `${position.name} ${(position.staleDays ?? 0).toString()} d`)
-              .join(' · '),
+        stalePositions.length === 0 && staleFxRates.length === 0
+          ? 'Every price and exchange rate is within its tolerance'
+          : [
+              ...stalePositions.map(
+                (position) => `${position.name} ${(position.staleDays ?? 0).toString()} d`,
+              ),
+              ...staleFxRates.map((age) => `${age.pair} rate ${age.ageDays.toString()} d`),
+            ].join(' · '),
       unresolvedCount: withheld.count,
       withheldMinor: withheld.minor,
       withheldNote: withheld.note,
