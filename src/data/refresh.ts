@@ -37,18 +37,24 @@
  */
 
 import type { CurrencyCode } from '@domain/numeric'
+import { dec } from '@domain/numeric'
 import {
   AmfiProvider,
   CoinGeckoProvider,
+  FxTable,
   InMemoryPriceStore,
   PriceService,
   TwelveDataProvider,
   YahooProvider,
+  MAX_FX_BACKFILL_DAYS,
   MAX_FX_LATEST_AGE_DAYS,
+  daysBetween,
+  localDate,
   type CreditBudget,
   type FxPair,
   type FxQuoteResult,
   type InstrumentRef,
+  type IsoDate,
   type PricePoint,
   type PriceProvider,
   type PriceStore,
@@ -179,6 +185,8 @@ export type RefreshNoteCode =
   | 'MANUAL_OVERRIDE_HELD'
   | 'FX_UNAVAILABLE'
   | 'FX_BASE_UNSUPPORTED'
+  | 'FX_HISTORY_INCOMPLETE'
+  | 'INTRADAY_QUOTE'
   | 'UNKNOWN_INSTRUMENT'
 
 export interface RefreshNote {
@@ -330,17 +338,28 @@ export function buildProviders(
   fetcher: MarketDataFetcher,
   credentials: TwelveDataCredentials | null,
   sleep?: (ms: number) => Promise<void>,
+  now?: () => string,
 ): ProviderSet {
+  // Yahoo needs a clock to tell a live quote from a close, and Twelve Data needs one to run its
+  // minute window. Both are given the refresh's own clock rather than reaching for `Date.now()`,
+  // so a test that fixes the instant fixes it everywhere.
+  const millis = now === undefined ? undefined : () => DateTime.fromISO(now()).toMillis()
   const providers: PriceProvider[] = [
     new AmfiProvider(amfiFetcher(fetcher)),
     new CoinGeckoProvider({ fetcher }),
-    new YahooProvider(sleep === undefined ? { fetcher } : { fetcher, sleep }),
+    new YahooProvider({
+      fetcher,
+      ...(sleep === undefined ? {} : { sleep }),
+      ...(now === undefined ? {} : { now }),
+    }),
   ]
   if (credentials !== null) {
     providers.push(
       new TwelveDataProvider({
         apiKey: credentials.apiKey,
         plan: credentials.plan,
+        ...(sleep === undefined ? {} : { sleep }),
+        ...(millis === undefined ? {} : { now: millis }),
         fetcher: async (url, signal) => {
           const response = await fetcher(url, signal)
           return { status: response.status, body: response.body }
@@ -484,12 +503,23 @@ export async function refreshPrices(options: RefreshOptions): Promise<RefreshOut
     fetcher,
     options.credentials ?? null,
     options.sleep,
+    now,
   )
   for (const provider of providers) service.register(provider)
 
   const report = await service.refresh(options.scope ?? { onlyStale: true }, signal)
 
   const notes: RefreshNote[] = notesFor(report.failures, instruments)
+
+  const held = report.intradayHeld ?? []
+  if (held.length > 0) {
+    notes.push({
+      code: 'INTRADAY_QUOTE',
+      message:
+        'The market is still open for these, so what came back is a live quote rather than the day’s close. It was not stored: the price table holds one closing price per day and every historical figure reads it as one, so an 11:00 print filed there would stay on record as the close for good. The last close is still shown, and today’s will be stored by the next refresh after the market shuts.',
+      subjects: held.map((id) => instruments.get(id)?.displayName ?? id),
+    })
+  }
 
   // Only accepted rows are persisted, and only ok results ever became accepted rows. This is where
   // "a failed fetch never writes a price" stops being a convention and becomes the shape of the
@@ -539,6 +569,14 @@ export async function refreshPrices(options: RefreshOptions): Promise<RefreshOut
     notes,
   })
 
+  const backfilled = await backfillFxHistory({
+    call,
+    provider: fx,
+    rows: options.rows,
+    signal,
+    notes,
+  })
+
   const finishedAt = now()
   const rateLimited =
     report.rateLimited || fxResult.outcomes.some((row) => row.error?.code === 'RATE_LIMITED')
@@ -554,7 +592,9 @@ export async function refreshPrices(options: RefreshOptions): Promise<RefreshOut
     prices: report,
     pricesWritten,
     fx: fxResult.outcomes,
-    fxWritten: fxResult.written,
+    // Current rates and backfilled historical ones land in the same table through the same
+    // command, and the figure the user is shown is "rates stored", so they are counted together.
+    fxWritten: fxResult.written + backfilled,
     rateLimited,
     notes,
     nextEligibleAt: null,
@@ -690,4 +730,213 @@ async function refreshFx(
     })
   }
   return { outcomes, written: saved.written }
+}
+
+// ---------------------------------------------------------------------------
+// Historical FX
+// ---------------------------------------------------------------------------
+
+/**
+ * How many separate history requests one refresh may spend.
+ *
+ * A backfill runs alongside an ordinary refresh and must not turn it into a long operation against
+ * an unofficial endpoint. What does not fit is carried to the next refresh and said out loud, so
+ * the work finishes over a few runs instead of stalling one.
+ */
+export const MAX_FX_HISTORY_REQUESTS = 8
+
+/**
+ * Days between two needed dates before they are fetched as two ranges rather than one.
+ *
+ * A single request costs the same whether it spans a week or a quarter, so nearby dates are worth
+ * merging; a five-year gap between a 2019 vest and a 2024 one is not, and merging it would pull
+ * back thirteen hundred rows to answer two questions.
+ */
+const FX_HISTORY_CLUSTER_GAP_DAYS = 60
+
+/**
+ * The dates transactions actually need a rate for, and cannot get from what is already stored.
+ *
+ * Mirrors `buildCashflows` exactly, because a date this misses is a date XIRR still fails on: a
+ * transaction needs a rate only when its currency is not the base *and* it carries no `fx_rate` of
+ * its own, and the date it needs is the transaction's local date rather than its instant.
+ *
+ * Dates the stored daily table can already answer are dropped here rather than fetched and
+ * discarded later — including the ones it answers by reaching back over a weekend, which is what
+ * `FxTable.on` is for and what stops a Saturday vest asking for a rate that was never published.
+ */
+export function neededFxDates(
+  rows: PortfolioRows,
+  base: string,
+): ReadonlyMap<CurrencyCode, readonly IsoDate[]> {
+  const stored = new FxTable(
+    rows.fxRates.map((row) => ({
+      base: row.base,
+      quote: row.quote,
+      asOf: row.asOf,
+      rate: dec(row.rate),
+      source: row.source,
+    })),
+  )
+  const needed = new Map<CurrencyCode, Set<IsoDate>>()
+  for (const txn of rows.transactions) {
+    const currency = txn.currency as CurrencyCode
+    if (currency === base) continue
+    if (txn.fxRate !== null) continue
+    const date = localDate(txn.occurredAt, txn.occurredTz)
+    if (stored.on(currency, 'INR', date).ok) continue
+    const bucket = needed.get(currency)
+    if (bucket === undefined) needed.set(currency, new Set([date]))
+    else bucket.add(date)
+  }
+  return new Map([...needed].map(([currency, dates]) => [currency, [...dates].sort()]))
+}
+
+/** Contiguous-enough runs of needed dates, each becoming one range request. */
+export function fxHistoryRanges(
+  dates: readonly IsoDate[],
+): readonly { readonly from: IsoDate; readonly to: IsoDate; readonly dates: readonly IsoDate[] }[] {
+  const ranges: { from: IsoDate; to: IsoDate; dates: IsoDate[] }[] = []
+  for (const date of dates) {
+    const current = ranges[ranges.length - 1]
+    if (current !== undefined && daysBetween(current.to, date) <= FX_HISTORY_CLUSTER_GAP_DAYS) {
+      current.to = date
+      current.dates.push(date)
+      continue
+    }
+    // Opened `MAX_FX_BACKFILL_DAYS` early so a date that fell on a weekend or a holiday can still
+    // be answered by the last published rate before it, which is the rule `FxTable.on` applies.
+    ranges.push({ from: shiftDate(date, -MAX_FX_BACKFILL_DAYS), to: date, dates: [date] })
+  }
+  return ranges
+}
+
+function shiftDate(date: IsoDate, days: number): IsoDate {
+  const at = DateTime.fromISO(date, { zone: 'utc' }).plus({ days })
+  return at.toISODate() ?? date
+}
+
+/**
+ * The last rate published on or before `date`, within the backfill window, or null.
+ *
+ * The same rule `FxTable.on` applies on the way out, applied on the way in so that what is stored
+ * is what will be read. Beyond `MAX_FX_BACKFILL_DAYS` there is no answer: a rate five days either
+ * side of a transaction is not that transaction's rate, and the honest outcome is a gap.
+ */
+function lastRateOnOrBefore(
+  rates: readonly { readonly asOf: IsoDate; readonly rate: string }[],
+  date: IsoDate,
+): { readonly asOf: IsoDate; readonly rate: string } | null {
+  let best: { asOf: IsoDate; rate: string } | null = null
+  for (const row of rates) {
+    if (row.asOf > date) continue
+    if (best === null || row.asOf > best.asOf) best = { asOf: row.asOf, rate: row.rate }
+  }
+  if (best === null || daysBetween(best.asOf, date) > MAX_FX_BACKFILL_DAYS) return null
+  return best
+}
+
+interface FxBackfillInput {
+  readonly call: Invoker
+  readonly provider: PriceProvider | null
+  readonly rows: PortfolioRows
+  readonly signal: AbortSignal
+  readonly notes: RefreshNote[]
+}
+
+/**
+ * Fetch the historical rates old foreign transactions need, and store only what came back.
+ *
+ * Until this existed the refresh asked for `'latest'` and nothing else, so a 2019 RSU vest could
+ * never be dated: `FxTable.on` reaches back three days and the oldest stored rate was whenever the
+ * user first opened the application. XIRR is solved over a whole scope at once, so that one
+ * undatable row withheld the figure for every rupee holding beside it, permanently and with no
+ * action the user could take to fix it.
+ *
+ * Three rules, and they are the same three the price path holds itself to:
+ *
+ *  - **Only dates that are needed.** Derived from the transactions themselves, minus everything
+ *    the stored table already answers, so a refresh on a portfolio with no foreign history makes
+ *    no request at all.
+ *  - **Only rates that were fetched.** A row is written under the date the provider published it
+ *    under. Nothing is interpolated, nothing is carried onto a day the market was shut, and a
+ *    failed request writes nothing whatsoever.
+ *  - **A refusal is reported, not retried.** The first rate-limited range ends the pass.
+ */
+async function backfillFxHistory(input: FxBackfillInput): Promise<number> {
+  const base = input.rows.settings.get(BASE_CURRENCY_SETTING) ?? 'INR'
+  // The base-currency guard in `refreshFx` has already said what happens when this is not INR, and
+  // nothing here can store a rate quoted against anything else.
+  if (base !== 'INR') return 0
+
+  const provider = input.provider
+  const fetchHistory = provider?.fetchFxHistory?.bind(provider)
+  if (provider === null || fetchHistory === undefined) return 0
+
+  const needed = neededFxDates(input.rows, base)
+  if (needed.size === 0) return 0
+
+  const toWrite: { base: string; quote: string; asOf: string; rate: string; source: string }[] = []
+  const unfetched: string[] = []
+  let requests = 0
+  let halted = false
+
+  for (const [currency, dates] of needed) {
+    const pair: FxPair = { base: currency, quote: 'INR' }
+    for (const range of fxHistoryRanges(dates)) {
+      if (halted || requests >= MAX_FX_HISTORY_REQUESTS) {
+        unfetched.push(`${currency}/INR ${range.from} to ${range.to}`)
+        continue
+      }
+      requests += 1
+      const outcome = await fetchHistory(pair, range.from, range.to, input.signal)
+      if (!outcome.ok) {
+        // Rate limited or offline: every further range would be refused too, and asking would
+        // only lengthen the block.
+        if (outcome.error.code === 'RATE_LIMITED' || outcome.error.code === 'OFFLINE') halted = true
+        const described = describeProviderError(outcome.error)
+        input.notes.push({
+          code: described.code,
+          message: `Historical ${currency}/INR rates could not be fetched: ${described.message} Transactions from those days stay undated, so XIRR is withheld for the scopes containing them.`,
+          subjects: [`${currency}/INR ${range.from} to ${range.to}`],
+        })
+        continue
+      }
+      // One row per date asked about: the last rate published on or before it, which is exactly
+      // the row `FxTable.on` will pick when the date is read back. Everything else in the span is
+      // real but was not asked for, and storing it would quietly turn "fetch what is needed" into
+      // "fetch a decade". A date the provider published nothing usable for simply gets no row —
+      // never the next rate along, and never an average of the two either side.
+      const keep = new Map<IsoDate, string>()
+      for (const date of range.dates) {
+        const answer = lastRateOnOrBefore(outcome.value, date)
+        if (answer !== null) keep.set(answer.asOf, answer.rate)
+      }
+      for (const [asOf, rate] of keep) {
+        toWrite.push({ base: currency, quote: 'INR', asOf, rate, source: provider.id })
+      }
+    }
+  }
+
+  if (unfetched.length > 0) {
+    input.notes.push({
+      code: 'FX_HISTORY_INCOMPLETE',
+      message: `Historical exchange rates are fetched a few spans at a time, and ${unfetched.length.toString()} more are outstanding. They are picked up by the next refresh; until then the transactions in those spans have no rate, and any XIRR covering them is withheld rather than estimated.`,
+      subjects: unfetched,
+    })
+  }
+
+  if (toWrite.length === 0) return 0
+  const saved = await input.call<{ written: number; heldByManual: string[]; unknown: string[] }>(
+    'save_fx_rates',
+    { rows: toWrite },
+  )
+  if (saved.heldByManual.length > 0) {
+    input.notes.push({
+      code: 'MANUAL_OVERRIDE_HELD',
+      message: 'Your manual exchange rates were kept in preference to the fetched historical ones.',
+      subjects: saved.heldByManual,
+    })
+  }
+  return saved.written
 }

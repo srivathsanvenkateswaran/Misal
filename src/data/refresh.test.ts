@@ -78,6 +78,59 @@ const USD_INR = JSON.stringify({
   },
 })
 
+/**
+ * INFY with the trading period Yahoo really sends, mid-session.
+ *
+ * `currentTradingPeriod.regular` is 09:15–15:30 IST on 2026-08-13 and `regularMarketTime` is
+ * 14:03 IST, so at `MID_SESSION` this is a live quote rather than that day's close.
+ */
+const INFY_OPEN = JSON.stringify({
+  chart: {
+    result: [
+      {
+        meta: {
+          currency: 'INR',
+          symbol: 'INFY.NS',
+          regularMarketTime: 1786609994,
+          exchangeTimezoneName: 'Asia/Kolkata',
+          regularMarketPrice: 1170.4,
+          chartPreviousClose: 1176.1,
+          currentTradingPeriod: {
+            regular: { timezone: 'IST', start: 1786592700, end: 1786615200, gmtoffset: 19800 },
+          },
+        },
+      },
+    ],
+    error: null,
+  },
+})
+
+const MID_SESSION = '2026-08-13T14:05:00+05:30'
+
+/**
+ * USD/INR across 11–14 June 2019, as the chart endpoint serves it.
+ *
+ * Bars are stamped at midnight UTC under Yahoo's `Europe/London` currency pseudo-exchange, and the
+ * closes carry the float32 rounding every candle array does.
+ */
+const USD_INR_2019 = JSON.stringify({
+  chart: {
+    result: [
+      {
+        meta: {
+          currency: 'INR',
+          symbol: 'USDINR=X',
+          exchangeName: 'CCY',
+          exchangeTimezoneName: 'Europe/London',
+        },
+        timestamp: [1560211200, 1560297600, 1560384000, 1560470400],
+        indicators: { quote: [{ close: [69.5, 69.62000274658203, 69.75, 69.80000305175781] }] },
+      },
+    ],
+    error: null,
+  },
+})
+
 const BTC = JSON.stringify({ bitcoin: { inr: 6061005.018552231, last_updated_at: 1786594890 } })
 
 function rows(over: Partial<PortfolioRows> = {}): PortfolioRows {
@@ -344,6 +397,42 @@ describe('what gets written', () => {
     expect(outcome.fxWritten).toBe(1)
   })
 
+  it('does not file a live quote as the day’s close, and says why nothing was written', async () => {
+    /*
+     * The defect: a refresh at 11:00 IST took `meta.regularMarketPrice` — a live quote during an
+     * open session — and wrote it dated today, into a table whose one row per day *is* the close.
+     * A user who refreshed once mid-morning and never again left an 11:00 print on record as that
+     * day's closing price for good, and every historical figure computed against it read it as
+     * one. Nothing later could tell it from a real close in order to replace it.
+     */
+    const { call, fetcher, saved, commands } = harness([
+      { match: /INFY\.NS/, status: 200, body: INFY_OPEN },
+      { match: /chart\/AAPL/, status: 200, body: AAPL },
+      { match: /USDINR/, status: 200, body: USD_INR },
+      { match: /simple\/price/, status: 200, body: BTC },
+    ])
+    const outcome = await refreshPrices({
+      rows: rows(),
+      call,
+      fetcher,
+      now: () => MID_SESSION,
+      sleep: () => Promise.resolve(),
+    })
+
+    expect(saved('save_prices').map((row) => row.instrumentId)).not.toContain('i-infy')
+    // The rest of the batch is unaffected: Apple's session in New York is long closed.
+    expect(saved('save_prices').map((row) => row.instrumentId)).toContain('i-aapl')
+    expect(outcome.prices?.intradayHeld).toEqual(['i-infy'])
+
+    const note = outcome.notes.find((n) => n.code === 'INTRADAY_QUOTE')
+    expect(note?.subjects).toEqual(['Infosys'])
+    expect(note?.message).toContain('still open')
+    // Not reported as a failure: the fetch worked and the number is real. It is simply not a
+    // close, and a close is the only thing this table can hold.
+    expect(outcome.prices?.failures.some((f) => f.instrumentId === 'i-infy')).toBe(false)
+    expect(commands.some((c) => c.command === 'record_price_refresh')).toBe(true)
+  })
+
   it('stamps the refresh even when everything failed, so the TTL still protects the provider', async () => {
     const { call, fetcher, commands } = harness([{ match: /.*/, status: 429, body: '' }])
     await refreshPrices({
@@ -354,6 +443,114 @@ describe('what gets written', () => {
       sleep: () => Promise.resolve(),
     })
     expect(commands.some((c) => c.command === 'record_price_refresh')).toBe(true)
+  })
+
+  it('fetches the historical rates old foreign transactions need, and only those days', async () => {
+    /*
+     * The defect: the refresh asked for `'latest'` and nothing else. `FxTable.on` reaches back
+     * three days, so a 2019 RSU vest could never be dated — `buildCashflows` returned MISSING_FX,
+     * and because XIRR is solved over a whole scope at once, that one row withheld the figure for
+     * every rupee holding beside it, permanently, with nothing the user could do about it.
+     */
+    const withVest = rows({
+      transactions: [
+        {
+          id: 't-vest-2019',
+          accountId: 'a-kite',
+          instrumentId: 'i-aapl',
+          type: 'buy',
+          occurredAt: '2019-06-14T09:30:00-04:00',
+          occurredTz: 'America/New_York',
+          quantity: '10.0000',
+          price: '190.0000',
+          amountMinor: '190000',
+          brokerageMinor: '0',
+          sttMinor: '0',
+          gstMinor: '0',
+          stampDutyMinor: '0',
+          otherFeesMinor: '0',
+          tdsMinor: '0',
+          currency: 'USD',
+          // No per-row rate, so the daily table is the only place the rate can come from.
+          fxRate: null,
+          sourceDocumentId: 'd-etr-1',
+          naturalKey: 'etrade:aapl:2019-06-14',
+          occurrence: 0,
+          authority: 'primary',
+          createdAt: NOW,
+        },
+      ],
+    })
+    // The history route is listed first: `replay` takes the first match, and the `latest` route's
+    // pattern would otherwise swallow the dated request.
+    const { call, fetcher, urls, commands } = harness([
+      { match: /USDINR=X\?period1/, status: 200, body: USD_INR_2019 },
+      ...ALL_GOOD,
+    ])
+    await refreshPrices({
+      rows: withVest,
+      call,
+      fetcher,
+      now: () => NOW,
+      sleep: () => Promise.resolve(),
+    })
+
+    const history = urls.filter((url) => url.includes('USDINR=X?period1'))
+    expect(history).toHaveLength(1)
+    // Opened three days early so a vest that fell on a weekend can still be answered by the last
+    // published rate before it — the same window `FxTable.on` reads back with.
+    expect(history[0]).toContain('period1=1560211200')
+
+    const fxRows = commands
+      .filter((c) => c.command === 'save_fx_rates')
+      .flatMap((c) => (c.args?.rows as Record<string, unknown>[] | undefined) ?? [])
+    // Exactly one historical row: the rate published on the day of the vest. The other three bars
+    // in the span came back in the same response and were not asked for, so they are not stored.
+    expect(fxRows).toContainEqual({
+      base: 'USD',
+      quote: 'INR',
+      asOf: '2019-06-14',
+      rate: '69.80000305175781',
+      source: 'yahoo',
+    })
+    expect(fxRows.filter((row) => (row.asOf as string).startsWith('2019'))).toHaveLength(1)
+  })
+
+  it('asks for no history when the stored table already dates every transaction', async () => {
+    const dated = rows({
+      transactions: [
+        {
+          id: 't-vest-2019',
+          accountId: 'a-kite',
+          instrumentId: 'i-aapl',
+          type: 'buy',
+          occurredAt: '2019-06-14T09:30:00-04:00',
+          occurredTz: 'America/New_York',
+          quantity: '10.0000',
+          price: '190.0000',
+          amountMinor: '190000',
+          brokerageMinor: '0',
+          sttMinor: '0',
+          gstMinor: '0',
+          stampDutyMinor: '0',
+          otherFeesMinor: '0',
+          tdsMinor: '0',
+          currency: 'USD',
+          fxRate: null,
+          sourceDocumentId: 'd-etr-1',
+          naturalKey: 'etrade:aapl:2019-06-14',
+          occurrence: 0,
+          authority: 'primary',
+          createdAt: NOW,
+        },
+      ],
+      fxRates: [
+        { base: 'USD', quote: 'INR', asOf: '2019-06-14', rate: '69.80', source: 'yahoo' },
+      ],
+    })
+    const { call, fetcher, urls } = harness(ALL_GOOD)
+    await refreshPrices({ rows: dated, call, fetcher, now: () => NOW, sleep: () => Promise.resolve() })
+    expect(urls.some((url) => url.includes('period1'))).toBe(false)
   })
 
   it('does not ask for FX at all when nothing foreign is held', async () => {

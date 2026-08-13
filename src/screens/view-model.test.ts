@@ -331,6 +331,47 @@ describe('prices', () => {
     expect(data.netWorthMinor).not.toContain('undefined')
   })
 
+  it('reports the age of the exchange rate the way it reports the age of a price', () => {
+    /*
+     * The residual the FX-bound fix left open, and it was the quieter half of the same defect.
+     * `FxTable.latest` refuses a rate older than seven days, so above the bound the holding leaves
+     * net worth loudly — but below it the conversion happened and *nothing said how old the rate
+     * was*. A week-old price was counted in `stalePriceCount`, hatched and named; a week-old rate
+     * moved every foreign total by whatever the currency had done in that time and was silent.
+     *
+     * The dollar price here is one day old, so everything below comes from the rate alone.
+     */
+    const stale = foreignLedgerRows()
+    const rows = portfolioRows({
+      ...stale,
+      fxRates: stale.fxRates.map((row) =>
+        row.asOf === '2026-08-11' ? { ...row, asOf: '2026-08-06' } : row,
+      ),
+    })
+    const data = buildPortfolioView(rows, AS_OF)
+    if (!data.ok) throw new Error(data.message)
+
+    const cat = data.data.positions.find((position) => position.name === 'Caterpillar Inc')
+    // Six days, which is inside the seven-day bound: the holding is still converted and still in
+    // net worth. That is precisely the band in which nothing used to be said.
+    expect(cat?.priced).toBe(true)
+    expect(cat?.staleDays).toBe(6)
+    expect(cat?.priceNote).toContain('rate 6 d old')
+    expect(cat?.stamp.alert).toBe(true)
+
+    const quality = data.data.dataQuality
+    expect(quality.staleNote).toContain('USD/INR rate 6 d')
+    // One entry per rate rather than per holding: there is one USD/INR rate and one thing wrong.
+    expect(quality.stalePrices).toBeGreaterThan(0)
+
+    const fresh = buildPortfolioView(foreignLedgerRows(), AS_OF)
+    if (!fresh.ok) throw new Error(fresh.message)
+    expect(quality.stalePrices).toBe(fresh.data.dataQuality.stalePrices + 1)
+    expect(
+      fresh.data.positions.find((position) => position.name === 'Caterpillar Inc')?.staleDays,
+    ).toBeUndefined()
+  })
+
   it('withholds day change everywhere, because no previous close is stored', () => {
     const data = ready()
     expect(data.readout.dayChange.measured).toBe(false)

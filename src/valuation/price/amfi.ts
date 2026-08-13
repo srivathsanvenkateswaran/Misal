@@ -237,6 +237,10 @@ export class AmfiProvider implements PriceProvider {
           // The daily file carries no previous close, so day change is unavailable from AMFI
           // alone. It is null rather than a repeated value that would render as "0.00% today".
           previousClose: null,
+          // A NAV is struck once, after the market closes, and published for that date. There is
+          // no session during which this file carries a provisional figure: the row for a date
+          // either exists and is final, or is not there yet.
+          intraday: false,
         }
       }),
     ]

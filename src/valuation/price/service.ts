@@ -250,6 +250,7 @@ export class PriceService {
     let unchanged = 0
     let creditsConsumed = 0
     let rateLimited = false
+    const intradayHeld: string[] = []
 
     for (const [provider, refs] of byProvider) {
       const perSymbol = provider.capabilities.rateLimit?.creditsPerSymbol ?? 0
@@ -270,6 +271,15 @@ export class PriceService {
         if (!quote.ok) {
           if (quote.error.code === 'RATE_LIMITED') rateLimited = true
           failures.push({ instrumentId: quote.ref.id, error: quote.error })
+          continue
+        }
+        if (quote.intraday) {
+          // The session is still open, so this number is a live quote and the row it would go
+          // into is a *close*. Writing it would put an 11:00 print in the closing-price column
+          // permanently for any user who does not refresh again after the bell — and no later
+          // refresh could tell it from a real close in order to correct it. Held rather than
+          // written, and named in the report so the absence is visible.
+          intradayHeld.push(quote.ref.id)
           continue
         }
         const existing = this.options.store.at(quote.ref.id, quote.asOf)
@@ -300,6 +310,7 @@ export class PriceService {
       failures,
       creditsConsumed,
       rateLimited,
+      intradayHeld,
     }
   }
 }

@@ -32,6 +32,13 @@
  *     `meta.exchangeTimezoneName`. A US close at 16:00 New York is 01:30 IST the next day; dating
  *     it by the user's clock would make every US price look a day stale the moment it was fetched.
  *
+ *  5. **`regularMarketPrice` during an open session is a live quote, not that day's close**, and
+ *     is reported as such rather than stored. There is no `marketState` in the v8 chart meta — it
+ *     belongs to the `/v7/quote` endpoint the allowlist does not admit — so the session is read
+ *     from `meta.currentTradingPeriod.regular`, which every chart response carries as a pair of
+ *     epoch seconds. See `sessionIsOpen` for why the comparison is against the clock rather than
+ *     against `regularMarketTime`.
+ *
  * Numbers are read as their literal wire text and never through `JSON.parse`, which would hand
  * back a double. The lossless reader is the one already written for the exchange adapters; it is
  * the only thing this subsystem borrows from there, and duplicating a JSON parser to preserve a
@@ -49,11 +56,12 @@ import {
   type Json,
 } from '@adapters/lossless-json'
 import { DateTime } from 'luxon'
-import type { AliasRef, InstrumentRef, IsoDate } from '../types'
+import type { AliasRef, InstrumentRef, IsoDate, IsoInstant } from '../types'
 import type {
   FxPair,
   FxQuoteResult,
   HistoricalClose,
+  HistoricalFxRate,
   PriceProvider,
   PriceSelector,
   ProviderCapabilities,
@@ -99,6 +107,13 @@ export interface YahooOptions {
   /** Injected so tests pace without waiting. */
   readonly sleep?: (ms: number) => Promise<void>
   readonly minRequestIntervalMs?: number
+  /**
+   * The clock, injected so a test can place itself inside or outside a trading session.
+   *
+   * Needed because whether a quote is intraday is a question about *now* and not about anything
+   * in the response; see `sessionIsOpen`.
+   */
+  readonly now?: () => IsoInstant
 }
 
 const CAPABILITIES: ProviderCapabilities = {
@@ -164,6 +179,17 @@ export function fxSymbolFor(pair: FxPair): string {
 // Response parsing
 // ---------------------------------------------------------------------------
 
+/**
+ * `meta.currentTradingPeriod.regular`, as the two epoch-second strings it arrives as.
+ *
+ * Kept as text rather than parsed to a number: these are compared with `BigInt`, so nothing here
+ * ever becomes a float.
+ */
+export interface YahooSession {
+  readonly start: string
+  readonly end: string
+}
+
 /** The parts of `chart.result[0].meta` this provider trusts. */
 export interface YahooMeta {
   readonly symbol: string
@@ -175,6 +201,12 @@ export interface YahooMeta {
   readonly timezone: string
   /** Kept so a caller working in another calendar can re-date the same instant. */
   readonly at: string
+  /**
+   * The regular session this response describes, or null when Yahoo did not state one.
+   *
+   * Null is not "closed": it is "unknown", and it is handled as such — see `sessionIsOpen`.
+   */
+  readonly session: YahooSession | null
 }
 
 export type YahooResult<T> =
@@ -303,8 +335,51 @@ export function parseChartQuote(body: string, status: number): YahooResult<Yahoo
       asOf,
       timezone: zone,
       at: time,
+      session: sessionOf(meta),
     },
   }
+}
+
+/** `meta.currentTradingPeriod.regular`, or null when it is absent or unreadable. */
+function sessionOf(meta: Json): YahooSession | null {
+  const regular = field(field(meta, 'currentTradingPeriod'), 'regular')
+  if (!isJsonObject(regular)) return null
+  const start = rawText(field(regular, 'start'))
+  const end = rawText(field(regular, 'end'))
+  if (start === null || end === null) return null
+  if (!EPOCH_SECONDS.test(start) || !EPOCH_SECONDS.test(end)) return null
+  return { start, end }
+}
+
+const EPOCH_SECONDS = /^\d{1,15}$/
+
+/**
+ * Is the quote in this meta a live print from a session that has not finished?
+ *
+ * Two things make this harder than reading a flag, and both were established by looking at real
+ * responses rather than assumed:
+ *
+ *  - **There is no `marketState` in the v8 chart meta.** It exists on `/v7/finance/quote`, which
+ *    the host allowlist deliberately does not admit. What the chart does carry is
+ *    `currentTradingPeriod.regular`, a `{start, end}` pair of epoch seconds.
+ *
+ *  - **The comparison must be against the clock, not against `regularMarketTime`.** The tempting
+ *    test — "is the last print inside the session window" — is wrong in the direction that
+ *    matters: an NSE line whose final regular trade printed at 15:29:58 keeps that timestamp all
+ *    evening, so it would look intraday forever and its close would never be stored. Asking
+ *    whether *now* is before the session's end has no such trap, and it stays correct whether
+ *    Yahoo reports the session that just ended or the one about to start: in the second case the
+ *    stamped print predates `start` and the answer is "no" on the other clause.
+ *
+ * An absent `currentTradingPeriod` returns false — the reading is stored as a close. That is the
+ * conservative direction for the only failure the caller can still recover from: a close wrongly
+ * withheld cannot be replaced by anything, whereas a row written for today is overwritten by the
+ * next refresh after the session ends. Every real chart response carries the field.
+ */
+export function sessionIsOpen(meta: YahooMeta, nowSeconds: bigint): boolean {
+  if (meta.session === null) return false
+  if (!EPOCH_SECONDS.test(meta.at)) return false
+  return BigInt(meta.at) >= BigInt(meta.session.start) && nowSeconds < BigInt(meta.session.end)
 }
 
 /**
@@ -371,10 +446,18 @@ export class YahooProvider implements PriceProvider {
 
   private readonly sleep: (ms: number) => Promise<void>
   private readonly intervalMs: number
+  private readonly now: () => IsoInstant
 
   constructor(private readonly options: YahooOptions) {
     this.sleep = options.sleep ?? realSleep
     this.intervalMs = options.minRequestIntervalMs ?? YAHOO_MIN_REQUEST_INTERVAL_MS
+    this.now = options.now ?? (() => DateTime.now().toISO())
+  }
+
+  /** The current instant as unix seconds. A count, so `BigInt` rather than a parse. */
+  private nowSeconds(): bigint {
+    const at = DateTime.fromISO(this.now())
+    return at.isValid ? BigInt(at.toUnixInteger()) : BigInt(0)
   }
 
   supports(instrument: InstrumentRef): boolean {
@@ -422,6 +505,7 @@ export class YahooProvider implements PriceProvider {
       else wanted.push({ ref, symbol })
     }
 
+    const nowSeconds = this.nowSeconds()
     let halted: ProviderError | null = null
     for (const [index, { ref, symbol }] of wanted.entries()) {
       if (halted !== null) {
@@ -466,6 +550,11 @@ export class YahooProvider implements PriceProvider {
           parsed.value.previousClose === null
             ? null
             : { value: parsed.value.previousClose, currency: ref.currency },
+        // A live quote, flagged rather than dressed up as the day's close. `chartPreviousClose`
+        // is a real close and is handed on beside it, but it is deliberately not promoted into
+        // `price`: the response says which *value* the previous close is and never which *day* it
+        // belongs to, and a close filed under a guessed date is the defect one square along.
+        intraday: sessionIsOpen(parsed.value, nowSeconds),
       })
     }
     return results
@@ -589,6 +678,64 @@ export class YahooProvider implements PriceProvider {
       results.push(dated.ok ? { ok: true, pair, rate: dated.value, asOf: on } : { ok: false, pair, error: dated.error })
     }
     return results
+  }
+
+  /**
+   * Dated exchange rates across a span, in one request.
+   *
+   * The same `USDINR=X` chart endpoint that serves `fetchFx`, with `period1`/`period2` — already
+   * on the allowlist, because it is the same host and the same `/v8/finance/` prefix. Yahoo
+   * publishes the daily FX series back to the 1990s, stamps each bar at midnight UTC, and emits
+   * **no bar at all for a weekend or a holiday**: 1–8 January 2019 comes back as six rows, not
+   * eight. So a gap in the result is a gap in the market, and the rows are returned exactly as
+   * they arrived, dated by their own timestamp. Nothing here manufactures a Sunday.
+   *
+   * The closes carry Yahoo's float32 rounding, exactly as the equity candles do — a rate that was
+   * 69.71 arrives as `69.70999908447266`. It is stored as sent, for the reason
+   * `parseChartHistory` gives: rounding it back would usually recover the published figure and
+   * would occasionally invent one.
+   */
+  async fetchFxHistory(
+    pair: FxPair,
+    from: IsoDate,
+    to: IsoDate,
+    signal: AbortSignal,
+  ): Promise<ProviderResult<readonly HistoricalFxRate[]>> {
+    const symbol = fxSymbolFor(pair)
+    if (!SYMBOL_PATTERN.test(symbol)) return { ok: false, error: { code: 'NOT_SUPPORTED' } }
+    const start = epochSeconds(from)
+    const end = epochSeconds(to)
+    if (start === null || end === null) {
+      return { ok: false, error: { code: 'MALFORMED_RESPONSE', detail: 'unreadable date range' } }
+    }
+    const response = await this.get(
+      symbol,
+      // `period2` cuts at an instant, so it is pushed a day past `to` or the last day asked for
+      // is silently missing — the same correction `fetchHistory` makes, for the same reason.
+      `period1=${start}&period2=${(BigInt(end) + 86_400n).toString()}&interval=1d`,
+      signal,
+    )
+    if (!response.ok) return response
+
+    const parsed = parseChartHistory(response.value.body, response.value.status)
+    if (!parsed.ok) return parsed
+    if (parsed.value.currency !== pair.quote) {
+      // An inverted rate is the single most expensive mistake in this file, and it is no less
+      // expensive for being historical.
+      return {
+        ok: false,
+        error: {
+          code: 'MALFORMED_RESPONSE',
+          detail: `${symbol} came back quoted in ${parsed.value.currency}, not ${pair.quote}.`,
+        },
+      }
+    }
+    return {
+      ok: true,
+      value: parsed.value.closes
+        .filter((row) => row.asOf >= from && row.asOf <= to)
+        .map<HistoricalFxRate>((row) => ({ asOf: row.asOf, rate: row.close })),
+    }
   }
 
   /** The last close at or before `on`, within a week's lookback. Never interpolated. */

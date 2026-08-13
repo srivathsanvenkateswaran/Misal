@@ -54,6 +54,7 @@ function fakeProvider(script: ReadonlyMap<string, string>, id: 'amfi' | 'twelved
             price: { value: dec(close), currency: ref.currency },
             asOf: '2026-08-12',
             previousClose: null,
+            intraday: false,
           }
         }),
       ),

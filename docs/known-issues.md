@@ -742,12 +742,83 @@ absence of the warning as the check having passed.
 "letting us derive a ratio". No source does, and the spec is left as written because it is the
 record of the branch that produced it; this entry is where the two diverge.
 
-### Twelve Data rate limiting is incomplete
+### ~~Twelve Data rate limiting is incomplete~~ — FIXED
 
-The daily quota is enforced; the per-minute limit is not, and there is no retry or backoff.
+The binding constraint turned out not to be request *rate* at all. Twelve Data charges **one credit
+per symbol**, including symbols batched into a single `/quote` call, against eight credits a
+minute — so a twenty-holding portfolio spent twenty credits in one request and was refused
+outright. No amount of pausing between requests would have helped, because there was only ever one
+request.
 
-**Consequence:** a burst of requests can trip the provider's minute limit and fail a sync with no
-recovery.
+Fixed in two halves, and only the second is a refusal:
+
+- **The minute window.** `MinuteWindow` in `src/valuation/price/twelvedata.ts` is a sliding
+  sixty-second ledger of credits spent, and `fetchLatest` now splits a batch into chunks of at most
+  `perMinute` symbols and paces them against it. Deliberately not a token bucket: the limit is "no
+  more than eight in any sixty seconds", and a bucket that refilled smoothly would let a burst of
+  four land twice inside one window. Waiting here is self-restraint rather than a retry — nothing
+  has said no yet — and it is capped at `TWELVE_DATA_MAX_PACING_WAIT_MS`, past which the honest
+  answer to a watching user is a refusal rather than a progress bar that appears to have hung.
+- **The stand-down.** A 429, whether it arrives as an HTTP status or as `code: 429` inside a 200
+  body, blocks every further request in the run locally, without a call, and the interval doubles
+  with each refusal up to `TWELVE_DATA_MAX_STAND_DOWN_MS`. Nothing is retried inside it. This is
+  the rule `yahoo.ts` already stated for its own 429, now held by both keyed and keyless
+  providers.
+
+`fetchHistory` and `fetchFx` draw on the same window and honour the same stand-down. One latent
+bug was closed on the way past: `fetchHistory` called `JSON.parse` outside its own `try`, so an
+HTML error page — exactly what a 429 or an edge block returns — escaped as an exception through a
+method whose contract is to return a result.
+
+**Residual, deliberate:** the window lives on the provider instance, which lives for one refresh.
+Across refreshes the TTL gate is what stands between the user and the provider. A window that
+survived a restart needs the same persistent store the daily credit budget is still waiting for,
+and that store is the blocker for both.
+
+### ~~An intraday quote was stored as the day's close~~ — FIXED
+
+`meta.regularMarketPrice` during an open session is a live quote. It was written dated today into
+`price`, whose one row per `(instrument, as_of)` **is** the close and is read as one by every
+historical calculation downstream. A user who refreshed at 11:00 IST and never again left an 11:00
+print on record as that day's closing price permanently — and nothing later could tell it from a
+real close in order to replace it, because the row says only what it says.
+
+**Not fixed by fabricating anything.** The reading is returned intact, flagged
+`QuoteResult.intraday`, and simply not written; `RefreshReport.intradayHeld` carries the
+instruments, and `refresh.ts` raises an `INTRADAY_QUOTE` note saying the last close is still shown
+and today's will be stored after the bell. `chartPreviousClose` is a real close and rides along
+beside the quote, but it is deliberately not promoted into `price`: the response says which
+*value* the previous close is and never which *day* it belongs to, and a close filed under a
+guessed date is the same defect one square along.
+
+Detection was the part that needed research rather than judgement, and two obvious approaches are
+wrong:
+
+- **There is no `marketState` in the v8 chart meta.** It belongs to `/v7/finance/quote`, which the
+  host allowlist deliberately does not admit. What the chart does carry, on every response checked
+  including the FX pairs, is `currentTradingPeriod.regular` as a `{start, end}` pair of epoch
+  seconds.
+- **The comparison must be against the clock, not against `regularMarketTime`.** The tempting
+  test — is the last print inside the session window — fails in the direction that matters: an NSE
+  line whose final regular trade printed at 15:29:58 keeps that stamp all evening, so it would look
+  intraday forever and its close would never be stored at all. `sessionIsOpen` therefore asks
+  whether *now* is before the session's end, which is also correct whether Yahoo reports the
+  session that just ended or the one about to start.
+
+An absent `currentTradingPeriod` is read as settled rather than open. That is the recoverable
+direction: a row written for today is replaced by the next refresh after the close, while a close
+wrongly withheld can never be recovered from anywhere.
+
+Twelve Data states the same fact outright as `is_market_open`, and is now read for it. AMFI and
+CoinGecko declare `intraday: false` at the call site with the reason: a NAV is struck once after
+the close, and crypto has no session to be inside — withholding those would leave two asset
+classes permanently unpriced.
+
+**Residual:** the flag is not persisted, because it cannot be. `price.source` has a CHECK
+constraint in migration 0001 and there is no column for provisional rows, so "stored
+distinguishably" was not available from this branch's directories; not storing it was. A database
+that already holds intraday prints written before this fix is not repaired — nothing in the row
+identifies it as one.
 
 ### ~~Choosing USD as the base currency froze every exchange rate, permanently and silently~~ — FIXED
 
@@ -779,10 +850,35 @@ Fixed in three places:
   currencies quoted against INR, and describes what actually happens: totals moving on refreshed
   prices against a frozen rate, and holdings dropping out once the rate passes the bound.
 
-**Residual, deliberate:** the bound only becomes visible when the engine values a portfolio. An FX
+~~**Residual, deliberate:** the bound only becomes visible when the engine values a portfolio. An FX
 rate whose age is between a failed refresh and the bound is still not reflected in `priceAge` or
-`stalePriceCount`, which count price age alone. Surfacing FX age as a first-class staleness input
-belongs with whoever next owns `src/valuation/portfolio.ts`'s coverage reporting.
+`stalePriceCount`, which count price age alone.~~ — **FIXED**, see below.
+
+### ~~FX age was invisible below the seven-day bound~~ — FIXED
+
+The residual left by the entry above, and it was the quieter half of the same defect. Above
+`MAX_FX_LATEST_AGE_DAYS` the holding leaves net worth and is warned about; *below* it the
+conversion happens and nothing said how old the rate was. A week-old **price** was counted in
+`stalePriceCount`, hatched, and named on the dashboard; a week-old **rate** moved every foreign
+total by whatever the currency had done in that week, in silence.
+
+- `fxRateAge` in `src/valuation/price/staleness.ts` returns the same shape as `priceAge` for the
+  other factor every foreign holding is multiplied by, with its own calendar-day thresholds:
+  stale after `FX_STALE_AFTER_DAYS` (3, a long weekend, the whole of the ordinary slack in a daily
+  feed) and very stale after `FX_VERY_STALE_AFTER_DAYS` (5, by which point a run of refreshes has
+  failed and the user should be told *before* the holding disappears rather than when it does).
+- `src/screens/view-model.ts` asks it only about currencies actually held, and only through
+  `FxTable.latest` — the same read `valueFromRows` converts through — so what is reported is the
+  age of the number in the total rather than the age of the newest row in the table. A position's
+  `staleDays` and `priceNote` now take the staler of price age and rate age, because the figure on
+  screen is no fresher than its oldest input, and `dataQuality.stalePrices` counts stale rates
+  beside stale prices, one per currency rather than one per holding.
+
+**Scope, stated so it is not overstated:** `stalePriceCount` inside
+`src/valuation/portfolio.ts` still counts price age alone. The addition is made where the
+view-model assembles the indicator, because that file was outside this branch's directories. An
+engine-level caller that reads `coverage.stalePriceCount` directly still sees the price-only
+figure.
 
 ## Interface
 
@@ -838,9 +934,50 @@ Fixed by seeding both tables from `rows.fxRates`, and by an exhaustive `xirrReas
 `no_transaction_history`.
 
 **Scope, stated so it is not overstated:** this recovers the flows the *stored* table can date.
-`refresh.ts` fetches only `'latest'` and `FxTable.on` backfills three days, so a vest older than
-the stored rates still returns `MISSING_FX` — it is now named as a missing rate rather than blamed
-on absent history. Filling that gap needs historical FX fetching, which nothing does yet.
+~~`refresh.ts` fetches only `'latest'` and `FxTable.on` backfills three days, so a vest older than
+the stored rates still returns `MISSING_FX`.~~ Historical FX fetching now exists; see below.
+
+### ~~No historical FX, so old foreign transactions could never be valued~~ — FIXED
+
+`refresh.ts` asked for `'latest'` and nothing else, and `FxTable.on` reaches back three days, so
+the oldest rate in the table was whenever the user first opened the application. A 2019 RSU vest
+therefore returned `MISSING_FX` forever — and because XIRR is solved over a whole scope at once,
+that one undatable row withheld the figure for every rupee holding beside it, permanently, with no
+action available to the user.
+
+`backfillFxHistory` in `src/data/refresh.ts` now runs alongside the ordinary refresh, through
+`PriceProvider.fetchFxHistory` — implemented against Yahoo's `USDINR=X` chart endpoint with
+`period1`/`period2`, which is the same host and the same `/v8/finance/` prefix the allowlist in
+`src-tauri/src/http.rs` already admits, and against Twelve Data's `time_series` for a keyed user.
+
+What the response actually looks like, checked rather than assumed:
+
+- Daily FX bars are stamped at **midnight UTC** under a `Europe/London` currency pseudo-exchange,
+  so dating them by the meta's own timezone lands on the right calendar day in both GMT and BST.
+- **There is no bar for a weekend or a holiday.** 1–8 January 2019 comes back as six rows, not
+  eight. A gap in the series is a gap in the market, and it is left as one.
+- The closes carry Yahoo's float32 rounding exactly as the equity candles do — a rate that was
+  69.71 arrives as `69.70999908447266`. It is stored as sent, for the reason `parseChartHistory`
+  already gives: rounding it back would usually recover the published figure and would
+  occasionally invent one.
+
+Three rules, the same three the price path holds itself to:
+
+- **Only dates that are needed.** Derived from the transactions themselves — foreign currency,
+  no per-row `fx_rate`, local date, exactly as `buildCashflows` derives them — minus everything the
+  stored table can already answer. A portfolio with no foreign history makes no request at all.
+  Needed dates are clustered into spans so one request covers many, and the span opens
+  `MAX_FX_BACKFILL_DAYS` early so a vest that fell on a weekend can still be answered by the last
+  rate published before it.
+- **Only rates that were fetched.** One row is written per date asked about: the last rate
+  published on or before it, which is precisely the row `FxTable.on` will pick when the date is
+  read back. The rest of the span came back in the same response and is not stored — that is what
+  keeps "fetch what is needed" from becoming "fetch a decade". A date with no usable rate gets no
+  row, never the next rate along.
+- **A refusal is reported, not retried.** The first rate-limited or offline span ends the pass, and
+  `MAX_FX_HISTORY_REQUESTS` caps how much of a backlog one refresh will work through; what is left
+  is named in an `FX_HISTORY_INCOMPLETE` note and picked up next time, so a large backfill finishes
+  over a few runs instead of stalling one.
 
 ### ~~Coverage percentages rounded half-up, so 99.95% and up printed as "100.0%"~~ — FIXED
 
