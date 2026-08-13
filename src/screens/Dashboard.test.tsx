@@ -13,7 +13,13 @@ import { assertHonest } from '@ui/testing/assert-honest'
 import { Dashboard } from './Dashboard'
 import { buildPortfolioView } from './view-model'
 import type { PortfolioData } from './view-model'
-import { AS_OF, allLedgerRows, allSnapshotRows, portfolioRows } from './testing/fixtures'
+import {
+  AS_OF,
+  allLedgerRows,
+  allSnapshotRows,
+  nearlyFullCoverageRows,
+  portfolioRows,
+} from './testing/fixtures'
 
 function data(rows = portfolioRows()): PortfolioData {
   const view = buildPortfolioView(rows, AS_OF)
@@ -74,6 +80,25 @@ describe('Dashboard', () => {
   it('shows coverage at 100% rather than hiding it when everything is measured', () => {
     const { container } = render(<Dashboard data={data(allLedgerRows())} />)
     expect(screen.getAllByText('100.0%').length).toBeGreaterThan(0)
+    assertHonest(container)
+  })
+
+  it('never rounds a coverage percentage up to 100%', () => {
+    const { container } = render(<Dashboard data={data(nearlyFullCoverageRows())} />)
+
+    // The cost-basis row covers all but ₹39 of net worth. That is 99.99%, and 99.99% is not 100%.
+    const row = screen.getByText('Cost basis · unrealised P&L').closest('tr')
+    expect(row).not.toBeNull()
+    expect(row?.textContent).toContain('99.9%')
+    expect(row?.textContent).not.toContain('100.0%')
+
+    // The meter's accessible name is held to the same rule as the printed figure.
+    const xirrCell = container.querySelector('[data-cell-metric="xirr"] .meter')
+    expect(xirrCell?.getAttribute('aria-label')).toBe('Coverage 99.9 percent of portfolio value')
+
+    // Net worth still reads 100.0%, because net worth genuinely covers itself.
+    expect(screen.getByText('Net worth').closest('tr')?.textContent).toContain('100.0%')
+
     assertHonest(container)
   })
 

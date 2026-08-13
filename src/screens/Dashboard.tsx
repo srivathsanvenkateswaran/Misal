@@ -17,7 +17,7 @@ import { CalibrationBar } from '@ui/charts/CalibrationBar'
 import { ConcentrationChart } from '@ui/charts/ConcentrationChart'
 import { NetWorthStackChart } from '@ui/charts/NetWorthStackChart'
 import { Metric } from '@ui/measured/Metric'
-import { WeightBar } from '@ui/readout/CoverageMeter'
+import { WeightBar, coverageText } from '@ui/readout/CoverageMeter'
 import { ReadoutCell, ReadoutGrid } from '@ui/readout/ReadoutCell'
 import { DataTable } from '@ui/table/DataTable'
 import type { DataTableColumn, DataTableRow } from '@ui/table/DataTable'
@@ -78,7 +78,14 @@ const COVERAGE_COLUMNS: readonly DataTableColumn<CoverageMetricView>[] = [
       <Metric value={row.amount} metric="coverage" scope="portfolio" basis="derived" size="table" />
     ),
   },
-  { id: 'pct', header: 'Coverage', align: 'right', cell: (row) => formatPct(row.pct, { decimals: 1 }) },
+  {
+    id: 'pct',
+    header: 'Coverage',
+    align: 'right',
+    // `coverageText`, not `formatPct`: coverage truncates, so "100.0%" in this column means the
+    // metric spans the portfolio exactly, and 99.99% reads as the 99.9% it is.
+    cell: (row) => `${coverageText(row.pct)}%`,
+  },
   {
     id: 'state',
     header: 'State',

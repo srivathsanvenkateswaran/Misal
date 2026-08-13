@@ -11,7 +11,7 @@ import { assertHonest } from '@ui/testing/assert-honest'
 import { Holdings } from './Holdings'
 import { buildPortfolioView } from './view-model'
 import type { PortfolioData } from './view-model'
-import { AS_OF, portfolioRows } from './testing/fixtures'
+import { AS_OF, nearlyFullCoverageRows, portfolioRows } from './testing/fixtures'
 
 function data(rows = portfolioRows()): PortfolioData {
   const view = buildPortfolioView(rows, AS_OF)
@@ -110,6 +110,19 @@ describe('Holdings', () => {
     expect(
       screen.getByText(/Cost, unrealised P&L and the total above cover ₹7,93,871 of ₹10,33,869/u),
     ).toBeInTheDocument()
+    assertHonest(container)
+  })
+
+  it('refuses to round the foot’s coverage up to a completeness it has not got', () => {
+    // ₹39 of gold with no history against ₹7.9 lakh that has it. The engine clamps this to 99.99%
+    // so that 100% can only ever mean exact equality; rounding half-up at the display boundary
+    // gives that guarantee straight back.
+    const { container } = render(
+      <Holdings data={data(nearlyFullCoverageRows())} group="asset_class" />,
+    )
+    const foot = screen.getByText(/Cost, unrealised P&L and the total above cover/u)
+    expect(foot.textContent).toContain('(99.9%)')
+    expect(foot.textContent).not.toContain('100.0%')
     assertHonest(container)
   })
 

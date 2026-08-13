@@ -317,6 +317,81 @@ The daily quota is enforced; the per-minute limit is not, and there is no retry 
 **Consequence:** a burst of requests can trip the provider's minute limit and fail a sync with no
 recovery.
 
+## Screens and display
+
+Three defects found by adversarial review of the view-model and the screens, all fixed together on
+`fix/display-honesty`. They share a shape worth naming: each made the interface *state* something
+the data underneath did not support, and each survived because no fixture reached the state that
+would have exposed it. Every one now has a test that fails without its fix.
+
+### ~~XIRR was withheld for a metric that could be computed, and the user was blamed for it~~ — FIXED
+
+Both XIRR call sites in `src/screens/view-model.ts` — the portfolio readout and the per-instrument
+view — constructed `new FxTable([])`. `rows.fxRates` was on the same parameter, and `valueFromRows`
+in `src/data/portfolio.ts` already builds a real table from it under a comment naming this exact
+construction as a previously-fixed regression. These two sites never got that fix.
+
+With an empty table, `buildCashflows` cannot date any foreign transaction that has no per-row
+`fx_rate`, so it returns `MISSING_FX`. XIRR is solved over the whole scope at once, so **one such
+row withheld the figure for the rupee holdings beside it too**.
+
+The reason given was then wrong twice over. Everything except `MISSING_PRICE` was mapped to
+`no_transaction_history`, so the instrument screen printed "no transaction history" directly above
+the lot table listing that history — and `no_fx_rate` had existed in `NotMeasuredReason` all along.
+
+**Consequence:** the headline return figure read "Not measured — no transaction history" for a
+portfolio whose history was fully imported and visible on the same screen. The coverage panel
+disagreed out loud: `pairFxUsable` counts a pair as XIRR-eligible whenever the daily table can date
+its transactions, so a coverage percentage in the high eighties sat beside a blank figure.
+
+Fixed by seeding both tables from `rows.fxRates`, and by an exhaustive `xirrReason` mapping:
+`MISSING_FX` → `no_fx_rate`, the three numerical failures (`NO_SIGN_CHANGE`, `NO_BRACKET`,
+`NOT_CONVERGED`) → `no_convergence`, and only the genuine history gaps to
+`no_transaction_history`.
+
+**Scope, stated so it is not overstated:** this recovers the flows the *stored* table can date.
+`refresh.ts` fetches only `'latest'` and `FxTable.on` backfills three days, so a vest older than
+the stored rates still returns `MISSING_FX` — it is now named as a missing rate rather than blamed
+on absent history. Filling that gap needs historical FX fetching, which nothing does yet.
+
+### ~~Coverage percentages rounded half-up, so 99.95% and up printed as "100.0%"~~ — FIXED
+
+`Dashboard.tsx`, `Holdings.tsx` and `CoverageMeter.tsx` each formatted coverage with
+`formatPct(pct, { decimals: 1 })`, and `roundDec` rounds half-up. `historyCoveragePct` clamps to
+`99.99` *specifically* so that `100.00` can only mean exact equality — `coverage.ts` calls the
+alternative "a lie by rounding… the single most likely way this feature loses the user's trust".
+Rounding at the display boundary handed that guarantee straight back.
+
+`CalibrationBar.tsx` records the same bug being found and fixed there by routing through the
+truncating `coveragePercent`. These three sites never got the treatment, and inside a single
+`ReadoutCell` the printed coverage line read "99.9%" while the meter's accessible name — the only
+figure a screen-reader user gets — said "Coverage 100.0 percent".
+
+**Consequence:** a portfolio with ₹39 of unmeasured value in ₹7.9 lakh claimed complete coverage,
+in the one indicator whose entire job is to say what the product cannot measure.
+
+Fixed by `coverageText` in `CoverageMeter.tsx`, which routes all three sites through
+`coveragePercent` so there is one truncation rule in the product rather than two that agree until
+they do not.
+
+### ~~The concentration chart's "Other" bucket was hardcoded ledger-backed~~ — FIXED
+
+With more than ten priced positions the tail rolls into a single "Other" row, whose `basis` was
+`'ledger' as const` — asserted rather than derived. Every other aggregation in the file derives it
+from its members; `aggregateByClass` downgrades a whole class if any member is snapshot.
+
+**Consequence:** snapshot-only tail holdings lost their hatch and drew as solid, ledger-backed
+bars. The honesty suite could not catch it: `assertHonest`'s H5 counts `[data-hatch]` elements
+against `[data-basis="snapshot"]` ones, so a row mislabelled upstream makes both counts zero and
+the check passes on a picture that is wrong.
+
+It had never once been exercised: no fixture in the corpus had more than ten priced positions, so
+the bucket was never built. `src/screens/view-model.test.ts` now carries a twelve-position one.
+
+**Standing lesson for all three:** a fixture corpus that only ever visits the comfortable middle of
+a range leaves the honesty machinery untested exactly where it matters — at completeness, at the
+tail, and in the currency this product exists to consolidate.
+
 ## Test coverage
 
 ### Tax rule tables were nearly unguarded
