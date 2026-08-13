@@ -75,12 +75,24 @@ const TXN_TYPES = new Set([
   'tds',
 ])
 
+/**
+ * Currencies the valuation engine can convert.
+ *
+ * The `X:` namespace reserved by migration 0002 is deliberately NOT one of them: a `BTCUSDT` fill
+ * is denominated in USDT, which has no minor unit and no exchange rate here. Such rows carry no
+ * `amount_minor` and are valued from quantity and price instead.
+ */
 function requireCurrency(raw: string, context: string): CurrencyCode {
   try {
     return currencyCode(raw)
   } catch {
     throw new MappingError(`${context}: unsupported currency ${JSON.stringify(raw)}`)
   }
+}
+
+/** True for a crypto-denominated amount, which is a valid stored value rather than a bad row. */
+export function isNonFiatCurrency(raw: string): boolean {
+  return raw.startsWith('X:')
 }
 
 function requireDec(raw: string, context: string): Dec {
@@ -141,6 +153,12 @@ export function buildAccounts(
     capability: account.capability,
     txns: rows.transactions
       .filter((t) => t.accountId === account.id)
+      // A snapshot account's transactions are never folded - derivePositions takes its holdings
+      // from the stored snapshot and ignores txns entirely. Mapping them anyway meant a single
+      // exchange fill quoted in USDT threw MappingError on a row nothing would ever read, which
+      // failed the whole valuation and, before the Shell ordering was fixed, locked the user out
+      // of every screen including the ones that could undo it.
+      .filter(() => account.capability === 'ledger')
       .map((t) => {
         if (!TXN_TYPES.has(t.type)) {
           throw new MappingError(`transaction ${t.id}: unknown type ${t.type}`)

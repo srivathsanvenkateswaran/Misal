@@ -15,6 +15,7 @@ import { useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { AppBar, ErrorState } from './chrome'
 import { PORTFOLIO_QUERY_PREFIX, usePortfolio, useStorageStatus } from './queries'
+import type { Route } from './route'
 import { NAV, hrefFor, useRoute } from './route'
 import { Dashboard } from './Dashboard'
 import { Holdings } from './Holdings'
@@ -60,6 +61,37 @@ function Skeleton(): ReactNode {
       <p className="emptystate">Reading the local database and valuing the portfolio…</p>
     </div>
   )
+}
+
+/**
+ * Routes that must work whatever state the portfolio is in.
+ *
+ * Each is a way to change the data or the configuration, which makes them the only exits from an
+ * unvaluable portfolio - and the only screens a user with no accounts can usefully open.
+ */
+function isActionRoute(route: Route): boolean {
+  return (
+    route.kind === 'import' ||
+    route.kind === 'settings' ||
+    route.kind === 'refresh' ||
+    route.kind === 'exchanges'
+  )
+}
+
+/** The action routes, which take no portfolio data and so cannot be blocked by a valuation error. */
+function ActionScreen({ route }: { readonly route: Route }): ReactNode {
+  switch (route.kind) {
+    case 'import':
+      return <ImportRoute />
+    case 'settings':
+      return <SettingsRoute />
+    case 'refresh':
+      return <RefreshRoute />
+    case 'exchanges':
+      return <ExchangesRoute />
+    default:
+      return null
+  }
 }
 
 function Screen({ data }: { readonly data: PortfolioData }): ReactNode {
@@ -173,6 +205,15 @@ export function Shell({ asOf }: { readonly asOf: string }): ReactNode {
         />
       ) : view === undefined ? (
         <Skeleton />
+      ) : isActionRoute(route) ? (
+        // Deliberately ahead of the !view.ok test below.
+        //
+        // These four are the only ways out of a broken state: import more data, change a setting,
+        // refresh a price, disconnect an exchange. Gating them behind a successful valuation means
+        // one unvaluable row locks the user out of every screen that could fix it, and the only
+        // remaining recovery is deleting the encrypted database along with every statement ever
+        // imported. A valuation failure must never be able to take the repair tools with it.
+        <ActionScreen route={route} />
       ) : !view.ok ? (
         <ErrorState
           message={`The portfolio could not be valued, so no figure is shown rather than a wrong one. ${view.message}`}
@@ -180,14 +221,6 @@ export function Shell({ asOf }: { readonly asOf: string }): ReactNode {
             void portfolio.refetch()
           }}
         />
-      ) : route.kind === 'import' ||
-        route.kind === 'settings' ||
-        route.kind === 'refresh' ||
-        route.kind === 'exchanges' ? (
-        // Both reachable with no accounts at all. Import is the only thing a first-run user can
-        // do, and settings is where a provider key is entered - gating either behind having data
-        // would make the empty state a dead end.
-        <Screen data={view.data} />
       ) : view.data.accounts.length === 0 ? (
         <FirstRun status={storage.data} />
       ) : (
