@@ -255,7 +255,20 @@ export function ExchangesScreen(props: ExchangesScreenProps): ReactNode {
         }
         setPhase({ kind: 'idle' })
         setConnectNote({
-          text: `${message} Nothing was stored: the key was discarded without being written.`,
+          // A first connection can be told flatly that nothing was stored: there was nothing here
+          // to store over, so a failure anywhere leaves the keychain as it found it. A replacement
+          // cannot. The core writes the keychain entry and commits the rows in one window, and a
+          // commit that fails after the write leaves the slot holding either the key that was
+          // already there or the one just entered — never nothing, because emptying it would leave
+          // an account that still reads as connected and can no longer sync. Which of the two it
+          // is, only the core knows, so this states the ordinary outcome and defers to what the
+          // core said for the case where it is not.
+          text:
+            existing === null
+              ? `${message} Nothing was stored: the key was discarded without being written.`
+              : `${message} ${label} keeps the key it already had, and the balances and trades ` +
+                'already synced are untouched — unless the message above says the key you ' +
+                'entered was kept instead.',
           bad: true,
         })
       })
