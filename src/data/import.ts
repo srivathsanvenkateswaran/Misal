@@ -325,13 +325,28 @@ export const unresolvedForDocument = (
 /**
  * How many rows an already-imported document is still withholding from every total.
  *
- * Non-zero means re-importing the file is not a no-op: it is the only way the withheld rows reach
- * the ledger. Fed to `runImport` so the content-hash short-circuit can stand aside.
+ * What the review queue says about this document. Not, on its own, an answer about whether the file
+ * should be read again: the queue keeps one open entry per identifier per account, shared by every
+ * statement that named it, so a release earned by one document zeroes this for all of them.
+ * `outstandingForDocument` is the per-document answer.
  */
 export const withheldForDocument = (
   documentId: string,
   call: Invoker = tauriInvoke,
 ): Promise<number> => call('ingest_withheld_for_document', { documentId })
+
+/**
+ * Whether this document's own last import left rows it still owes the ledger.
+ *
+ * True means re-importing the file is not a no-op: it is the only way those rows reach the ledger.
+ * Fed to `runImport` so the content-hash short-circuit can stand aside. Recorded per run rather
+ * than inferred from the queue, which cannot answer for a document that shares its entry with
+ * another statement, nor for a file whose parser threw before it reached half the folios in it.
+ */
+export const outstandingForDocument = (
+  documentId: string,
+  call: Invoker = tauriInvoke,
+): Promise<boolean> => call('ingest_outstanding_for_document', { documentId })
 
 /**
  * Map an unresolved identifier onto an instrument the user picked.

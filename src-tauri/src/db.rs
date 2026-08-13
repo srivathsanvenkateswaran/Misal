@@ -37,6 +37,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         "unresolved-lifecycle",
         include_str!("../migrations/0006-unresolved-lifecycle.sql"),
     ),
+    (
+        7,
+        "import-run-outstanding",
+        include_str!("../migrations/0007-import-run-outstanding.sql"),
+    ),
 ];
 
 /// Location of the database file for this platform.

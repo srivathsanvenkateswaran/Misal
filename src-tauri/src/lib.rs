@@ -127,6 +127,7 @@ pub fn run() {
             ingest::ingest_commit,
             ingest::ingest_unresolved_for_document,
             ingest::ingest_withheld_for_document,
+            ingest::ingest_outstanding_for_document,
             ingest::ingest_map_unresolved,
             ingest::ingest_ignore_unresolved,
             ingest::pick_statement_file,
