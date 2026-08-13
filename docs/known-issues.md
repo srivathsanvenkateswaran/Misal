@@ -484,6 +484,103 @@ entry raised by January's statement is the one February's import touches. `last_
 carries the latest sighting so February's import report still lists what February could not
 identify, rather than showing an empty queue while withholding rows.
 
+### ~~The review queue had three states in the schema and no screen showing any of them~~ — FIXED
+
+Migration 0006 split `ignored_at` and `mapped_at` out of `resolved_at` so that dismissing an entry
+would stop Misal asking without deleting the disclosure that money is missing. It landed in the
+database and in the import path, and then had nowhere to go: `queries.rs::list_unresolved` returns
+dismissed and mapped-but-not-landed entries, and no screen rendered them. The import screen shows
+only what the document just imported could not identify, and its own copy told the user that
+"dismissed items stay in Settings → Review queue" — a screen that did not exist.
+
+**Consequence while it stood:** the withheld figure on the dashboard was correct and unexplainable.
+A user dismissed an entry, the tile went on saying ₹1,18,640 was being held out of every total, and
+there was no list anywhere that could say which holding, from which account, or why — nor any way to
+put a dismissal back. The split columns bought honesty in the total at the cost of an unreachable
+one. A dismissal was, in practice, still irreversible; only the arithmetic had been fixed.
+
+`accounts.rs::review_queue` and the `Review queue` panel on the settings screen now show every entry
+still withholding value, grouped as open, mapped-but-not-landed, and dismissed, each labelled for
+what it actually is, each carrying its own rupee figure, and each state carrying a sentence saying
+what it does and does not mean for net worth. A dismissed entry counts toward the total exactly as an
+open one does, and can be put back with one button.
+
+Two things the panel deliberately does not do. It does not offer to map an instrument — that belongs
+beside the document that raised the entry, where the units, dates and page reference are, and
+choosing without them is guesswork. And it does not print a zero for an entry whose source stated no
+value: those are counted and named separately, because an unknown amount added in as zero is a total
+that looks complete and is not.
+
+### ~~There was no way to delete an account~~ — FIXED
+
+Reviewers found that when a valuation failure was caused by one bad account, the only recovery was
+deleting the encrypted database — and with it every statement ever imported, every hand-entered
+correction and every instrument mapping the user had made. The immediate cause of that particular
+failure is fixed, but the absence of a delete is what made it catastrophic rather than annoying, and
+that absence was the general case.
+
+`accounts.rs::account_delete` removes the account, its transactions, its positions, its sync cursors,
+its exchange state, its review-queue entries, its credential reference **and its keychain entry**, in
+one transaction. Three rules, each of which is tested:
+
+- **The keychain entry goes first**, mirroring `disconnect.rs`. If the keychain refuses, the command
+  fails and every row stays, so the user sees an account that is still there — which is true.
+  Removing the rows first and failing afterwards would leave a live, full-access API key on the
+  machine belonging to an account they can no longer see.
+- **It all happens or none of it does.** A half-deleted account — positions gone, transactions kept —
+  is a portfolio silently missing a slice of its history with no error anywhere to explain it.
+- **Shared source documents are detached, not deleted.** A CAMS consolidated statement carries
+  several folios, and every fact table references `source_document` with `ON DELETE CASCADE`, so
+  deleting a document another account's rows still cite would delete *that* account's transactions as
+  a side effect. Documents nothing else references go with the account; documents another account's
+  rows still cite are kept and their `account_id` cleared.
+
+Instruments, prices, aliases and exchange rates are deliberately kept. They are shared and are not
+any one account's property; removing them would take other accounts' holdings down with them.
+
+The confirmation states the loss in figures — the label, the transaction count, the holding count and
+the value the valuation engine currently attributes to the account — and requires the user to type the
+account's name. A bare "Are you sure?" is answered by the same reflex that pressed the button before
+it. The value comes from `buildPortfolioView`, not from a second calculation in SQL, so it is the
+figure the dashboard shows; when it cannot be computed the confirmation says why rather than printing
+a blank in the middle of a sentence about irreversible loss.
+
+### Deleting one folio of a multi-folio statement blocks re-importing that statement
+
+`source_document.content_hash` is UNIQUE and is the first line of import idempotency: the same file
+cannot be imported twice. Deleting an account removes the documents nothing else references, which
+frees their hashes — so re-importing a single-account statement after deleting its account works, and
+is the documented recovery path.
+
+A *shared* statement is kept, correctly, because another account's rows still cite it. Its hash is
+therefore still taken.
+
+**Consequence:** a user who deletes one folio out of a CAMS CAS covering four of them cannot restore
+it by re-importing that CAS. The import short-circuits as `already-imported` and nothing lands. The
+only recoveries are a different statement covering the folio, or deleting the other three accounts as
+well, which is the opposite of what they wanted. Nothing warns them: the confirmation says the
+statement is kept, which sounds protective, and it is — for the other three.
+
+**Fix direction:** the same stand-aside the mapped-rows fix already added. `ingest.rs` lets a document
+past the content-hash check when it still has rows withheld; the equivalent here is to let it past
+when it carries rows for an account that no longer exists. That is not a change this branch may make
+— `ingest.rs` is owned elsewhere — and it needs a way to ask "does this document name an account we
+no longer hold", which the parse knows before the hash check runs.
+
+### The deletion preview and the deletion are two separate commands
+
+`account_deletion_preview` and `account_delete` each take the storage mutex on their own. Between the
+two, a sync or an import can commit rows to the account being deleted.
+
+**Consequence:** the user confirms "412 transactions" and 418 are removed. The outcome line reports
+the true figure, so nothing is misreported after the fact, but the number they agreed to was already
+stale when they read it. Small today — nothing runs on a schedule, and an exchange sync is manual —
+and it becomes real the moment any background refresh writes transactions.
+
+**Fix direction:** return an opaque token from the preview, computed from the counts, and have the
+delete refuse a token that no longer matches. Cheaper than holding a lock across a user's decision,
+and it fails loudly rather than silently deleting more than was agreed.
+
 ### ~~`read_statement_bytes` was an arbitrary-file read exposed to the webview~~ — FIXED
 
 `ingest.rs` did `std::fs::read(path)` on a caller-supplied path with no binding to the file picker's

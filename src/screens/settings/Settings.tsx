@@ -5,7 +5,7 @@
  * panels, the labels, the buttons and the rules are the ones the other five screens already use.
  * What is new is only the arrangement.
  *
- * Four things live on this screen, and each is here for a reason the others are not.
+ * Six things live on this screen, and each is here for a reason the others are not.
  *
  *   **Preferences** are the four rows of `setting` the valuation engine reads. They are validated
  *   against definitions the core ships, so the bounds shown, the bounds checked here and the bounds
@@ -24,33 +24,72 @@
  *   generated from `MARKET_DATA_HOSTS` — the allowlist the socket layer enforces — rather than
  *   written as copy, so it cannot describe a world the code has moved on from. Same discipline as
  *   H11 on the status line: read the fact, never assert it.
+ *
+ *   **The review queue** is every unresolved instrument still withholding value from net worth,
+ *   whatever the user has done about it. Migration 0006 split `ignored_at` and `mapped_at` out of
+ *   `resolved_at` precisely so a dismissal would stop the asking without deleting the disclosure;
+ *   until this panel existed the split had nowhere to show. A dismissed entry therefore appears
+ *   here, labelled dismissed, with its rupee figure still counted — and can be put back.
+ *
+ *   **Accounts** are here for the one thing nothing else could do: delete one. Before this, a
+ *   single bad account could only be recovered from by deleting the encrypted database and every
+ *   statement ever imported with it. Deletion is irreversible and there is no undo behind it, so
+ *   the confirmation states what is lost — the label, the transactions, the holdings and the value —
+ *   and asks the user to type the account's name. A bare "Are you sure?" is a question nobody reads.
  */
 
 import type { FormEvent, ReactNode } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Dec } from '@domain/numeric'
-import { CURRENCY_SYMBOL } from '@ui/index'
-import { listInstruments } from '../../data/client'
+import type { Measured } from '@domain/measured'
+import { REASON_TEXT } from '@domain/measured'
+import type { Figure } from '@ui/figure'
+import { CURRENCY_SYMBOL, Metric, formatFigure, formatQty } from '@ui/index'
+import { dec } from '@domain/numeric'
+import { listInstruments, loadPortfolioRows } from '../../data/client'
 import {
   clearProviderKey,
+  deleteAccount,
   deleteManualPrice,
   describeDateInput,
   describePriceInput,
   describeSettingInput,
+  dismissReviewEntry,
+  loadReviewQueue,
   loadSettings,
+  previewAccountDeletion,
+  restoreReviewEntry,
   setManualPrice,
   setProviderKey,
   settingValue,
   writeSetting,
 } from '../../data/settings'
 import type {
+  AccountDeletionOutcome,
+  AccountDeletionPreview,
   ManualPriceRow,
   NetworkDestination,
   ProviderKeyStatus,
+  ReviewEntryState,
+  ReviewQueueEntry,
   SettingDefinition,
   SettingsSnapshot,
 } from '../../data/settings'
 import { Badge, EmptyState, ErrorState, Panel, ScreenHead } from '../chrome'
+import { buildPortfolioView } from '../view-model'
+import {
+  EMPTY_SUMMARY,
+  STATE_LABEL,
+  STATE_MEANING,
+  STATE_ORDER,
+  entriesInState,
+  entryWithheld,
+  formatWithheld,
+  identifierLabel,
+  identifierValue,
+  summariseWithheld,
+  withheldCaveat,
+} from './review'
 import './settings.css'
 
 /** One instrument, as the override picker needs it. */
@@ -59,6 +98,28 @@ export interface InstrumentOption {
   readonly displayName: string
   readonly isin: string | null
   readonly currency: string
+}
+
+/**
+ * One account as the delete panel needs it.
+ *
+ * `value` is the same `Measured<Figure>` the accounts screen renders, taken from the valuation
+ * engine rather than recomputed — a second implementation of "what is this account worth" is a
+ * second thing that can disagree with the dashboard, and the user is about to destroy it on the
+ * strength of this number.
+ *
+ * When valuation could not run at all, `value` is null and `valueUnavailable` carries the reason as
+ * a sentence. There is no `Measured` reason for "the engine refused", and inventing one would be a
+ * worse lie than saying so plainly.
+ */
+export interface AccountSummary {
+  readonly id: string
+  readonly label: string
+  readonly providerId: string
+  readonly shortCode: string
+  readonly capability: 'ledger' | 'snapshot'
+  readonly value: Measured<Figure> | null
+  readonly valueUnavailable: string | null
 }
 
 /** Everything this screen does to the outside world, in one place so a test can stand in for it. */
@@ -71,6 +132,46 @@ export interface SettingsRuntime {
   /** `close` is a `Dec`, so only a value `describePriceInput` has already validated can be passed. */
   setManualPrice: (instrumentId: string, asOf: string, close: Dec) => Promise<unknown>
   deleteManualPrice: (instrumentId: string, asOf: string) => Promise<void>
+  listAccounts: () => Promise<readonly AccountSummary[]>
+  previewDeletion: (accountId: string) => Promise<AccountDeletionPreview>
+  deleteAccount: (accountId: string) => Promise<AccountDeletionOutcome>
+  loadReviewQueue: () => Promise<readonly ReviewQueueEntry[]>
+  restoreReviewEntry: (entryId: string) => Promise<void>
+  dismissReviewEntry: (entryId: string) => Promise<void>
+}
+
+/**
+ * Accounts with the value the valuation engine attributes to each.
+ *
+ * `loadPortfolioRows` then `buildPortfolioView` is the same pair every other screen goes through,
+ * so the figure beside "Delete" is the figure on the dashboard. If the view refuses to build, the
+ * accounts are still listed — from the rows themselves — because being unable to value an account
+ * must not be the reason a user cannot delete the account that broke valuation. That is the exact
+ * situation this command exists for.
+ */
+async function accountsWithValue(): Promise<readonly AccountSummary[]> {
+  const rows = await loadPortfolioRows()
+  const view = buildPortfolioView(rows, new Date().toISOString())
+  if (!view.ok) {
+    return rows.accounts.map((row) => ({
+      id: row.id,
+      label: row.label,
+      providerId: row.providerId,
+      shortCode: row.providerShortCode,
+      capability: row.capability,
+      value: null,
+      valueUnavailable: `Valuation could not run, so this account's value is unknown: ${view.message}`,
+    }))
+  }
+  return view.data.accounts.map((account) => ({
+    id: account.id,
+    label: account.label,
+    providerId: account.providerId,
+    shortCode: account.shortCode,
+    capability: account.capability,
+    value: account.value,
+    valueUnavailable: null,
+  }))
 }
 
 function defaultRuntime(): SettingsRuntime {
@@ -88,6 +189,12 @@ function defaultRuntime(): SettingsRuntime {
     clearProviderKey: (providerId) => clearProviderKey(providerId),
     setManualPrice: (instrumentId, asOf, close) => setManualPrice({ instrumentId, asOf, close }),
     deleteManualPrice: (instrumentId, asOf) => deleteManualPrice(instrumentId, asOf),
+    listAccounts: () => accountsWithValue(),
+    previewDeletion: (accountId) => previewAccountDeletion(accountId),
+    deleteAccount: (accountId) => deleteAccount(accountId),
+    loadReviewQueue: () => loadReviewQueue(),
+    restoreReviewEntry: (entryId) => restoreReviewEntry(entryId),
+    dismissReviewEntry: (entryId) => dismissReviewEntry(entryId),
   }
 }
 
@@ -114,13 +221,22 @@ export function Settings(props: SettingsProps): ReactNode {
 
   const [snapshot, setSnapshot] = useState<SettingsSnapshot | null>(null)
   const [instruments, setInstruments] = useState<readonly InstrumentOption[]>([])
+  const [accounts, setAccounts] = useState<readonly AccountSummary[]>([])
+  const [queue, setQueue] = useState<readonly ReviewQueueEntry[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
 
   const reload = useCallback(async (): Promise<void> => {
     try {
-      const [next, catalogue] = await Promise.all([runtime.load(), runtime.listInstruments()])
+      const [next, catalogue, accountRows, queueRows] = await Promise.all([
+        runtime.load(),
+        runtime.listInstruments(),
+        runtime.listAccounts(),
+        runtime.loadReviewQueue(),
+      ])
       setSnapshot(next)
       setInstruments(catalogue)
+      setAccounts(accountRows)
+      setQueue(queueRows)
       setLoadError(null)
     } catch (error) {
       setLoadError(describe(error))
@@ -150,8 +266,8 @@ export function Settings(props: SettingsProps): ReactNode {
       {snapshot === null ? (
         loadError === null && (
           <EmptyState headline="Reading settings…">
-            The four preferences, the provider keys and every manual price are read together, so the
-            screen never shows half a state.
+            The four preferences, the provider keys, every manual price, the accounts and the review
+            queue are read together, so the screen never shows half a state.
           </EmptyState>
         )
       ) : (
@@ -173,6 +289,23 @@ export function Settings(props: SettingsProps): ReactNode {
               }}
             />
           </div>
+
+          <ReviewQueue
+            entries={queue}
+            runtime={runtime}
+            onChanged={() => {
+              void reload()
+            }}
+          />
+
+          <Accounts
+            accounts={accounts}
+            runtime={runtime}
+            onDeleted={() => {
+              void reload()
+              props.onChanged?.()
+            }}
+          />
 
           <ManualPrices
             overrides={snapshot.overrides}
@@ -503,6 +636,591 @@ function ProviderKeyField({
       )}
     </form>
   )
+}
+
+// ---------------------------------------------------------------------------
+// Review queue
+// ---------------------------------------------------------------------------
+
+const STATE_TONE: Record<ReviewEntryState, 'warn' | 'neutral' | 'snapshot'> = {
+  open: 'warn',
+  mapped: 'snapshot',
+  dismissed: 'neutral',
+}
+
+/**
+ * Every unresolved instrument still withholding value, in the three states it can be in.
+ *
+ * The total across all three is stated first, because that is the figure the dashboard's withheld
+ * tile shows and this is the only screen that can explain it. Dismissed entries are inside that
+ * total on purpose: dismissing stopped Misal asking, it did not put the money back.
+ */
+function ReviewQueue({
+  entries,
+  runtime,
+  onChanged,
+}: {
+  readonly entries: readonly ReviewQueueEntry[]
+  readonly runtime: SettingsRuntime
+  readonly onChanged: () => void
+}): ReactNode {
+  const [note, setNote] = useState<string | null>(null)
+  const [failed, setFailed] = useState(false)
+  const [busyId, setBusyId] = useState<string | null>(null)
+
+  const total = entries.length === 0 ? EMPTY_SUMMARY : summariseWithheld(entries)
+  const caveat = withheldCaveat(total)
+
+  const act = (
+    entryId: string,
+    run: (id: string) => Promise<void>,
+    describeDone: (entry: ReviewQueueEntry) => string,
+  ): void => {
+    const entry = entries.find((candidate) => candidate.id === entryId)
+    setBusyId(entryId)
+    run(entryId)
+      .then(() => {
+        setFailed(false)
+        setNote(entry === undefined ? 'Done.' : describeDone(entry))
+        onChanged()
+      })
+      .catch((error: unknown) => {
+        setFailed(true)
+        setNote(describe(error))
+      })
+      .finally(() => {
+        setBusyId(null)
+      })
+  }
+
+  return (
+    <Panel
+      title="Review queue"
+      meta={
+        entries.length === 0
+          ? 'nothing withheld'
+          : `${String(entries.length)} entries · ${formatWithheld(total)} withheld`
+      }
+      className="set-panel"
+      foot="An entry leaves this queue on one condition only: rows carrying it have landed in the ledger, so its value is in the totals rather than merely accounted for. Naming the instrument does not do that, and dismissing it certainly does not — which is why both are shown here as their own state rather than as an absence."
+    >
+      <div className="panel-body">
+        <p className="set-lede">
+          These are the identifiers no import could resolve to an instrument. Misal never guesses one
+          from a name, so their value is held out of net worth, out of every asset-class total and out
+          of every weight until you say what they are. This is the standing list; the import screen
+          shows only what the file you just imported could not identify.
+        </p>
+
+        {entries.length === 0 ? (
+          <EmptyState headline="Nothing is being withheld">
+            Every identifier in every document imported on this machine resolves to an instrument, so
+            no holding is missing from any total for want of a mapping.
+          </EmptyState>
+        ) : (
+          <>
+            <div className="set-withheld">
+              <span className="lab">Held out of net worth</span>
+              <div className="set-withheld-figure">{formatWithheld(total)}</div>
+              <p className="conf">
+                Across {String(entries.length)} {entries.length === 1 ? 'entry' : 'entries'}, in
+                every state below. {caveat ?? ''}
+              </p>
+            </div>
+
+            {STATE_ORDER.map((state) => (
+              <ReviewGroup
+                key={state}
+                state={state}
+                entries={entriesInState(entries, state)}
+                busyId={busyId}
+                onRestore={(id) => {
+                  act(id, runtime.restoreReviewEntry, (entry) =>
+                    `Put back. “${entry.rawName ?? identifierValue(entry.rawIdentifier)}” is open again — its value was withheld the whole time it was dismissed, and still is.`,
+                  )
+                }}
+                onDismiss={(id) => {
+                  act(id, runtime.dismissReviewEntry, (entry) =>
+                    `Dismissed. “${entry.rawName ?? identifierValue(entry.rawIdentifier)}” stays on this list and its value stays out of every total; Misal will stop asking about it during imports.`,
+                  )
+                }}
+              />
+            ))}
+
+            {note !== null && (
+              <p className={failed ? 'set-note set-note-bad' : 'set-note'} role="status">
+                {note}
+              </p>
+            )}
+
+            <p className="conf">
+              Mapping an entry to an instrument happens on the import screen, beside the document
+              that raised it — that is where the units, the dates and the page reference are, and
+              choosing an instrument without them is guesswork.
+            </p>
+          </>
+        )}
+      </div>
+    </Panel>
+  )
+}
+
+function ReviewGroup({
+  state,
+  entries,
+  busyId,
+  onRestore,
+  onDismiss,
+}: {
+  readonly state: ReviewEntryState
+  readonly entries: readonly ReviewQueueEntry[]
+  readonly busyId: string | null
+  readonly onRestore: (entryId: string) => void
+  readonly onDismiss: (entryId: string) => void
+}): ReactNode {
+  if (entries.length === 0) return null
+  const summary = summariseWithheld(entries)
+  const caveat = withheldCaveat(summary)
+
+  return (
+    <section className="set-queue-group" aria-label={STATE_LABEL[state]}>
+      <div className="set-queue-group-head">
+        <Badge tone={STATE_TONE[state]}>{STATE_LABEL[state]}</Badge>
+        <span className="set-queue-group-count">
+          {String(entries.length)} {entries.length === 1 ? 'entry' : 'entries'} ·{' '}
+          {formatWithheld(summary)} withheld
+        </span>
+      </div>
+      <p className="conf">
+        {STATE_MEANING[state]} {caveat ?? ''}
+      </p>
+
+      {entries.map((entry) => (
+        <ReviewEntry
+          key={entry.id}
+          entry={entry}
+          busy={busyId === entry.id}
+          onRestore={onRestore}
+          onDismiss={onDismiss}
+        />
+      ))}
+    </section>
+  )
+}
+
+function ReviewEntry({
+  entry,
+  busy,
+  onRestore,
+  onDismiss,
+}: {
+  readonly entry: ReviewQueueEntry
+  readonly busy: boolean
+  readonly onRestore: (entryId: string) => void
+  readonly onDismiss: (entryId: string) => void
+}): ReactNode {
+  const withheld = entryWithheld(entry)
+  return (
+    <div className="set-queue-item" data-queue-state={entry.state}>
+      <div>
+        <span className="lab">{identifierLabel(entry.rawIdentifier)}</span>
+        <div className="set-mono">{identifierValue(entry.rawIdentifier)}</div>
+        <div className="acct-prov">
+          {entry.rawName === null || entry.rawName === '' ? 'no name printed' : `“${entry.rawName}”`}{' '}
+          · {entry.accountLabel} · {entry.providerShortCode}
+          {entry.observedQuantity === null ? '' : ` · ${quantityText(entry.observedQuantity)} units`}
+        </div>
+        {entry.state === 'mapped' && (
+          <div className="acct-prov">
+            Named as {entry.mappedInstrumentName ?? entry.mappedInstrumentId ?? 'an instrument'}
+            {entry.mappedAt === null ? '' : ` on ${entry.mappedAt.slice(0, 10)}`}
+          </div>
+        )}
+        {entry.state === 'dismissed' && entry.ignoredAt !== null && (
+          <div className="acct-prov">Dismissed on {entry.ignoredAt.slice(0, 10)}</div>
+        )}
+      </div>
+
+      <div className="set-queue-amount">
+        {withheld === null ? (
+          // Never a zero and never a dash: the value of this holding is unknown, which is not the
+          // same fact as its being worth nothing.
+          <span className="na" title="the source stated no value Misal can total">
+            Amount unknown
+          </span>
+        ) : (
+          <b>{withheld}</b>
+        )}
+        <span className="acct-prov">withheld from every total</span>
+      </div>
+
+      <div className="set-queue-actions">
+        {entry.state === 'dismissed' ? (
+          <button
+            className="btn"
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              onRestore(entry.id)
+            }}
+          >
+            Put back
+          </button>
+        ) : entry.state === 'open' ? (
+          <button
+            className="btn"
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              onDismiss(entry.id)
+            }}
+          >
+            Dismiss
+          </button>
+        ) : (
+          <span className="conf">Waiting for a statement carrying it</span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** A stored quantity, grouped for display. Shown verbatim if it will not parse, never dropped. */
+function quantityText(value: string): string {
+  try {
+    return formatQty(dec(value))
+  } catch {
+    return value
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Accounts, and the only delete in the product
+// ---------------------------------------------------------------------------
+
+/**
+ * The account list, and the only delete in the product.
+ *
+ * The value column carries `data-stamp-scope="derived"` on the table rather than a stamp per row:
+ * every figure in it has the same provenance — stored positions valued at the latest stored price —
+ * so declaring it once is the honest form and stamping each row would be noise. That is the
+ * panel-scope exemption `ReadoutCell` uses for the same reason.
+ */
+function Accounts({
+  accounts,
+  runtime,
+  onDeleted,
+}: {
+  readonly accounts: readonly AccountSummary[]
+  readonly runtime: SettingsRuntime
+  readonly onDeleted: () => void
+}): ReactNode {
+  const [openId, setOpenId] = useState<string | null>(null)
+  const [outcome, setOutcome] = useState<AccountDeletionOutcome | null>(null)
+
+  return (
+    <Panel
+      title="Accounts"
+      meta={accounts.length === 0 ? 'none yet' : `${String(accounts.length)} stored`}
+      className="set-panel"
+      foot="Deleting an account removes its transactions, its holdings, its sync cursors, its credential reference and the API key in your operating system's keychain, in one transaction — it all happens or none of it does. The keychain entry goes first, so a failure leaves the account visibly present rather than silently credential-less. Statements shared with another account are kept and detached rather than deleted, because the rows they carry for that other account are not this account's to destroy."
+    >
+      <div className="panel-body">
+        <p className="set-lede">
+          Removing an account is the only destructive action in Misal and there is no undo behind it —
+          no archive, no bin, no export written on the way out. If you want the history, export it
+          first. Disconnecting an exchange, which removes the key and keeps everything imported, is
+          on the exchanges screen and is what most situations actually call for.
+        </p>
+
+        {accounts.length === 0 ? (
+          <EmptyState headline="No accounts yet">
+            Import a statement or connect a read-only key, and the account it belongs to appears here.
+          </EmptyState>
+        ) : (
+          <table className="dtable set-accounts" data-stamp-scope="derived">
+            <caption className="vh">
+              Accounts stored on this machine. Every value is derived from stored positions and the
+              latest price held for each instrument.
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">Account</th>
+                <th scope="col">Capability</th>
+                <th scope="col" className="acct-num">
+                  Value
+                </th>
+                <th scope="col">
+                  <span className="vh">Delete</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {accounts.map((account) => (
+                <tr key={account.id}>
+                  <th scope="row">
+                    {account.label}
+                    <span className="acct-prov">
+                      {account.providerId} · {account.shortCode}
+                    </span>
+                  </th>
+                  <td>
+                    {account.capability === 'ledger' ? (
+                      <Badge>Full history</Badge>
+                    ) : (
+                      <Badge tone="snapshot">Snapshot only</Badge>
+                    )}
+                  </td>
+                  <td className="acct-num">
+                    {account.value === null ? (
+                      <span className="na">{account.valueUnavailable ?? 'Value unknown'}</span>
+                    ) : (
+                      <Metric
+                        value={account.value}
+                        metric="value"
+                        scope="account"
+                        basis="derived"
+                        size="cell"
+                      />
+                    )}
+                  </td>
+                  <td>
+                    <button
+                      className="btn"
+                      type="button"
+                      onClick={() => {
+                        setOutcome(null)
+                        setOpenId(openId === account.id ? null : account.id)
+                      }}
+                      aria-expanded={openId === account.id}
+                    >
+                      {openId === account.id ? 'Cancel' : 'Delete…'}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+
+        {accounts.map(
+          (account) =>
+            openId === account.id && (
+              <DeleteConfirmation
+                key={account.id}
+                account={account}
+                runtime={runtime}
+                onCancel={() => {
+                  setOpenId(null)
+                }}
+                onDeleted={(result) => {
+                  setOpenId(null)
+                  setOutcome(result)
+                  onDeleted()
+                }}
+              />
+            ),
+        )}
+
+        {outcome !== null && (
+          <p className="set-note" role="status">
+            Deleted {outcome.label}: {String(outcome.transactions)}{' '}
+            {outcome.transactions === 1 ? 'transaction' : 'transactions'},{' '}
+            {String(outcome.positions)} {outcome.positions === 1 ? 'holding' : 'holdings'} and{' '}
+            {String(outcome.documentsRemoved)}{' '}
+            {outcome.documentsRemoved === 1 ? 'statement' : 'statements'} removed.{' '}
+            {outcome.credentialForgotten
+              ? 'The API key was deleted from your keychain.'
+              : 'There was no stored key to delete.'}{' '}
+            {outcome.documentsKeptShared > 0 &&
+              `${String(outcome.documentsKeptShared)} shared ${outcome.documentsKeptShared === 1 ? 'statement was' : 'statements were'} kept, because other accounts' rows still cite them.`}
+          </p>
+        )}
+      </div>
+    </Panel>
+  )
+}
+
+/**
+ * The confirmation. It states the loss and then asks the user to type the account's name.
+ *
+ * Typing the label rather than clicking "Yes" is the whole point: a confirm button that is one
+ * click from a delete button gets pressed by the same reflex that pressed the first one. Copying a
+ * name from the sentence above it requires having read the sentence.
+ */
+function DeleteConfirmation({
+  account,
+  runtime,
+  onCancel,
+  onDeleted,
+}: {
+  readonly account: AccountSummary
+  readonly runtime: SettingsRuntime
+  readonly onCancel: () => void
+  readonly onDeleted: (outcome: AccountDeletionOutcome) => void
+}): ReactNode {
+  const [preview, setPreview] = useState<AccountDeletionPreview | null>(null)
+  const [previewError, setPreviewError] = useState<string | null>(null)
+  const [typed, setTyped] = useState('')
+  const [note, setNote] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    let live = true
+    runtime
+      .previewDeletion(account.id)
+      .then((next) => {
+        if (live) {
+          setPreview(next)
+          setPreviewError(null)
+        }
+      })
+      .catch((error: unknown) => {
+        if (live) setPreviewError(describe(error))
+      })
+    return () => {
+      live = false
+    }
+  }, [runtime, account.id])
+
+  const confirmed = typed.trim() === account.label
+  const fieldId = `set-del-${account.id}`
+
+  const remove = (event: FormEvent): void => {
+    event.preventDefault()
+    if (!confirmed) return
+    setBusy(true)
+    runtime
+      .deleteAccount(account.id)
+      .then((result) => {
+        onDeleted(result)
+      })
+      .catch((error: unknown) => {
+        setNote(describe(error))
+        setBusy(false)
+      })
+  }
+
+  return (
+    <div className="set-danger" role="group" aria-label={`Delete ${account.label}`}>
+      <div className="set-danger-head">
+        <Badge tone="crit">Irreversible</Badge>
+        <span className="set-danger-title">Delete {account.label}</span>
+      </div>
+
+      {previewError !== null && (
+        <p className="set-note set-note-bad" role="status">
+          Misal could not read what this would destroy, so it will not offer to destroy it:{' '}
+          {previewError}. Nothing has been changed.
+        </p>
+      )}
+
+      {preview === null ? (
+        previewError === null && <p className="conf">Counting what this would remove…</p>
+      ) : (
+        <>
+          <p className="set-danger-lede">
+            This permanently deletes <b>{String(preview.transactions)}</b>{' '}
+            {preview.transactions === 1 ? 'transaction' : 'transactions'} and{' '}
+            <b>{String(preview.holdings)}</b>{' '}
+            {preview.holdings === 1 ? 'holding' : 'holdings'}, currently valued at{' '}
+            <b>{accountValueText(account)}</b>. There is no undo and no backup is taken.
+          </p>
+
+          <ul className="set-danger-list">
+            <li>
+              <b>{String(preview.documentsRemoved)}</b> imported{' '}
+              {preview.documentsRemoved === 1 ? 'statement' : 'statements'} and their import history
+              go with it. Re-importing the same file afterwards is how you would get this data back —
+              if you still have the file.
+            </li>
+            {preview.documentsShared > 0 && (
+              <li>
+                <b>{String(preview.documentsShared)}</b>{' '}
+                {preview.documentsShared === 1 ? 'statement is' : 'statements are'} shared with
+                another account and {preview.documentsShared === 1 ? 'is' : 'are'} kept — the rows
+                they carry for that account are not this account&rsquo;s to destroy.
+              </li>
+            )}
+            {preview.queueEntries > 0 && (
+              <li>
+                <b>{String(preview.queueEntries)}</b> review-queue{' '}
+                {preview.queueEntries === 1 ? 'entry' : 'entries'} raised by this account{' '}
+                {preview.queueEntries === 1 ? 'disappears' : 'disappear'}. Their value stops being
+                withheld because the holding itself is gone, so net worth may move.
+              </li>
+            )}
+            {preview.hasCredential && (
+              <li>
+                The API key stored in your operating system&rsquo;s keychain is deleted first, before
+                any row is removed. If the keychain refuses, nothing is deleted at all.
+              </li>
+            )}
+            {preview.syncCursors > 0 && (
+              <li>
+                <b>{String(preview.syncCursors)}</b> sync{' '}
+                {preview.syncCursors === 1 ? 'cursor goes' : 'cursors go'} with it, so reconnecting
+                this exchange later re-walks its history from the beginning.
+              </li>
+            )}
+            <li>
+              Instruments, prices and exchange rates are kept. They are shared with your other
+              accounts and are not this account&rsquo;s property.
+            </li>
+          </ul>
+
+          <form className="set-danger-form" onSubmit={remove}>
+            <label className="lab" htmlFor={fieldId}>
+              Type <b>{account.label}</b> to confirm
+            </label>
+            <div className="set-field-row">
+              <input
+                id={fieldId}
+                type="text"
+                autoComplete="off"
+                spellCheck={false}
+                value={typed}
+                placeholder={account.label}
+                onChange={(event) => {
+                  setTyped(event.target.value)
+                  setNote(null)
+                }}
+              />
+              <button className="btn btn-danger" type="submit" disabled={!confirmed || busy}>
+                Delete this account permanently
+              </button>
+              <button
+                className="btn"
+                type="button"
+                disabled={busy}
+                onClick={onCancel}
+              >
+                Keep it
+              </button>
+            </div>
+          </form>
+        </>
+      )}
+
+      {note !== null && (
+        <p className="set-note set-note-bad" role="status">
+          {note}
+        </p>
+      )}
+    </div>
+  )
+}
+
+/**
+ * The account's value as a sentence fragment for the warning.
+ *
+ * A metric that was not measured says why, in the engine's own words, rather than appearing as a
+ * blank in the middle of a sentence about what is about to be destroyed.
+ */
+function accountValueText(account: AccountSummary): string {
+  if (account.value === null) return account.valueUnavailable ?? 'a value Misal could not compute'
+  if (!account.value.measured) return `a value Misal could not compute — ${REASON_TEXT[account.value.reason]}`
+  return formatFigure(account.value.value)
 }
 
 // ---------------------------------------------------------------------------
