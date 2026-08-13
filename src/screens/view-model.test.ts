@@ -16,6 +16,7 @@ import type {
   PositionRow,
   PriceRow,
   TxnRow,
+  UnresolvedRow,
 } from '../data/client'
 import { formatFigure } from '@ui/figure'
 import { buildPortfolioView } from './view-model'
@@ -119,6 +120,91 @@ function foreignLedgerRows(omitRatesBefore?: string): PortfolioRows {
       omitRatesBefore === undefined
         ? USD_INR
         : USD_INR.filter((row) => row.asOf > omitRatesBefore),
+  })
+}
+
+/**
+ * A dollar close at two past month ends, with a rate that is current for the first and not the
+ * second. Nothing in the shipped corpus prices a foreign holding at a *past* month end, which is
+ * why the monthly series could convert the whole of history at today's rate unchallenged.
+ */
+const CAT_MONTH_END_PRICES: readonly PriceRow[] = [
+  {
+    instrumentId: 'i-cat',
+    asOf: '2025-09-30',
+    close: '300.0000',
+    currency: 'USD',
+    source: 'twelvedata',
+    fetchedAt: '2025-09-30T20:00:00+05:30',
+  },
+  {
+    instrumentId: 'i-cat',
+    asOf: '2025-10-31',
+    close: '305.0000',
+    currency: 'USD',
+    source: 'twelvedata',
+    fetchedAt: '2025-10-31T20:00:00+05:30',
+  },
+]
+
+/**
+ * Two stored rates, eleven months apart — the reviewers' pair, and the shape a real table takes
+ * when `refresh.ts` fetches only `latest`: one rate from around the time the statement was
+ * imported, and one from today.
+ */
+const REWIND_FX: readonly FxRateRow[] = [
+  { base: 'USD', quote: 'INR', asOf: '2025-09-29', rate: '83.0000', source: 'manual' },
+  { base: 'USD', quote: 'INR', asOf: '2026-08-12', rate: '88.0000', source: 'manual' },
+]
+
+// ---------------------------------------------------------------------------
+// Unresolved rows with no stated value — the shape `record_unresolved` actually writes, and the
+// one the shipped fixture has never carried: its single row states both a value and a currency.
+// ---------------------------------------------------------------------------
+
+const NULL_VALUED_UNRESOLVED: readonly UnresolvedRow[] = [
+  {
+    id: 'u-coin-1',
+    accountId: 'a-etrade',
+    rawIdentifier: 'provider-local:XPLA',
+    rawName: null,
+    assetClassHint: 'crypto',
+    observedQuantity: '412.0000',
+    observedValueMinor: null,
+    currency: null,
+    firstSeenAt: '2026-08-09T21:03:00+05:30',
+  },
+  {
+    id: 'u-coin-2',
+    accountId: 'a-etrade',
+    rawIdentifier: 'provider-local:JASMY',
+    rawName: null,
+    assetClassHint: 'crypto',
+    observedQuantity: '9000.0000',
+    observedValueMinor: null,
+    currency: null,
+    firstSeenAt: '2026-08-09T21:03:00+05:30',
+  },
+]
+
+const STATED_UNRESOLVED: UnresolvedRow = {
+  id: 'u-stated',
+  accountId: 'a-etrade',
+  rawIdentifier: 'isin:INF179K01YV8',
+  rawName: 'An unrecognised scheme',
+  assetClassHint: 'mutual_fund',
+  observedQuantity: '1200.0000',
+  observedValueMinor: '11864000',
+  currency: 'INR',
+  firstSeenAt: '2026-08-09T21:03:00+05:30',
+}
+
+function fxRewindRows(): PortfolioRows {
+  const base = foreignLedgerRows()
+  return portfolioRows({
+    ...base,
+    prices: [...base.prices, ...CAT_MONTH_END_PRICES],
+    fxRates: REWIND_FX,
   })
 }
 
@@ -387,6 +473,49 @@ describe('withheld value (H8)', () => {
     expect(data.dataQuality.withheldNote).toContain('₹3,94,200')
   })
 
+  it('never states ₹0 withheld for rows whose source stated no value', () => {
+    /*
+     * The *default* for an exchange sync: `record_unresolved` inserts neither
+     * `observed_value_minor` nor `currency`, so every coin it cannot name is NULL/NULL. A
+     * tradebook with no valuation column reaches the same place. Two of them used to print
+     * "Unresolved instruments: 2" directly above "₹0 withheld from every total" — a zero standing
+     * in for an amount nobody knows, which is the one substitution the review queue exists to stop.
+     */
+    const data = ready(portfolioRows({ unresolved: NULL_VALUED_UNRESOLVED }))
+    expect(data.dataQuality.unresolvedCount).toBe(2)
+    expect(data.dataQuality.withheldNote).toContain('unknown, not zero')
+    expect(data.dataQuality.withheldNote).toContain('the source stated no value')
+    expect(data.dataQuality.withheldNote).not.toContain('₹0')
+    expect(data.dataQuality.withheldNote).not.toMatch(/withheld from every total/u)
+  })
+
+  it('says what a stated total leaves out when only some rows state a value', () => {
+    // The sharper case: one row carries ₹1,18,640 and two carry nothing, so an unqualified
+    // "₹1,18,640 withheld" is an exact-looking figure for two thirds of the rows.
+    const data = ready(
+      portfolioRows({ unresolved: [STATED_UNRESOLVED, ...NULL_VALUED_UNRESOLVED] }),
+    )
+    expect(data.dataQuality.unresolvedCount).toBe(3)
+    expect(data.dataQuality.withheldMinor).toBe(minor('11864000'))
+    expect(data.dataQuality.withheldNote).toContain('₹1,18,640 withheld from every total')
+    expect(data.dataQuality.withheldNote).toContain(
+      'plus 2 whose amount the source did not state',
+    )
+  })
+
+  it('agrees with the review queue: a foreign row is counted, never folded into the rupee total', () => {
+    const data = ready(
+      portfolioRows({
+        unresolved: [
+          STATED_UNRESOLVED,
+          { ...STATED_UNRESOLVED, id: 'u-usd', currency: 'USD', observedValueMinor: '150000' },
+        ],
+      }),
+    )
+    expect(data.dataQuality.withheldMinor).toBe(minor('11864000'))
+    expect(data.dataQuality.withheldNote).toContain('plus 1 in a currency this total cannot absorb')
+  })
+
   it('keeps withheld value out of net worth', () => {
     const withNothingUnresolved = ready(portfolioRows({ unresolved: [] }))
     expect(ready().netWorthMinor).toBe(withNothingUnresolved.netWorthMinor)
@@ -414,6 +543,74 @@ describe('the twelve-month series (H10)', () => {
     expect(data.historyBegins).toBeDefined()
     // Nothing was carried backwards into the gaps.
     expect(data.months.slice(0, gaps.length).every((month) => month.segments === null)).toBe(true)
+  })
+
+  it('converts a past month at that month’s stored rate, not at today’s', () => {
+    /*
+     * `rowsAsAt` filtered transactions, positions and prices and spread `...rows` for the rest, so
+     * `fxRates` still held every rate up to today. `FxTable.latest` returns the newest row it has
+     * and its age guard is one-sided — a rate dated *after* the valuation date is not stale, by
+     * design — so a negative age always passed and every past month converted at today's rate
+     * while the prices beside it were that month's closes. The currency leg of the whole chart was
+     * flat by construction, and nothing on the column said so. Crypto rides on this too: those
+     * pairs carry `X:USDT`.
+     *
+     * September 2025 holds 22 CAT at $300. The rate stored two days earlier is ₹83.00, and the
+     * only other stored rate is today's ₹88.00.
+     */
+    const data = ready(fxRewindRows())
+    const september = data.months.find((month) => month.key === '2025-09-30')
+    const us = september?.segments?.find((segment) => segment.assetClass === 'us_equity')
+    // 22 × $300 × ₹83.00 = ₹5,47,800.
+    expect(us?.value).toBe(minor('54780000'))
+    // What it used to draw: 22 × $300 × ₹88.00 = ₹5,80,800, dated from the future.
+    expect(us?.value).not.toBe(minor('58080000'))
+  })
+
+  it('drops a foreign holding out of a month it cannot date, rather than dating it from today', () => {
+    // October 2025 has a dollar close of its own, and the newest rate it can see is 32 days old —
+    // past `MAX_FX_LATEST_AGE_DAYS`. The stated preference is that the holding leaves the column.
+    const data = ready(fxRewindRows())
+    const october = data.months.find((month) => month.key === '2025-10-31')
+    expect(october?.segments?.some((segment) => segment.assetClass === 'us_equity')).toBe(false)
+    // And the column says it is short of a holding rather than presenting itself as complete.
+    expect(october?.unpricedCount).toBe(1)
+  })
+
+  it('marks a month whose stored rows priced only part of what was held', () => {
+    /*
+     * There is no historical price backfill in this product: price rows begin the day an
+     * instrument is first refreshed, while the fold produces holdings for every month the
+     * transactions cover. Here CAT is held from November 2024 and priced only from 2026-08-11, so
+     * eleven columns omit the whole of US equity — and used to draw at full height with an exact
+     * rupee total in the accessible table and no mark of any kind.
+     */
+    const data = ready(foreignLedgerRows())
+    const july = data.months.find((month) => month.key === '2026-07-31')
+    expect(july?.unpricedCount).toBe(1)
+    expect(july?.segments?.some((segment) => segment.assetClass === 'us_equity')).toBe(false)
+    // ₹7,77,565 drawn, over a portfolio that also held 34 CAT that month.
+    expect(addMinor(...(july?.segments ?? []).map((segment) => segment.value))).toBe(
+      minor('77756500'),
+    )
+
+    // The month pricing begins: ₹21,53,064, a 177% step that is an artefact of the price table
+    // rather than a movement in net worth. The two columns are not comparable, and only the first
+    // of them is now allowed to say it is a total.
+    const august = data.months.find((month) => month.key === '2026-08-12')
+    expect(august?.unpricedCount).toBe(0)
+    expect(addMinor(...(august?.segments ?? []).map((segment) => segment.value))).toBe(
+      minor('215306433'),
+    )
+  })
+
+  it('reports the current month as incomplete when a holding in it is unpriced', () => {
+    // The shipped fixture stores no rate for the dollar holding at all, so the last column omits
+    // it. That is true of the live dashboard too, and the column has to say so.
+    const data = ready()
+    const last = data.months[data.months.length - 1]
+    expect(last?.unpricedCount).toBe(1)
+    expect(data.months.slice(0, -1).every((month) => month.unpricedCount === 0)).toBe(true)
   })
 })
 

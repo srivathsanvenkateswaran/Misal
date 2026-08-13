@@ -68,7 +68,7 @@ import type { CalibrationSegment } from '@ui/charts/CalibrationBar'
 import type { ConcentrationRow } from '@ui/charts/ConcentrationChart'
 import type { NavPoint } from '@ui/charts/NavHistoryChart'
 import type { StackMonth } from '@ui/charts/NetWorthStackChart'
-import type { AccountRow, PortfolioRows, TxnRow } from '../data/client'
+import type { AccountRow, PortfolioRows, TxnRow, UnresolvedRow } from '../data/client'
 import { buildAccounts, valueFromRows } from '../data/portfolio'
 
 // ---------------------------------------------------------------------------
@@ -154,6 +154,13 @@ export interface DataQualityView {
   readonly stalePrices: number
   readonly staleNote: string
   readonly unresolvedCount: number
+  /**
+   * The rupee total of the unresolved rows that *stated* a value.
+   *
+   * Not the amount withheld: rows whose source stated no value are withholding an unknown amount,
+   * and they are counted in `withheldNote` rather than folded in here as zeros. Read this figure
+   * only beside that note.
+   */
   readonly withheldMinor: Minor
   readonly withheldNote: string
   readonly accountCount: number
@@ -364,7 +371,21 @@ function monthLabel(date: IsoDate): { readonly label: string; readonly year: str
  * Filtering the *inputs* and re-running the same engine is what keeps H10 honest. A month before
  * an account's first transaction has nothing to fold and nothing to price, so it produces no value
  * at all and is drawn as an explicit gap. Nothing is interpolated and nothing is carried
- * backwards, because there is no code path here that could carry anything.
+ * backwards, because there is no code path here that could carry anything — and the only way to
+ * keep that sentence true is for *every* row this engine reads to be filtered, not most of them.
+ *
+ * `fxRates` is the one that was missed, and it was the one that mattered most. `FxTable.latest`
+ * returns the newest row it holds and its age bound is deliberately one-sided — a rate dated after
+ * the valuation date is not stale, because a provider quoting ahead of IST puts one there routinely
+ * — so an unfiltered table answered every past month with *today's* rate. Every foreign holding in
+ * every historical column then converted at today's rate while the prices beside it were that
+ * month's closes: the currency leg of a year of history drawn flat by construction, and drawn
+ * without a mark, because nothing in the column knew. Crypto is inside this too — those pairs carry
+ * `X:USDT`.
+ *
+ * Filtering it hands `latest` the same seven-day bound it applies live. A month whose stored rates
+ * are older than that drops its foreign holdings out of the column rather than dating them from the
+ * future, which is the product's stated preference everywhere else: not measured, and said so.
  */
 function rowsAsAt(rows: PortfolioRows, monthEnd: IsoDate): PortfolioRows {
   return {
@@ -372,6 +393,7 @@ function rowsAsAt(rows: PortfolioRows, monthEnd: IsoDate): PortfolioRows {
     transactions: rows.transactions.filter((txn) => txn.occurredAt.slice(0, 10) <= monthEnd),
     positions: rows.positions.filter((position) => position.asOf.slice(0, 10) <= monthEnd),
     prices: rows.prices.filter((price) => price.asOf.slice(0, 10) <= monthEnd),
+    fxRates: rows.fxRates.filter((rate) => rate.asOf.slice(0, 10) <= monthEnd),
   }
 }
 
@@ -420,6 +442,23 @@ function aggregateByClass(
   return byClass
 }
 
+/**
+ * Twelve month-end columns, each one the engine's own answer over that month's rows.
+ *
+ * Two things can be wrong with a month and only one of them used to be said. A month with nothing
+ * to fold produces no value and is gapped. A month that folds holdings but cannot price all of them
+ * produces a *partial* value — `aggregateByClass` skips a pair whose `marketValue` is not measured
+ * — and that used to be pushed as an ordinary column: full height, exact rupee total in the
+ * accessible table, no mark. There is no historical price backfill in this product, so price rows
+ * begin the day an instrument is first refreshed while the fold produces holdings for every month
+ * the transactions cover; the months before that quietly omit whole asset classes, and the month
+ * pricing begins draws a step that is an artefact of the price table rather than a movement in net
+ * worth.
+ *
+ * The engine already counts them. `coverage.breakdown.unpricedCount` was computed at this very call
+ * site and never read; it now travels onto the column, which is what lets the chart refuse to draw
+ * a partial month as a complete one.
+ */
 function buildMonths(
   rows: PortfolioRows,
   asOfDate: IsoDate,
@@ -431,7 +470,7 @@ function buildMonths(
     const asAt = rowsAsAt(rows, monthEnd)
     const bundle = valueFromRows(asAt, asAt.aliases, `${monthEnd}T23:59:59+05:30`)
     if (!bundle.snapshot.ok || isZeroMinor(bundle.snapshot.value.netWorthMinor)) {
-      months.push({ key: monthEnd, label, year, segments: null })
+      months.push({ key: monthEnd, label, year, segments: null, unpricedCount: 0 })
       continue
     }
     const byClass = aggregateByClass(bundle.snapshot.value, bundle.instruments, accounts)
@@ -444,6 +483,7 @@ function buildMonths(
         value: entry.value,
         basis: entry.basis,
       })),
+      unpricedCount: bundle.snapshot.value.coverage.breakdown.unpricedCount,
     })
   }
 
@@ -886,36 +926,117 @@ function rupees(value: Minor): string {
 }
 
 /**
- * The withheld total, read from the stored rows rather than from the engine's coverage report.
+ * What the unresolved rows are holding out of every total, counted the way the review queue counts
+ * it.
  *
  * H8 requires the unresolved count to be accompanied by the exact amount excluded from totals.
  * `ValuationSnapshot.coverage.withheldMinor` is the natural source, but the data layer maps
  * `unresolved_instrument` rows without a `resolvedAt` field, and the engine filters on
  * `resolvedAt === null` — so every unresolved row is dropped before it is counted and the engine
  * reports zero withheld however many rows exist. Reading the rows here is not a second valuation:
- * it is a count and a sum of a column the core already stores, and it is the difference between
- * naming what is withheld and silently reporting none.
+ * it is a count and a sum of a column the core already stores.
+ *
+ * **A row with no stated value is not a row worth zero.** This is `summariseWithheld` and
+ * `withheldCaveat` from `src/screens/settings/review.ts`, ported rather than imported because that
+ * module counts `ReviewQueueEntry` and this one counts `UnresolvedRow`; the rule is the same rule
+ * and its header states it: "a zero reads as 'worth nothing' for a holding whose value is merely
+ * unknown, which is the exact lie the queue exists to prevent."
+ *
+ * It was the *default* case that was wrong, which is why it survived. `record_unresolved` inserts
+ * neither `observed_value_minor` nor `currency`, so every coin an exchange sync cannot name is
+ * NULL/NULL, and a tradebook with no valuation column reaches the same place. Both were bucketed as
+ * INR and mapped to `ZERO_MINOR`, so two such rows printed "Unresolved instruments: 2" directly
+ * above "₹0 withheld from every total" — and the mixed case was sharper still, because three rows
+ * of which one carried a value printed one exact-looking figure that silently omitted the other
+ * two. `valuation/portfolio.ts`, `settings/review.ts` and `UnresolvedQueue.tsx` all already refused
+ * that; only the dashboard did not, and it disagreed with all three about the same rows.
  */
+interface WithheldSummary {
+  /** Σ of the rows that stated a rupee value. Never a stand-in for the rows that stated none. */
+  readonly minor: Minor
+  /** Rows that stated a rupee value, and so are inside `minor`. */
+  readonly stated: number
+  /** Rows whose source stated no value at all. Counted, never coerced. */
+  readonly unstated: number
+  /** Rows stating a value in a currency this total cannot absorb. Counted, never converted. */
+  readonly foreign: number
+  readonly count: number
+}
+
+function summariseWithheld(unresolved: readonly UnresolvedRow[]): WithheldSummary {
+  let total: Minor = ZERO_MINOR
+  let stated = 0
+  let unstated = 0
+  let foreign = 0
+
+  for (const row of unresolved) {
+    const raw = row.observedValueMinor
+    // The value is tested before the currency, exactly as `review.ts` tests it: a row with neither
+    // is a row whose amount is unknown, not a row in an unknown currency.
+    if (raw === null || raw === '') {
+      unstated += 1
+      continue
+    }
+    if (row.currency !== null && row.currency !== 'INR') {
+      foreign += 1
+      continue
+    }
+    let parsed: Minor
+    try {
+      parsed = minor(raw)
+    } catch {
+      // A half-parsed figure is the one thing that must not become a plausible total.
+      unstated += 1
+      continue
+    }
+    total = addMinor(total, parsed)
+    stated += 1
+  }
+
+  return { minor: total, stated, unstated, foreign, count: unresolved.length }
+}
+
+/** The clauses that must travel beside the figure, so a total is never read as covering more. */
+function withheldCaveats(summary: WithheldSummary): readonly string[] {
+  const parts: string[] = []
+  if (summary.unstated > 0) {
+    parts.push(`plus ${summary.unstated.toString()} whose amount the source did not state`)
+  }
+  if (summary.foreign > 0) {
+    parts.push(`plus ${summary.foreign.toString()} in a currency this total cannot absorb`)
+  }
+  return parts
+}
+
 function withheldFrom(rows: PortfolioRows): {
   readonly count: number
   readonly minor: Minor
   readonly note: string
 } {
-  const open = rows.unresolved
-  const inr = open.filter((row) => row.currency === null || row.currency === 'INR')
-  const foreign = open.length - inr.length
-  const total = addMinor(
-    ...inr.map((row) => (row.observedValueMinor === null ? ZERO_MINOR : minor(row.observedValueMinor))),
-  )
-  if (open.length === 0) {
+  const summary = summariseWithheld(rows.unresolved)
+  if (summary.count === 0) {
     return { count: 0, minor: ZERO_MINOR, note: 'Every identifier in every document is mapped' }
   }
-  const foreignNote =
-    foreign === 0 ? '' : ` · ${foreign.toString()} more in a foreign currency, value not stated`
+  const caveats = withheldCaveats(summary)
+  // Nothing quantifiable at all: there is no figure, and the sentence says so rather than printing
+  // the zero that the arithmetic would otherwise hand over.
+  if (summary.stated === 0) {
+    const reason =
+      summary.unstated === 0
+        ? 'every value is in a currency this total cannot absorb'
+        : summary.foreign === 0
+          ? 'the source stated no value'
+          : 'the source stated no value Misal can total'
+    return {
+      count: summary.count,
+      minor: ZERO_MINOR,
+      note: `Amount withheld is unknown, not zero — ${reason}`,
+    }
+  }
   return {
-    count: open.length,
-    minor: total,
-    note: `${rupees(total)} withheld from every total${foreignNote}`,
+    count: summary.count,
+    minor: summary.minor,
+    note: [`${rupees(summary.minor)} withheld from every total`, ...caveats].join(' · '),
   }
 }
 

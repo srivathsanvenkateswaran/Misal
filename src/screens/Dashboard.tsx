@@ -296,7 +296,7 @@ export function Dashboard({ data }: { readonly data: PortfolioData }): ReactNode
           <Panel
             title="Net worth by asset class — 12 months"
             meta={`month end · to ${formatDate(data.asOfDate)}`}
-            foot="Snapshot classes stack above the ledger classes, so the coverage line is readable in the column too. A month with nothing stored is drawn as a gap — never a value carried backwards."
+            foot="Snapshot classes stack above the ledger classes, so the coverage line is readable in the column too. A month with nothing stored is drawn as a gap — never a value carried backwards. A month whose stored rows priced only part of what was held carries an open dashed cap and is stated as a floor, because the rest of that month is unpriced rather than worth nothing."
           >
             <div className="panel-body">
               <NetWorthStackChart

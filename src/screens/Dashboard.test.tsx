@@ -109,10 +109,53 @@ describe('Dashboard', () => {
     assertHonest(container)
   })
 
+  it('never prints a rupee figure beside unresolved rows whose value nobody stated', () => {
+    // Two NULL/NULL rows — what `record_unresolved` writes for every coin an exchange sync cannot
+    // name. "Unresolved instruments: 2" above "₹0 withheld from every total" read as "those two
+    // are worth nothing", which is the opposite of what the queue means.
+    const rows = portfolioRows({
+      unresolved: [
+        {
+          id: 'u-a',
+          accountId: 'a-etrade',
+          rawIdentifier: 'provider-local:XPLA',
+          rawName: null,
+          assetClassHint: 'crypto',
+          observedQuantity: '412.0000',
+          observedValueMinor: null,
+          currency: null,
+          firstSeenAt: '2026-08-09T21:03:00+05:30',
+        },
+        {
+          id: 'u-b',
+          accountId: 'a-etrade',
+          rawIdentifier: 'provider-local:JASMY',
+          rawName: null,
+          assetClassHint: 'crypto',
+          observedQuantity: '9000.0000',
+          observedValueMinor: null,
+          currency: null,
+          firstSeenAt: '2026-08-09T21:03:00+05:30',
+        },
+      ],
+    })
+    const { container } = render(<Dashboard data={data(rows)} />)
+    const cell = screen.getByText('Unresolved instruments').closest('.dq-cell')
+    expect(cell?.textContent).toContain('2')
+    expect(cell?.textContent).toContain('unknown, not zero')
+    expect(cell?.textContent).not.toContain('₹0')
+    assertHonest(container)
+  })
+
   it('draws the twelve-month series and says what a gap means', () => {
     const { container } = render(<Dashboard data={data()} />)
     expect(
       screen.getByText(/A month with nothing stored is drawn as a gap/u),
+    ).toBeInTheDocument()
+    // And what a partly priced one means, which is the case the foot used to describe as its
+    // opposite: those columns are drawn, and they are not totals.
+    expect(
+      screen.getByText(/carries an open dashed cap and is stated as a floor/u),
     ).toBeInTheDocument()
     // The accessible table beside the chart lists every month, so twelve columns are readable.
     expect(screen.getByText('Net worth by asset class, month end')).toBeInTheDocument()

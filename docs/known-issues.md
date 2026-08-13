@@ -908,6 +908,12 @@ Three defects found by adversarial review of the view-model and the screens, all
 the data underneath did not support, and each survived because no fixture reached the state that
 would have exposed it. Every one now has a test that fails without its fix.
 
+A second review of the same files found three more of exactly that shape — the monthly chart's
+unrewound FX, its partially priced columns, and the withheld-value disclosure's ₹0 — fixed on
+`fix/chart-and-withheld` and recorded at the end of this section. The shape is now a pattern rather
+than a coincidence: **the state that exposes each of these is the state where a source says
+nothing**, and a fixture corpus assembled from working data never reaches it.
+
 ### ~~XIRR was withheld for a metric that could be computed, and the user was blamed for it~~ — FIXED
 
 Both XIRR call sites in `src/screens/view-model.ts` — the portfolio readout and the per-instrument
@@ -1016,6 +1022,90 @@ the bucket was never built. `src/screens/view-model.test.ts` now carries a twelv
 **Standing lesson for all three:** a fixture corpus that only ever visits the comfortable middle of
 a range leaves the honesty machinery untested exactly where it matters — at completeness, at the
 tail, and in the currency this product exists to consolidate.
+
+### ~~The twelve-month chart rewound everything except the exchange rate~~ — FIXED
+
+`rowsAsAt` in `src/screens/view-model.ts` filtered `transactions`, `positions` and `prices` to
+`<= monthEnd` and spread `...rows` for the rest, so `fxRates` still held every rate up to today.
+`FxTable.latest` returns the newest row it holds, and its staleness guard is deliberately one-sided
+— a rate dated *after* the valuation date is not stale, because a provider quoting ahead of IST
+puts one there routinely — so a negative age always passed. With `USD/INR 88.00 @ 2026-08-12` and
+`83.00 @ 2025-08-29` both stored, `latest('USD', 'INR', '2025-08-31')` returned **88.00**: the
+correct historical rate was in the table and discarded.
+
+The docstring asserted the opposite — "nothing is carried backwards, because there is no code path
+here that could carry anything" — and the sentence was true only of the three lists it named.
+
+**Consequence:** every past month's foreign holdings converted at *today's* rate while the same
+column's prices were that month's closes. The currency leg of a year of history was flat by
+construction, and no column carried a mark saying so. Crypto was inside this too, since those pairs
+carry `X:USDT`.
+
+Fixed by filtering `fxRates` alongside the rest. The existing seven-day `MAX_FX_LATEST_AGE_DAYS`
+bound then applies to each month as it does live: a month whose newest stored rate is older than
+that drops its foreign holdings out of the column rather than dating them from the future, which is
+the product's stated preference everywhere else.
+
+### ~~A month priced in part was drawn as a month measured whole~~ — FIXED
+
+`buildMonths` gapped a month only when the *entire* month was unvaluable. `aggregateByClass` does
+`if (!pair.marketValue.measured) continue`, so a month that folded holdings but could price only
+some of them produced a column summed over a subset of the portfolio — and `StackMonth` had no
+field for the omission, so `NetWorthStackChart` had nothing to mark and its accessible table
+printed a plain `formatMoney`.
+
+There is no historical price backfill in this product: price rows begin the day an instrument is
+first refreshed, while the fold produces holdings for every month the transactions cover. The
+months before that quietly omit whole asset classes.
+
+**Consequence:** reproduced against the shipped fixture with the E\*TRADE account promoted to a
+ledger — eleven ordinary-looking columns omitting the whole of US equity (₹7,77,565 drawn for July
+2026 over a portfolio that also held 34 CAT that month), then a **177% step** when pricing began
+that is an artefact of the price table rather than a movement in net worth. The panel foot said
+"A month with nothing stored is drawn as a gap — never a value carried backwards", which told the
+reader the opposite of what those columns meant.
+
+Fixed by carrying `bundle.snapshot.value.coverage.breakdown.unpricedCount` — already computed at
+that call site and never read — onto `StackMonth`. A column carrying it gets an open dashed cap
+(`.gap-mark` ink, deliberately *not* the 45° hatch, which means "no transaction history" and
+nothing else product-wide), its total is stated as a floor — "At least ₹44,21,000 — incomplete",
+"≥ ₹48.32L" — rather than as a total, and the chart annotates what the mark means in the plot and
+in its own accessible name. `src/ui/charts/NetWorthStackChart.partial.test.tsx` is the fixture that
+was missing.
+
+### ~~The withheld-value disclosure folded an unknown amount in as ₹0~~ — FIXED
+
+`withheldFrom` bucketed `currency === null` as INR and mapped `observedValueMinor === null` to
+`ZERO_MINOR`. The `foreignNote` escape hatch fired only for non-null non-INR rows, so nothing said
+the amount was unknown.
+
+This is the *default* for exchange sync — `record_unresolved` inserts neither
+`observed_value_minor` nor `currency`, so every unresolved coin is NULL/NULL — and the document
+path reaches it via a tradebook with no valuation column.
+
+**Consequence:** two such entries rendered "Unresolved instruments: 2" directly above "₹0 withheld
+from every total": a zero standing in for an amount nobody knows, in the one indicator whose whole
+purpose is to name what is missing. The mixed case was sharper — three entries of which one carried
+a value printed an exact-looking "₹1,18,640 withheld" that silently omitted the other two.
+
+Three other places already got this right and disagreed with the dashboard about the same rows:
+`valuation/portfolio.ts` filters nulls out of `withheldMinor`, `src/screens/settings/review.ts`
+counts them as `unstated` and prints "amount unknown — the source stated no value", and
+`UnresolvedQueue.tsx` likewise. `review.ts`'s own header states the rule: "a zero reads as 'worth
+nothing' for a holding whose value is merely unknown, which is the exact lie the queue exists to
+prevent."
+
+Fixed by porting `summariseWithheld`/`withheldCaveat` into the view-model — ported rather than
+imported because that module counts `ReviewQueueEntry` and this one counts `UnresolvedRow`. Rows
+with no stated value are counted separately and appended as "plus N whose amount the source did not
+state"; when *nothing* is quantifiable the note is "Amount withheld is unknown, not zero — the
+source stated no value" and no figure is printed at all. `DataQualityView.withheldMinor` is now
+documented as the total of the rows that stated a value, which is not the same quantity as the
+amount withheld.
+
+The fixture at `src/screens/view-model.test.ts` only ever exercised a row that *did* carry a value
+and a currency — the one shape the code handled — which is why the default case survived. It now
+carries the NULL/NULL, mixed and foreign cases.
 
 ## Exchange adapters
 
