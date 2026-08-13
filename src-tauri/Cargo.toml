@@ -37,6 +37,10 @@ chrono = { version = "0.4", features = ["serde"] }
 thiserror = "2"
 directories = "5"
 
+# rustls rather than the platform TLS stack: one code path across macOS, Windows and Linux, no
+# OpenSSL to find at build time, and no system trust-store differences to debug per platform.
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls", "gzip"] }
+
 [dev-dependencies]
 tempfile = "3"
 

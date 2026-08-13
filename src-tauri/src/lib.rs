@@ -1,6 +1,7 @@
 pub mod db;
 pub mod error;
 pub mod exchange_guard;
+pub mod http;
 pub mod ingest;
 pub mod queries;
 pub mod secrets;
@@ -64,6 +65,7 @@ pub fn run() {
             queries::list_fx_rates,
             queries::list_unresolved,
             queries::get_settings,
+            http::fetch_market_data,
             ingest::ingest_find_document_by_hash,
             ingest::ingest_find_account_by_identity_key,
             ingest::ingest_find_instrument_by_isin,
