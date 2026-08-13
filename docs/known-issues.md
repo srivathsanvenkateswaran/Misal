@@ -1095,7 +1095,15 @@ user who wants everything now has no way to ask for it.
 **Fix direction:** an explicit "fetch all history" action that accepts the stall and shows it as
 progress, rather than raising the per-sync budget for everyone.
 
-### The sync report still calls Convert a blind spot
+### ~~The sync report still calls Convert a blind spot~~ — FIXED
+
+The disclosure now states that Convert trades are read, that the endpoint answers thirty days at
+a time, and that history earlier than the reported date is genuinely absent rather than
+approximate. The two tests pinning the old copy were updated with the reason.
+
+Original description below.
+
+### The sync report still calls Convert a blind spot (historical)
 
 `src/screens/exchanges/disclosure.ts` hardcodes `CONVERT_BLIND_SPOT`, whose headline is "Anything you
 bought with Binance Convert is missing from this history" and whose body says the cost basis "is not
@@ -1113,7 +1121,14 @@ undermines the disclosures that are still accurate.
 **Fix direction:** rewrite `CONVERT_BLIND_SPOT` to cover what is actually still missing — history
 below the backfill floor — on a branch that owns the screens.
 
-### `SyncPhase` has no member for transfers or conversions
+### ~~`SyncPhase` has no member for transfers or conversions~~ — FIXED
+
+Added both. The label map in `SyncReport.tsx` is an exhaustive `Record<SyncPhase, string>`, so a
+future phase cannot be added without being named for the user.
+
+Original description below.
+
+### `SyncPhase` has no member for transfers or conversions (historical)
 
 The transfer and Convert walks report progress under `'fills'`. `SyncReport.tsx` keeps an exhaustive
 `Record<SyncPhase, string>` of phase headings and an ordered list for its "step 3 of 6" counter, so
