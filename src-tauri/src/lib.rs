@@ -4,6 +4,7 @@ pub mod exchange_guard;
 pub mod http;
 pub mod ingest;
 pub mod queries;
+pub mod refresh;
 pub mod secrets;
 
 use error::Result;
@@ -66,6 +67,9 @@ pub fn run() {
             queries::list_unresolved,
             queries::get_settings,
             http::fetch_market_data,
+            refresh::save_prices,
+            refresh::save_fx_rates,
+            refresh::record_price_refresh,
             ingest::ingest_find_document_by_hash,
             ingest::ingest_find_account_by_identity_key,
             ingest::ingest_find_instrument_by_isin,
