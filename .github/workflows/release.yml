@@ -1,0 +1,98 @@
+name: Release
+
+# Builds installable artifacts for all three desktop platforms and attaches them to a draft
+# release. Without this, using Misal means installing Rust and building from source, which is a
+# real barrier for anyone who just wants to look at their portfolio.
+#
+# The builds are unsigned. Code signing costs money annually on both macOS and Windows, and this is
+# a free personal project. docs/INSTALL.md explains what the resulting warnings mean and how to get
+# past them — that explanation is part of shipping, not an afterthought.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build, e.g. v0.1.0'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            label: macOS (Apple Silicon)
+            target: aarch64-apple-darwin
+          - os: macos-latest
+            label: macOS (Intel)
+            target: x86_64-apple-darwin
+          - os: ubuntu-latest
+            label: Linux
+            target: ''
+          - os: windows-latest
+            label: Windows
+            target: ''
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev \
+            librsvg2-dev patchelf libgtk-3-dev
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: pnpm install --frozen-lockfile
+
+      # The full gate, on the artifact that will actually be handed to someone. A release that
+      # skips the checks is a release nobody verified.
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test
+      - name: Core tests
+        working-directory: src-tauri
+        run: cargo test --lib
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || inputs.version }}
+          releaseName: Misal ${{ github.ref_type == 'tag' && github.ref_name || inputs.version }}
+          releaseBody: |
+            See [docs/INSTALL.md](https://github.com/srivathsanvenkateswaran/Misal/blob/main/docs/INSTALL.md)
+            for installation, and [docs/USING.md](https://github.com/srivathsanvenkateswaran/Misal/blob/main/docs/USING.md)
+            for how to get your statements in.
+
+            **These builds are unsigned.** macOS will say the app is damaged or the developer
+            cannot be verified; Windows SmartScreen will warn you. Neither means what it sounds
+            like — both mean no paid signing certificate. INSTALL.md explains how to open it
+            anyway, and how to build it yourself instead if you would rather not take that on
+            trust.
+
+            Read the status section in the README before relying on a figure.
+          # Draft, so a human decides whether a build is fit to hand to anyone.
+          releaseDraft: true
+          prerelease: true
+          args: ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
