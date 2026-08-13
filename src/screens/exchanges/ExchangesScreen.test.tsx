@@ -441,9 +441,9 @@ describe('Exchanges — what the sync could not see', () => {
     await screen.findByText('Binance sync report')
 
     expect(
-      screen.getByText('Anything you bought with Binance Convert is missing from this history'),
+      screen.getByText('Convert trades are read, but the oldest ones arrive over several syncs'),
     ).toBeInTheDocument()
-    expect(screen.getByText(/its cost basis is not approximate, it is absent/u)).toBeInTheDocument()
+    expect(screen.getByText(/genuinely absent rather than approximate/u)).toBeInTheDocument()
     // And the adapter's own statement of the gap is shown alongside, read from the adapter.
     expect(
       screen.getByText(/Binance Convert trades never appear in trade history/u),

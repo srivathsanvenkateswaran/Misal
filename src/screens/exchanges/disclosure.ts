@@ -92,14 +92,15 @@ const BINANCE_BODY: readonly string[] = [
  * with no trades behind it as a bug in Misal rather than as a hole in what Binance returns.
  */
 export const CONVERT_BLIND_SPOT = {
-  headline: 'Anything you bought with Binance Convert is missing from this history',
+  headline: 'Convert trades are read, but the oldest ones arrive over several syncs',
   body:
     'Convert trades — the one-click Convert widget in the app and on the website — are never ' +
-    'returned by the trade-history endpoint, and Binance exposes no other endpoint that returns ' +
-    'them. If you acquired an asset that way it will appear above as a balance with no trades ' +
-    'behind it, and its cost basis is not approximate, it is absent. Misal will not compute a ' +
-    'gain, a cost basis or an XIRR for this account, and this is one of the reasons why. The ' +
-    'trades are in Binance’s own transaction export, which you can import as a file.',
+    'returned by the ordinary trade-history endpoint. Misal reads them from a separate one, so ' +
+    'an asset you bought that way does have its trades behind it. That endpoint only answers ' +
+    'thirty days at a time and is expensive against Binance’s account budget, so each sync walks ' +
+    'a few more windows backwards rather than stalling. Until it reaches the beginning, the sync ' +
+    'report names the date it has read back to, and anything earlier is genuinely absent rather ' +
+    'than approximate.',
 } as const
 
 const COPY: Record<

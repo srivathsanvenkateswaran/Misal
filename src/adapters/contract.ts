@@ -210,7 +210,15 @@ export interface AdapterIssue {
  * `'fills'` is at worst imprecise where a new phase would be actively broken. See
  * docs/known-issues.md; splitting them out belongs on a branch that owns both sides.
  */
-export type SyncPhase = 'scope' | 'clock' | 'markets' | 'balances' | 'fills' | 'coverage'
+export type SyncPhase =
+  | 'scope'
+  | 'clock'
+  | 'markets'
+  | 'balances'
+  | 'transfers'
+  | 'conversions'
+  | 'fills'
+  | 'coverage'
 
 export interface SyncProgress {
   readonly phase: SyncPhase

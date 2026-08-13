@@ -49,7 +49,13 @@ describe('provider disclosures', () => {
   })
 
   it('keeps the Convert note attached to the consequence it has for cost basis', () => {
-    expect(CONVERT_BLIND_SPOT.body).toMatch(/cost basis is not approximate, it is absent/u)
+    // Rewritten when Convert trades started being fetched. The old copy said Binance "exposes no
+    // other endpoint that returns them" — true when written, false the moment the Convert stream
+    // landed, and precisely the kind of confident false statement this screen exists to avoid.
+    // What is still true, and still worth saying, is that the deep history arrives over several
+    // syncs and anything earlier than the reported date is genuinely absent.
+    expect(CONVERT_BLIND_SPOT.body).toMatch(/genuinely absent rather than approximate/u)
+    expect(CONVERT_BLIND_SPOT.body).toMatch(/thirty days at a time/u)
     // The adapter states the mechanism; the screen states what it costs the reader.
     expect(providerDisclosure('binance').coverageGaps.join(' ')).toMatch(/Binance Convert/u)
   })

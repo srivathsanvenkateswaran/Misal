@@ -34,6 +34,8 @@ const PHASE_LABEL: Record<SyncPhase, string> = {
   scope: 'Checking what the key is allowed to do',
   clock: 'Measuring the difference between this machine’s clock and the exchange’s',
   markets: 'Reading the market catalogue',
+  transfers: 'Reading deposits and withdrawals',
+  conversions: 'Reading Convert trades',
   balances: 'Reading balances',
   fills: 'Walking the trade history',
   coverage: 'Comparing the ingested transactions against the reported balances',
