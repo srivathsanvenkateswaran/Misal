@@ -21,6 +21,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         "alias-uniqueness",
         include_str!("../migrations/0003-alias-uniqueness.sql"),
     ),
+    (
+        4,
+        "exchange-sync",
+        include_str!("../migrations/0004-exchange-sync.sql"),
+    ),
 ];
 
 /// Location of the database file for this platform.

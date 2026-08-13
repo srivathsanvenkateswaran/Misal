@@ -21,10 +21,12 @@ import type {
   AdapterIssue,
   ExchangeAdapter,
   MarketSpec,
+  ProgressReporter,
   RawBalance,
   RawFill,
   ScopeReport,
   SourceDocumentDescriptor,
+  SyncPhase,
 } from '../contract'
 import { AdapterError, isAdapterError } from '../errors'
 import { createGuardedHttp, type Transport } from '../http'
@@ -50,6 +52,13 @@ export interface SyncOptions {
   readonly userAgent: string
   readonly now: () => Date
   readonly catalogue?: Catalogue
+  /**
+   * Called as the sync moves through its phases and as the adapter works through them.
+   *
+   * A first Binance sync sweeps a large symbol set one call at a time, which takes minutes; a
+   * sync that says nothing for that long is indistinguishable from one that has hung.
+   */
+  readonly onProgress?: ProgressReporter
 }
 
 export interface SyncOutcome {
@@ -72,6 +81,11 @@ export async function runSync(options: SyncOptions): Promise<SyncOutcome> {
   const issues: AdapterIssue[] = []
   const log = (issue: AdapterIssue): void => {
     issues.push(issue)
+  }
+
+  const report: ProgressReporter = options.onProgress ?? noProgress
+  const phase = (name: SyncPhase, detail: string): void => {
+    report({ phase: name, done: 0, total: null, detail })
   }
 
   const discovered = await store.readDiscoveredAssets(accountId)
@@ -97,12 +111,14 @@ export async function runSync(options: SyncOptions): Promise<SyncOutcome> {
     clock,
     discoveredAssets: discovered,
     log,
+    report,
     now: options.now,
   }
 
   // 1. Scope, before anything else and before every sync, not only at connect. A user can widen
   //    a key's permissions on the exchange website at any time.
   let scope: ScopeReport
+  phase('scope', `Checking what the ${adapter.displayName} key is allowed to do`)
   try {
     scope = await adapter.describeScope(ctx)
   } catch (error) {
@@ -135,6 +151,7 @@ export async function runSync(options: SyncOptions): Promise<SyncOutcome> {
   }
 
   // 2. Clock, measured against the host we sign to.
+  phase('clock', 'Checking the exchange clock')
   try {
     await clock.resync()
   } catch (error) {
@@ -142,6 +159,7 @@ export async function runSync(options: SyncOptions): Promise<SyncOutcome> {
   }
 
   // 3. Markets, cached at most daily.
+  phase('markets', 'Loading the market catalogue')
   const today = options.now().toISOString().slice(0, 10)
   let markets: readonly MarketSpec[]
   try {
@@ -172,6 +190,7 @@ export async function runSync(options: SyncOptions): Promise<SyncOutcome> {
   let rowsFailed = 0
   let errorCode: string | null = null
 
+  phase('balances', 'Reading balances')
   try {
     const page = await adapter.fetchBalances(ctx)
     const result = await commitBalances(options, page, precisionByAsset, issues)
@@ -218,6 +237,7 @@ export async function runSync(options: SyncOptions): Promise<SyncOutcome> {
   let fillsCommitted = 0
   let fillsDuplicate = 0
 
+  phase('fills', 'Reading trade history')
   const startCursor = await store.readCursor(accountId, FILLS_STREAM, UNPARTITIONED)
   try {
     for await (const page of adapter.fetchFills(fillsCtx, startCursor, markets)) {
@@ -256,6 +276,7 @@ export async function runSync(options: SyncOptions): Promise<SyncOutcome> {
 
   // 6. Coverage. A mismatch between the fold and the reported balance is expected and is
   //    recorded as a warning, because measuring it is the evidence behind 'snapshot'.
+  phase('coverage', 'Checking the transactions against the reported balances')
   const coverage = await reconcileCoverage(options.store, accountId, balanceInstruments)
   const coverageIssues: AdapterIssue[] = []
   for (const row of coverage) {
@@ -552,4 +573,8 @@ function requireDocument(document: SourceDocumentDescriptor | null): SourceDocum
 
 function noop(): Promise<void> {
   return Promise.resolve()
+}
+
+function noProgress(): void {
+  // A caller that does not want progress still gets a working sync.
 }

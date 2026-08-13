@@ -214,9 +214,18 @@ async function* walkFills(
   pageSize: number,
 ): AsyncIterable<AcquiredPage<RawFill>> {
   let fromId = cursor === null || cursor === '' ? null : cursor
+  let pages = 0
 
   for (;;) {
     const requestedFrom = fromId
+    pages += 1
+    // No total: the walk ends on a short page and there is no count to ask for beforehand.
+    ctx.report({
+      phase: 'fills',
+      done: pages,
+      total: null,
+      detail: `Trade history page ${pages}`,
+    })
     const params: [string, BodyValue][] = [
       ['limit', { int: `${pageSize}` }],
       ['sort', { text: 'asc' }],

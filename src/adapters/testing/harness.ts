@@ -6,7 +6,7 @@
  * installed from tests/setup.ts fails the test if anything tries to go around it.
  */
 
-import type { AdapterContext, AdapterIssue, ExchangeAdapter } from '../contract'
+import type { AdapterContext, AdapterIssue, ExchangeAdapter, SyncProgress } from '../contract'
 import { createGuardedHttp } from '../http'
 import { RateLimiter, type LimiterClock } from '../ratelimit'
 import { fixedClockOffset, MeasuredClockOffset } from '../time'
@@ -54,6 +54,8 @@ export interface Harness {
   readonly limiter: RateLimiter
   readonly clock: ManualClock
   readonly issues: AdapterIssue[]
+  /** Everything the adapter reported it was doing, in order. */
+  readonly progress: SyncProgress[]
   readonly offset: MeasuredClockOffset
 }
 
@@ -70,6 +72,7 @@ export function createHarness(options: HarnessOptions): Harness {
     clock,
   })
   const issues: AdapterIssue[] = []
+  const progress: SyncProgress[] = []
   const accountId = options.accountId ?? 'account-1'
   const now = options.now ?? new Date('2026-08-12T10:00:00.000Z')
 
@@ -90,6 +93,7 @@ export function createHarness(options: HarnessOptions): Harness {
     clock: fixedClockOffset('0'),
     discoveredAssets: [],
     log: (issue) => issues.push(issue),
+    report: (update) => progress.push(update),
     now: () => now,
   }
 
@@ -98,7 +102,7 @@ export function createHarness(options: HarnessOptions): Harness {
     localMs: `${BigInt(now.getTime())}`,
   }))
 
-  return { ctx: { ...base, clock: offset }, transport, limiter, clock, issues, offset }
+  return { ctx: { ...base, clock: offset }, transport, limiter, clock, issues, progress, offset }
 }
 
 /** A context with a given discovered asset set, for Binance's symbol enumeration. */

@@ -101,6 +101,8 @@ export async function connectAccount(options: ConnectOptions): Promise<ConnectOu
       clock: fixedClockOffset('0'),
       discoveredAssets: [],
       log: () => undefined,
+      // Connecting is three requests. Nothing here is slow enough to need a progress bar.
+      report: () => undefined,
       now: options.now,
     }
 

@@ -155,6 +155,31 @@ export interface AdapterIssue {
   readonly rawPayload?: string
 }
 
+/**
+ * What a sync is doing right now.
+ *
+ * A first Binance sync is slow by construction and not by accident: `myTrades` requires a symbol,
+ * there is no cross-symbol endpoint, and the discovery sweep therefore queries every plausible
+ * pair the account's assets could have traded in. That is minutes of work at weight 20 a call, and
+ * a progress bar is the difference between "this is working" and "this has hung".
+ */
+export type SyncPhase = 'scope' | 'clock' | 'markets' | 'balances' | 'fills' | 'coverage'
+
+export interface SyncProgress {
+  readonly phase: SyncPhase
+  /** Units finished within the phase. */
+  readonly done: number
+  /**
+   * Units expected, or null where the count is not knowable in advance. CoinDCX pages until a
+   * short page arrives and cannot say how many that will be; Binance knows its symbol list.
+   */
+  readonly total: number | null
+  /** What is being worked on, e.g. the trading pair being queried. */
+  readonly detail: string
+}
+
+export type ProgressReporter = (progress: SyncProgress) => void
+
 /** Method and path only. There is no field here that could express a request body. */
 export interface AllowedRequest {
   readonly method: 'GET' | 'POST'
@@ -195,6 +220,11 @@ export interface AdapterContext {
    */
   readonly discoveredAssets: readonly string[]
   readonly log: (issue: AdapterIssue) => void
+  /**
+   * Say what is happening. Only the adapter knows how much work a phase is: the runner sees an
+   * async iterable of pages and cannot tell one symbol of two hundred from the last one.
+   */
+  readonly report: ProgressReporter
   /** Injected so tests are deterministic and so no adapter reaches for Date.now() directly. */
   readonly now: () => Date
 }
