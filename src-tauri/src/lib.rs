@@ -60,6 +60,9 @@ pub fn run() {
             // Staged exchange credentials live here and nowhere else until the scope check has
             // decided whether they may be written to the keychain at all.
             app.manage(sync::ExchangeState::new());
+            // The files the user picked in a native dialog, and the only files the webview can
+            // ask to have read. See the header on `ingest::PickedFiles`.
+            app.manage(ingest::PickedFiles::new());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -88,6 +91,7 @@ pub fn run() {
             ingest::ingest_find_position,
             ingest::ingest_commit,
             ingest::ingest_unresolved_for_document,
+            ingest::ingest_withheld_for_document,
             ingest::ingest_map_unresolved,
             ingest::ingest_ignore_unresolved,
             ingest::pick_statement_file,

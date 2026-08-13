@@ -347,6 +347,82 @@ through the key. The only signal was a `W_AMC_NAME_CONFLICT`, raised in one prin
 and its wording describes a name/ISIN disagreement rather than a folio merge — so a user reading it
 would look for a misspelled fund house, not for a missing account.
 
+### ~~Three ways for the review queue to destroy a disclosure about missing money~~ — FIXED
+
+Found by adversarial review of the ingestion write path. Three separate defects, one failure: **an
+action the interface invites silently deleted the statement that money is missing from net worth.**
+The withheld figure is the one number in Misal that exists purely to be believed literally — "some
+holdings unresolved" is not a fact a user can act on and "₹1,18,640 withheld" is — and all three
+turned it into a number that was quietly wrong.
+
+The root cause was that `resolved_at` carried three meanings at once. It was the *only* "still open"
+predicate in the system (`queries.rs::list_unresolved`, `ingest.rs::unresolved_for_document`,
+`valuation/portfolio.ts`), so anything that stopped the queue asking also stopped the money being
+counted as absent. Migration 0006 separates them: `ignored_at` (do not ask again), `mapped_at` (the
+user named it), `resolved_at` (**the rows are in the ledger**). Only the last one silences the
+disclosure, and only `commit_batch` may set it, keyed on rows that actually exist.
+
+- **Dismissing an unresolved instrument erased the money it was withholding.** `ignore_unresolved`
+  set `resolved_at`, so the rupee figure fell to zero, the count fell to zero, and the dashboard
+  replaced the disclosure with the affirmative claim `Every identifier in every document is mapped`
+  — of a holding it had never identified, permanently, because nothing reopens a closed entry.
+  Dismissal now sets `ignored_at` and the value goes on being disclosed, which is the truth: the
+  user asked not to be chased, not for the holding to be counted.
+
+- **Mapping an unresolved instrument made its transactions unrecoverable.** An import whose rows all
+  failed to resolve writes zero `txn` rows but does write a `source_document` carrying the content
+  hash, so re-importing returned `already-imported`. Mapping wrote the alias and closed the entry,
+  and nothing ever re-ran the withheld rows — while the report told the user they "are released when
+  a document containing them is imported again", which was never true of the document that had just
+  withheld them. Mapping now records the answer and leaves the entry open and disclosing; the
+  content-hash short-circuit stands aside for a document with rows still withheld, so importing the
+  same file again lands them; and `commit_batch` closes the entry at that moment. The report copy
+  now names that path instead of promising one that did not exist.
+
+  **Not fixed as originally proposed, and the reason is worth recording.** The intended fix was to
+  re-run the retained `import_issue.raw_payload` rows through commit. It cannot be done from that
+  column, whose doc comment claims it is "sufficient to replay it from normalize". It is not: a CAS
+  transaction's payload is `{date, description, amount, units, price, balance}`, which names neither
+  the folio nor the ISIN, so nothing in it can say which account or instrument the row belonged to.
+  Replay needs the document, and Misal deliberately never copies the file. Either the payload has to
+  become a serialised `RawTransaction` — a plugin-wide change, and one that starts storing the
+  user's rows twice — or re-reading the file stays the mechanism. `raw_payload` is still written and
+  still read by nothing.
+
+- **Each import inserted a fresh unresolved row, so the withheld total doubled per statement.** Two
+  statements naming the same unmapped ISIN reported two instruments and twice the rupees for one
+  holding; a monthly eCAS made it twelve a year. The exchange path (`sync.rs::record_unresolved`)
+  had always guarded the identical insert. Ingestion now guards it the same way, updates the
+  observed value on the open row instead — `coalesce`, so a tradebook with no valuation column
+  cannot blank a figure a holdings statement printed — and migration 0006 both collapses the
+  duplicates an existing database already holds and adds a partial unique index so the rule is
+  structural rather than a convention two call sites have to remember.
+
+One consequence worth knowing: because only one entry stays open per identifier per account, an
+entry raised by January's statement is the one February's import touches. `last_seen_document_id`
+carries the latest sighting so February's import report still lists what February could not
+identify, rather than showing an empty queue while withholding rows.
+
+### ~~`read_statement_bytes` was an arbitrary-file read exposed to the webview~~ — FIXED
+
+`ingest.rs` did `std::fs::read(path)` on a caller-supplied path with no binding to the file picker's
+result, no extension check and no size cap, so `invoke('read_statement_bytes', {path:
+'~/.ssh/id_rsa'})` returned the bytes.
+
+This is the mirror of an invariant two sibling modules already assert in their own headers:
+`export.rs` refuses any command taking a caller-supplied *destination*, and `http.rs` refuses any
+command taking a caller-supplied *URL*, both for the same stated reason — a local-first application
+one XSS away from being an exfiltration tool. The source side had no such guard.
+
+`pick_statement_file` now records the chosen `PathBuf` in managed state and returns an opaque
+handle; `read_statement_bytes` accepts only a handle, and the frontend never learns the path because
+it has no use for one. The extension is enforced at registration rather than left to the dialog's
+filter, which can be typed past, and a 64 MB cap bounds the read.
+
+**Consequence had it shipped:** any script reaching the IPC bridge could read any file the user
+could, one call at a time, from an application whose whole premise is that data does not leave the
+machine.
+
 ## Valuation engine
 
 ### ~~`PriceService.priceAt` returns the nearest preceding price, not an exact match~~ — FIXED

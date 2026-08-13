@@ -42,6 +42,7 @@ import {
   pickStatementFile,
   readStatementBytes,
   unresolvedForDocument,
+  withheldForDocument,
   type PickedFile,
   type UnresolvedEntryRow,
 } from '../../data/import'
@@ -55,7 +56,8 @@ import './import.css'
 /** Everything the screen does to the outside world, in one place so a test can stand in for it. */
 export interface ImportRuntime {
   pickFile: () => Promise<PickedFile | null>
-  readBytes: (path: string) => Promise<Uint8Array>
+  /** By the handle the picker returned. The screen never learns the file's path. */
+  readBytes: (handle: string) => Promise<Uint8Array>
   runImport: (
     bytes: Uint8Array,
     originalName: string,
@@ -98,10 +100,13 @@ function defaultRuntime(): ImportRuntime {
     newId: () => crypto.randomUUID(),
     pdfSource: pdfjsSource(),
     parserVersion: PARSER_VERSION,
+    // Without this the content hash refuses the re-import that releases withheld rows, and the
+    // mapping the queue asked for would never reach a total.
+    withheldFor: (documentId) => withheldForDocument(documentId),
   }
   return {
     pickFile: () => pickStatementFile(),
-    readBytes: (path) => readStatementBytes(path),
+    readBytes: (handle) => readStatementBytes(handle),
     runImport: (bytes, originalName, password, passwordHint) =>
       runImport(
         {
@@ -200,7 +205,7 @@ export function ImportScreen(props: ImportScreenProps): ReactNode {
     setPhase({ kind: 'working', file })
 
     try {
-      const bytes = await runtime.readBytes(file.path)
+      const bytes = await runtime.readBytes(file.handle)
       const outcome = await runtime.runImport(bytes, file.name, prompt, family.passwordHint)
 
       if (outcome.status === 'already-imported') {
@@ -253,10 +258,13 @@ export function ImportScreen(props: ImportScreenProps): ReactNode {
       .mapUnresolved(entryId, instrumentId)
       .then(() => {
         setUnresolved((entries) => entries.filter((entry) => entry.id !== entryId))
+        // Says what mapping did and, plainly, what it did not. The rows are not in the ledger, so
+        // the value is still out of every total and still counted as withheld — and the one way to
+        // get it in is to import this same file again, which Misal now allows for exactly this.
         setQueueNote(
           'Mapped. Misal has learned that identifier, so the next statement carrying it resolves ' +
-            'without asking. The rows this import withheld are released when a document containing ' +
-            'them is imported again.',
+            'without asking. The rows this import withheld are still not in your totals: import ' +
+            'this file again to release them. Until then they stay counted as withheld.',
         )
       })
       .catch((error: unknown) => {
@@ -273,9 +281,12 @@ export function ImportScreen(props: ImportScreenProps): ReactNode {
       .ignoreUnresolved(entryId)
       .then(() => {
         setUnresolved((entries) => entries.filter((entry) => entry.id !== entryId))
+        // True as of migration 0006, and not before it: dismissing used to set `resolved_at`, the
+        // system's only "still open" predicate, so the value stopped being counted as withheld at
+        // the same moment it stopped being counted at all.
         setQueueNote(
-          'Dismissed. Its value stays out of every total and the entry stays in Settings → ' +
-            'Review queue.',
+          'Dismissed. Its value stays out of every total and stays counted as withheld, and the ' +
+            'entry stays in Settings → Review queue.',
         )
       })
       .catch((error: unknown) => {

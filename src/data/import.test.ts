@@ -256,10 +256,17 @@ describe('SqliteIngestionStore', () => {
     expect(call).not.toHaveBeenCalled()
   })
 
+  /**
+   * A batch with no `import_run` is a pipeline bug and never reaches SQLite.
+   *
+   * A batch with no `source_document` is not: that is a re-import, writing its rows into the
+   * document the first pass recorded for the same bytes. What still proves the document exists is
+   * `import_run.source_document_id`, which is a foreign key.
+   */
   it('refuses a half-formed import rather than committing it', async () => {
     const call = vi.fn<Invoker>()
     const store = new SqliteIngestionStore(call as unknown as Invoker)
-    await expect(store.transaction(() => Promise.resolve(1))).rejects.toThrow('source_document')
+    await expect(store.transaction(() => Promise.resolve(1))).rejects.toThrow('import_run')
     expect(call).not.toHaveBeenCalled()
   })
 

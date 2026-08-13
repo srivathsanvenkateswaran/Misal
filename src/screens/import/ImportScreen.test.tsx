@@ -14,7 +14,9 @@ import type { PasswordAttempt, PasswordHint, PasswordPrompt } from '@ingestion/p
 import type { UnresolvedEntryRow } from '../../data/import'
 import { ImportScreen, type ImportRuntime } from './ImportScreen'
 
-const FILE = { path: '/statements/cas.pdf', name: 'cas.pdf', byteLength: 2_400_000 }
+// A handle, not a path. The screen never learns where on disk the file is, because the core no
+// longer hands a path to the webview and no longer accepts one back.
+const FILE = { handle: 'pick-7f21', name: 'cas.pdf', byteLength: 2_400_000 }
 
 const COMPLETED: Extract<ImportOutcome, { status: 'completed' }> = {
   status: 'completed',
@@ -27,6 +29,7 @@ const COMPLETED: Extract<ImportOutcome, { status: 'completed' }> = {
     { severity: 'error', code: 'E_DATE_PARSE', message: 'not a valid date', ref: 'p.11 r.3' },
   ],
   accountIds: ['a1'],
+  reimported: false,
 }
 
 const QUEUE: UnresolvedEntryRow[] = [
@@ -53,7 +56,7 @@ function runtime(over: Partial<ImportRuntime> = {}): ImportRuntime {
     listInstruments: vi.fn().mockResolvedValue([
       { id: 'i-hdfc', displayName: 'HDFC Balanced Advantage', isin: null, assetClass: 'mutual_fund' },
     ]),
-    mapUnresolved: vi.fn().mockResolvedValue({ aliasScheme: 'isin', released: 1 }),
+    mapUnresolved: vi.fn().mockResolvedValue({ aliasScheme: 'isin', matched: 1 }),
     ignoreUnresolved: vi.fn().mockResolvedValue(undefined),
     ...over,
   }
@@ -167,6 +170,66 @@ describe('ImportScreen', () => {
       await screen.findByText(/every identifier in this document is mapped/),
     ).toBeInTheDocument()
     expect(screen.getByText(/the next statement carrying it resolves/)).toBeInTheDocument()
+  })
+
+  /**
+   * Mapping must not promise a path that does not exist.
+   *
+   * The note used to say the withheld rows "are released when a document containing them is
+   * imported again", which was never true of the document that had just withheld them: its content
+   * hash made a re-import a no-op, so the rows had no path to the ledger at all. Meanwhile mapping
+   * closed the queue entry, and closing the entry is what stopped the withheld figure disclosing
+   * money still absent from every total.
+   */
+  it('tells the truth about what mapping did not do', async () => {
+    render(<ImportScreen runtime={runtime()} />)
+    choose()
+
+    await screen.findByRole('heading', { name: /Import completed/ })
+    fireEvent.change(await screen.findByLabelText('Map to'), { target: { value: 'i-hdfc' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Map' }))
+
+    const note = await screen.findByText(/import this file again to release them/i)
+    expect(note).toHaveTextContent(/still not in your totals/i)
+    expect(note).toHaveTextContent(/stay counted as withheld/i)
+    expect(
+      screen.queryByText(/released when a document containing them is imported again/i),
+    ).not.toBeInTheDocument()
+  })
+
+  /** Dismissing withholds the value and goes on saying so. It does not close the disclosure. */
+  it('says a dismissed entry is still being withheld from every total', async () => {
+    const deps = runtime()
+    render(<ImportScreen runtime={deps} />)
+    choose()
+
+    await screen.findByRole('heading', { name: /Import completed/ })
+    fireEvent.click(await screen.findByRole('button', { name: 'Dismiss for now' }))
+
+    await waitFor(() => {
+      expect(deps.ignoreUnresolved).toHaveBeenCalledWith('u1')
+    })
+    const note = await screen.findByText(/stays counted as withheld/i)
+    expect(note).toHaveTextContent(/stays out of every total/i)
+    expect(note).toHaveTextContent(/Settings → Review queue/)
+  })
+
+  /**
+   * The file is read by the handle the picker returned, never by a path.
+   *
+   * `read_statement_bytes` was `std::fs::read` on a caller-supplied path, so anything reaching the
+   * IPC bridge could ask for `~/.ssh/id_rsa`. The core now only accepts a handle into the set of
+   * files the user chose in a dialog, and this is the seam that has to keep passing one.
+   */
+  it('reads the picked file by handle, and never learns its path', async () => {
+    const deps = runtime()
+    render(<ImportScreen runtime={deps} />)
+    choose()
+
+    await waitFor(() => {
+      expect(deps.readBytes).toHaveBeenCalledWith('pick-7f21')
+    })
+    expect(Object.keys(FILE)).not.toContain('path')
   })
 
   it('reports a file it has seen before as a no-op rather than an error', async () => {
