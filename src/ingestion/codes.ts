@@ -59,14 +59,30 @@ export type WarningCode =
   /** The AMC name printed against a folio names a different house than its ISIN does. */
   | 'W_AMC_NAME_CONFLICT'
   /**
-   * One statement lists the same folio number under more than one fund house.
+   * One statement evidences the same folio number under more than one fund house.
    *
    * Legal, and not a parse error: folio numbers are issued per registrar rather than globally, so
    * two houses can hold the same number. It is reported because the two are separate accounts and
    * every scheme under that number had to be attributed by its own ISIN rather than by the roster
    * line above it — a user seeing one number twice deserves to know why.
+   *
+   * Raised on either of the two evidences, because the consequence is identical: the roster listed
+   * the number twice, or it listed it once and the schemes filed under it carry ISINs from two
+   * houses. The second means the roster under-reported — every scheme in a folio belongs to one
+   * house — and one of the accounts is Misal's deduction rather than the document's statement.
    */
   | 'W_FOLIO_NUMBER_SHARED'
+  /**
+   * No roster line claimed any folio, so folios were identified by their schemes' ISIN issuers.
+   *
+   * The roster is where an eCAS states which fund house holds a folio number, and a template whose
+   * roster this parser reads differently yields no claims at all. Failing every mutual fund row on
+   * that basis loses the whole section, when each row carries a folio number and an ISIN and the
+   * pair `(issuer, number)` is the same identity a parsed roster would have produced. So the rows
+   * are kept and this says the identities came from the ISINs — never silent, because a folio with
+   * no scheme row of its own is then missing from the import entirely.
+   */
+  | 'W_FOLIO_NOT_IN_ROSTER'
 
 export type IssueCode = DocumentCode | RowCode | WarningCode
 

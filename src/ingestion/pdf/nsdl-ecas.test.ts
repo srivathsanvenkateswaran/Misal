@@ -4,11 +4,13 @@ import { golden } from '../testing/fixtures'
 import {
   SHARED_FOLIO_SBI_ISIN,
   camsDetailedPages,
+  nsdlEcasMissedClaimantPages,
   nsdlEcasOrphanHoldingPages,
   nsdlEcasPages,
   nsdlEcasSharedFolioPages,
   nsdlEcasSharedFolioStrayIsinPages,
   nsdlEcasTwoDematPages,
+  nsdlEcasUnreadRosterPages,
 } from '../testing/corpus'
 import { MemoryStore } from '../memory-store'
 import { runImport } from '../pipeline'
@@ -268,6 +270,142 @@ describe('one folio number claimed by two fund houses', () => {
 })
 
 /**
+ * One folio number, two fund houses, and a roster that names **one** of them.
+ *
+ * The residual the shared-folio fix left open. With a single claimant there is nothing to
+ * overwrite, so scoping the roster's claims on (house, number) does not help: both houses' schemes
+ * attach to the one claimant, and `resolveAmc` hands the account to whichever issuer prefix printed
+ * first. Every assertion here fails against that parser, which emits one account and files 310.400
+ * SBI units into it.
+ *
+ * The evidence is on the rows: every scheme in a folio belongs to one house, so two issuers under
+ * one number is two folios whatever the roster printed.
+ */
+describe('one folio number whose roster names only one of its houses', () => {
+  it('matches its golden file', async () => {
+    const actual = serializeGolden(await runOn(nsdlEcasMissedClaimantPages()))
+    expect(actual).toBe(golden('pdf-text/golden/nsdl-ecas-missed-claimant.json', actual))
+  })
+
+  it('splits the number into one account per issuing house', async () => {
+    const { records } = await runOn(nsdlEcasMissedClaimantPages())
+    const keys = records
+      .filter((r): r is NormalizedAccount => r.kind === 'account')
+      .map((a) => a.accountKey)
+      .sort()
+    // The roster names HDFC alone; `mf-folio:sbi:12345678/0` is deduced from the SBI scheme's ISIN.
+    expect(keys).toEqual([
+      'demat:IN300394-12345678',
+      'mf-folio:hdfc:12345678/0',
+      'mf-folio:sbi:12345678/0',
+    ])
+  })
+
+  it('files each scheme under the house that issued its ISIN', async () => {
+    const { records } = await runOn(nsdlEcasMissedClaimantPages())
+    const folios = positionsOf(records)
+      .filter((p) => p.accountKey.startsWith('mf-folio'))
+      .map((p) => `${p.accountKey} ${p.instrument.isin ?? '?'} ${p.quantity.value}`)
+      .sort()
+    expect(folios).toEqual([
+      'mf-folio:hdfc:12345678/0 INF179K01608 147.300',
+      `mf-folio:sbi:12345678/0 ${SHARED_FOLIO_SBI_ISIN} 310.400`,
+    ])
+  })
+
+  it('reports the folio the roster did not name, and fails nothing', async () => {
+    const { issues } = await runOn(nsdlEcasMissedClaimantPages())
+    const shared = issues.filter((i) => i.code === 'W_FOLIO_NUMBER_SHARED')
+    expect(shared).toHaveLength(1)
+    expect(shared[0]?.severity).toBe('warning')
+    expect(shared[0]?.message).toMatch(/listed once/)
+    expect(shared[0]?.message).toMatch(/SBI Mutual Fund/)
+    // A deduced folio is stated as a deduction, not as something the document said.
+    expect(shared[0]?.message).toMatch(/the roster named only one of them/)
+    expect(issues.filter((i) => i.severity === 'error')).toEqual([])
+  })
+
+  /**
+   * The other half of the decision, and the reason it needed making.
+   *
+   * A single claimant whose printed name disagrees with its ISIN is a folio the roster *misnamed*,
+   * not a folio it missed: one house, one folio, one account, corrected by the ISIN and reported as
+   * `W_AMC_NAME_CONFLICT`. Splitting that would fork one folio into two accounts, which is the bug
+   * the AMC registry exists to prevent. What separates the two cases is how many houses the
+   * *schemes'* ISINs name — a misnaming is a name disagreeing with an ISIN, and one folio's schemes
+   * still name one house.
+   */
+  it('still merges a folio whose roster misnames its house', async () => {
+    const { records, issues } = await runOn(nsdlEcasPages({ hdfc: 'SBI Mutual Fund' }))
+    const folios = records
+      .filter((r): r is NormalizedAccount => r.kind === 'account')
+      .map((a) => a.accountKey)
+      .filter((key) => key.startsWith('mf-folio'))
+    expect(folios).toEqual(['mf-folio:hdfc:12345678/0'])
+
+    const conflict = issues.filter((i) => i.code === 'W_AMC_NAME_CONFLICT')
+    expect(conflict).toHaveLength(1)
+    expect(issues.filter((i) => i.code === 'W_FOLIO_NUMBER_SHARED')).toEqual([])
+    expect(issues.filter((i) => i.severity === 'error')).toEqual([])
+  })
+})
+
+/**
+ * A roster that names no fund house at all.
+ *
+ * The shared-folio fix turned a scheme row with no roster claim from a silent drop into a visible
+ * error, which is right for one stray row and wrong for a whole file: a real eCAS whose roster
+ * geometry this parser reads differently would fail *every* mutual fund row, though each row
+ * carries a folio number and an ISIN and the pair is a complete identity.
+ */
+describe('a statement whose roster claims no folio at all', () => {
+  it('matches its golden file', async () => {
+    const actual = serializeGolden(await runOn(nsdlEcasUnreadRosterPages()))
+    expect(actual).toBe(golden('pdf-text/golden/nsdl-ecas-unread-roster.json', actual))
+  })
+
+  it('identifies each folio by its schemes ISIN issuer instead of failing every row', async () => {
+    const { records, issues } = await runOn(nsdlEcasUnreadRosterPages())
+    const folios = positionsOf(records)
+      .filter((p) => p.accountKey.startsWith('mf-folio'))
+      .map((p) => `${p.accountKey} ${p.quantity.value}`)
+      .sort()
+    expect(folios).toEqual([
+      'mf-folio:hdfc:12345678/0 147.300',
+      `mf-folio:sbi:12345678/0 310.400`,
+    ])
+    // The identity is the one a parsed roster would have produced — `resolveAmc` prefers the ISIN
+    // to the printed name anyway — so nothing forks and nothing is counted twice.
+    expect(issues.filter((i) => i.severity === 'error')).toEqual([])
+  })
+
+  it('says the roster was not read, once for the document', async () => {
+    const { issues } = await runOn(nsdlEcasUnreadRosterPages())
+    const unrostered = issues.filter((i) => i.code === 'W_FOLIO_NOT_IN_ROSTER')
+    expect(unrostered).toHaveLength(1)
+    expect(unrostered[0]?.severity).toBe('warning')
+    expect(unrostered[0]?.message).toMatch(/12345678\/0/)
+    expect(unrostered[0]?.message).toMatch(/identified/)
+  })
+
+  /**
+   * The fallback is gated on the roster having claimed *nothing*, exactly as `emitDematPositions`
+   * is gated on `sawAnyHeader`. A roster that demonstrably parsed and simply does not mention a
+   * number is different evidence: the likeliest reading is a misread folio cell, and minting an
+   * account from that would double the units the moment the correctly numbered statement arrives.
+   */
+  it('still fails a row whose number a working roster never mentions', async () => {
+    const { records, issues } = await runOn(
+      renumber(nsdlEcasPages(), '12345678 / 0', '99887766 / 0'),
+    )
+    expect(positionsOf(records).filter((p) => p.accountKey.startsWith('mf-folio'))).toEqual([])
+    const failed = issues.filter((i) => i.code === 'E_MISSING_REQUIRED_FIELD')
+    expect(failed).toHaveLength(1)
+    expect(failed[0]?.message).toMatch(/though the roster named others/)
+  })
+})
+
+/**
  * The compounding case, and the reason this is a money bug rather than a labelling one.
  *
  * The eCAS misfiles SBI's units into HDFC's account; the registrar's own CAS for SBI then arrives
@@ -290,44 +428,65 @@ describe('the same folio arriving again from its registrar', () => {
     }
   }
 
-  it('states the units once, against one account', async () => {
-    const store = new MemoryStore()
-    for (const [id, isin, name] of [
-      ['i-hdfc', 'INF179K01608', 'HDFC Flexi Cap Fund'],
-      ['i-sbi', SHARED_FOLIO_SBI_ISIN, 'SBI Bluechip Fund'],
-      ['i-icici', 'INF109K01BL4', 'ICICI Prudential Bluechip Fund'],
-    ] as const) {
-      store.seedInstrument({
-        id,
-        assetClass: 'mutual_fund',
-        displayName: name,
-        isin,
-        currency: 'INR',
-      })
-    }
+  // Both doors to the same defect: a roster that names both houses, and one that names only HDFC
+  // and leaves the SBI folio to be deduced from its scheme's ISIN. The second is the residual the
+  // first fix left open, and it doubles the units in exactly the same way.
+  for (const [door, pages] of [
+    ['the roster names both houses', nsdlEcasSharedFolioPages()],
+    ['the roster names one house', nsdlEcasMissedClaimantPages()],
+  ] as const) {
+    it(`states the units once, against one account, when ${door}`, async () => {
+      const store = new MemoryStore()
+      for (const [id, isin, name] of [
+        ['i-hdfc', 'INF179K01608', 'HDFC Flexi Cap Fund'],
+        ['i-sbi', SHARED_FOLIO_SBI_ISIN, 'SBI Bluechip Fund'],
+        ['i-icici', 'INF109K01BL4', 'ICICI Prudential Bluechip Fund'],
+      ] as const) {
+        store.seedInstrument({
+          id,
+          assetClass: 'mutual_fund',
+          displayName: name,
+          isin,
+          currency: 'INR',
+        })
+      }
 
-    await runImport(
-      { bytes: fakePdfBytes('nsdl'), originalName: 'ecas.pdf' },
-      deps(store, nsdlEcasSharedFolioPages()),
-    )
-    // The registrar's own statement for the *SBI* folio: same number, its own house. Only the
-    // folio, the house and the ISIN identify anything here; the scheme name the CAMS fixture
-    // prints is immaterial to which account the units land in.
-    await runImport(
-      { bytes: fakePdfBytes('cams'), originalName: 'cas.pdf' },
-      deps(store, camsDetailedPages({ hdfc: 'SBI Mutual Fund', hdfcIsin: SHARED_FOLIO_SBI_ISIN })),
-    )
+      await runImport({ bytes: fakePdfBytes('nsdl'), originalName: 'ecas.pdf' }, deps(store, pages))
+      // The registrar's own statement for the *SBI* folio: same number, its own house. Only the
+      // folio, the house and the ISIN identify anything here; the scheme name the CAMS fixture
+      // prints is immaterial to which account the units land in.
+      await runImport(
+        { bytes: fakePdfBytes('cams'), originalName: 'cas.pdf' },
+        deps(store, camsDetailedPages({ hdfc: 'SBI Mutual Fund', hdfcIsin: SHARED_FOLIO_SBI_ISIN })),
+      )
 
-    const held = store.snapshot().positions.filter((p) => p.instrumentId === 'i-sbi')
-    expect(held.length).toBeGreaterThan(0)
-    // Two account ids here is the doubled net worth: the eCAS copy under HDFC and the registrar's
-    // under SBI, both counted.
-    expect(new Set(held.map((p) => p.accountId)).size).toBe(1)
-    const accounts = store.snapshot().accounts
-    expect(accounts.filter((a) => a.identityKey === 'mf-folio:sbi:12345678/0')).toHaveLength(1)
-  })
+      const held = store.snapshot().positions.filter((p) => p.instrumentId === 'i-sbi')
+      expect(held.length).toBeGreaterThan(0)
+      // Two account ids here is the doubled net worth: the eCAS copy under HDFC and the registrar's
+      // under SBI, both counted.
+      expect(new Set(held.map((p) => p.accountId)).size).toBe(1)
+      const accounts = store.snapshot().accounts
+      expect(accounts.filter((a) => a.identityKey === 'mf-folio:sbi:12345678/0')).toHaveLength(1)
+    })
+  }
 })
 
 function strip(pages: readonly RawPdfPage[], pattern: RegExp): RawPdfPage[] {
   return pages.map((page) => ({ ...page, items: page.items.filter((i) => !pattern.test(i.text)) }))
+}
+
+/**
+ * Renumber the **last** occurrence of a folio number, which is the holdings table's rather than
+ * the roster's: a scheme row carrying a number the roster does not mention.
+ */
+function renumber(pages: readonly RawPdfPage[], from: string, to: string): RawPdfPage[] {
+  let remaining = pages.flatMap((page) => page.items).filter((item) => item.text === from).length
+  return pages.map((page) => ({
+    ...page,
+    items: page.items.map((item) => {
+      if (item.text !== from) return item
+      remaining -= 1
+      return remaining === 0 ? { ...item, text: to } : item
+    }),
+  }))
 }

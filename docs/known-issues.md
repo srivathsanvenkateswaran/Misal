@@ -296,30 +296,80 @@ houses claim one number. `nsdl-ecas.test.ts` also imports the eCAS and then the 
 for the SBI folio and asserts the units land on **one** account id; that test finds two against the
 old parser.
 
-Two residuals, both deliberate:
+One residual, deliberate:
 
-- **A scheme row the roster does not account for now fails rather than being dropped.** It was
-  previously discarded in silence, because the join simply missed. An error the user can see is the
-  point; a row that vanishes is not.
 - **Two houses whose names the registry does not know, claiming one number, cannot be told apart
   by name.** Their schemes still separate correctly when the ISINs resolve, and fail visibly when
   they do not. There is no third option that is not a guess.
 
-One hole is left open, deliberately but not comfortably:
+The hole this fix left open — a shared number whose roster names only *one* house — and the
+failure mode it introduced for an unclaimed row are both closed by the entry below.
 
-- **A shared folio number whose roster names only *one* of the two houses still merges.** If the
-  second roster row's DP Name cell is blank or does not parse, there is one claimant, both houses'
-  schemes are attributed to it, and `resolveAmc` picks whichever issuer prefix printed first —
-  the original defect, arriving through an unreadable roster instead of through the map. The
-  evidence to catch it is already on the rows: schemes under one folio number whose ISINs resolve
-  to *two* registry houses are two folios whatever the roster managed to print, and the pair
-  (issuer prefix, folio number) is a complete identity with no guess in it. It is not implemented
-  here because it changes the single-claimant path, which is where `W_AMC_NAME_CONFLICT` lives —
-  a roster that *misnames* one house must keep merging into one account, and telling that apart
-  from a roster that *missed* a house needs the ISIN-count rule above stated as a deliberate
-  design decision rather than smuggled in beside a fix. The same reasoning applies to a roster
-  that does not parse at all: every scheme row then fails, where each row on its own carries both
-  a folio number and an ISIN, and could stand up its own account.
+### ~~A folio number shared with a house the roster never named~~ — FIXED
+
+Resolved by `planFolio` in `src/ingestion/pdf/nsdl-ecas.ts`, which decides who the claimants of a
+folio number are before any row is attributed, and may name a claimant the roster did not.
+
+The previous fix scoped the roster's claims on (house, number), which handles a number the roster
+prints **twice**. A number the roster prints **once** — because the second row's DP Name cell is
+blank or lands outside the column — has one claimant, nothing to overwrite, and therefore merged
+exactly as before: both houses' schemes attached to the single claimant, and `resolveAmc` handed the
+account to whichever ISIN issuer prefix printed first. Same doubled units, different door.
+
+**The rule, which is the design decision this needed.** The single-claimant path is also where a
+*misnamed* house is deliberately merged, so the two have to be told apart:
+
+- *Misnamed* — one real folio printed under a name that disagrees with its ISINs. Merging is
+  correct: the ISIN decides the identity, `W_AMC_NAME_CONFLICT` reports the name, and the folio
+  stays one account across every statement. Splitting it would fork one folio into two accounts,
+  which is the defect the AMC registry exists to prevent.
+- *Missed* — two real folios sharing a number, of which the roster captured one. Merging destroys
+  units.
+
+They are distinguishable, and the discriminator is on the rows: **count the registry houses the
+number's scheme rows name.** Every scheme in a folio belongs to one house, so a misnaming is a name
+disagreeing with an ISIN and its rows still name exactly one house; two houses among the rows is one
+ISIN disagreeing with another, which one folio cannot produce. One house (or none Misal can name)
+keeps the merge; two or more splits the number into one account per issuing house, keyed
+`mf-folio:<registry id>:<folio>` — the same identity the registrar's own CAS produces — and reports
+it as `W_FOLIO_NUMBER_SHARED`. Only *registry* houses are counted: an unrecognised issuer prefix is
+evidence of a gap in the registry, not of a different house, and splitting on it would fork folios
+whose prefix is merely unlisted.
+
+**The unclaimed row's failure mode was reconsidered and changed.** The previous fix turned a scheme
+row with no roster claim from a silent drop into an error, which is right for one stray row and
+wrong for a whole file: a real eCAS whose roster geometry this parser reads differently contributes
+*no* claims, and every mutual fund row in it would fail at once. So the fallback is gated the way
+`emitDematPositions` gates its own, on whether the template has been observed working at all:
+
+- **The roster claimed nothing anywhere in the document.** It is unread rather than silent about one
+  number, and the rows are the only statement of identity the file makes. Each number is identified
+  by its schemes' ISIN issuers — the same key a parsed roster would have produced, since the ISIN
+  wins over the printed name anyway — and `W_FOLIO_NOT_IN_ROSTER` says so once for the document.
+- **The roster claimed other numbers but not this one.** The roster demonstrably parsed, so a number
+  it never mentions is an anomaly, most likely a misread folio cell. Minting an account from a
+  misread number is worse than dropping the row, because the units reappear correctly numbered in
+  the next statement and are then counted twice. The row still fails, as before.
+
+Accounts now record which of the two produced them: `raw.amcFrom` is `roster` or `isin`, so the
+review queue never shows a deduction as something the document printed.
+
+Fixtures: `nsdlEcasMissedClaimantPages` in `src/ingestion/testing/corpus.ts` is the shared-number
+statement with the SBI roster row's DP Name cell removed, and `nsdlEcasUnreadRosterPages` removes
+both houses' name cells so the roster claims nothing. Against the previous parser the first yields
+one account holding 310.400 units that are not its own, and the second fails every mutual fund row;
+`nsdl-ecas.test.ts` also runs the registrar's own CAS behind the missed-claimant eCAS and finds two
+account ids for one holding where there must be one.
+
+Two residuals, both deliberate:
+
+- **A row whose ISIN names no registry house, under a number that has been split, fails.** It cannot
+  be assigned to either of the houses the split found, and inventing a third folio from a prefix the
+  registry does not know is the guess this whole area exists to refuse.
+- **A roster that names one house Misal cannot name, over a number whose rows name two it can,
+  leaves an empty provisional account.** The statement declared that folio, so it is emitted; which
+  of the two it was meant to be is not recoverable, and dropping a declared account to tidy the
+  report would hide a roster the parser did not understand.
 
 ### The NSDL eCAS keys MF folios on the folio number alone (historical)
 

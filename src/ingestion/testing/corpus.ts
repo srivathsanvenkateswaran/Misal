@@ -585,6 +585,46 @@ export function nsdlEcasSharedFolioPages(overrides: CorpusSpellings = {}): RawPd
 }
 
 /**
+ * The same two folios, with the roster naming only **one** of them.
+ *
+ * The SBI roster row's DP Name cell is gone — blank in the source, or in a column this parser reads
+ * differently — so the roster says folio `12345678 / 0` is HDFC's and stops there. Both schemes are
+ * still printed under that number, and their ISINs still name two houses.
+ *
+ * This is the shared-number bug arriving through a different door, and the door matters: with one
+ * claimant there is nothing to overwrite, so the map that `nsdlEcasSharedFolioPages` retires would
+ * not have been at fault. Both houses' schemes simply attach to the one claimant, and whichever
+ * issuer prefix prints first takes the account. The only evidence that two folios exist is on the
+ * rows themselves — every scheme in a folio belongs to one house, so two issuers is two folios —
+ * and this fixture exists to make sure that evidence is used.
+ */
+export function nsdlEcasMissedClaimantPages(): RawPdfPage[] {
+  return withoutRosterHouses(nsdlEcasSharedFolioPages(), ['SBI Mutual Fund'])
+}
+
+/**
+ * The same statement with **no** roster line naming any fund house.
+ *
+ * A real eCAS whose roster geometry differs from this corpus — a DP Name column that lands outside
+ * the band, a template that labels it something else — produces exactly this: a roster that yields
+ * no folio claims at all, while the mutual fund holdings table is read perfectly well. Every row
+ * there carries a folio number and an ISIN, which is a complete identity, so the file is not
+ * unreadable; it is only unrostered.
+ */
+export function nsdlEcasUnreadRosterPages(overrides: CorpusSpellings = {}): RawPdfPage[] {
+  const amc = spellings({ hdfc: AMC_SPELLINGS.hdfc[1], ...overrides })
+  return withoutRosterHouses(nsdlEcasSharedFolioPages(overrides), [amc.hdfc, 'SBI Mutual Fund'])
+}
+
+/** Drop the roster's DP Name cells for the named fund houses, leaving their folio rows in place. */
+function withoutRosterHouses(pages: readonly RawPdfPage[], houses: readonly string[]): RawPdfPage[] {
+  return pages.map((page) => ({
+    ...page,
+    items: page.items.filter((item) => !houses.includes(item.text)),
+  }))
+}
+
+/**
  * The same shared-number statement with a scheme no roster line can account for.
  *
  * Its ISIN belongs to a third house — Axis — so neither claimant issued it and no honest reading

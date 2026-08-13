@@ -1,5 +1,12 @@
 {
-  "issues": [],
+  "issues": [
+    {
+      "code": "W_FOLIO_NOT_IN_ROSTER",
+      "message": "this statement's roster listed no mutual fund folio Misal could read, so the 1 folio number(s) in the holdings table (12345678/0) were identified by the ISIN issuer of the schemes filed under them. That is the same (fund house, folio number) identity a folio's own registrar statement produces, so these holdings will not be counted twice; but a folio with no scheme row of its own is not in this import at all.",
+      "ref": "p.1 r.18",
+      "severity": "warning"
+    }
+  ],
   "records": [
     {
       "accountKey": "demat:IN300394-12345678",
@@ -37,7 +44,7 @@
           "quantity": "8.000",
           "value": "12,886.00"
         },
-        "ref": "p.1 r.14"
+        "ref": "p.1 r.15"
       },
       "quantity": {
         "scale": 3,
@@ -53,8 +60,8 @@
       "label": "HDFC Mutual Fund · 12345678/0",
       "origin": {
         "raw": {
-          "amc": "HDFC Asset Management Company Limited",
-          "amcFrom": "roster",
+          "amc": "HDFC Mutual Fund",
+          "amcFrom": "isin",
           "folio": "12345678/0",
           "identity": "mf-folio:hdfc:12345678/0"
         },
@@ -82,11 +89,56 @@
           "quantity": "147.300",
           "value": "8,838.00"
         },
-        "ref": "p.1 r.17"
+        "ref": "p.1 r.18"
       },
       "quantity": {
         "scale": 3,
         "value": "147.300"
+      }
+    },
+    {
+      "accountKey": "mf-folio:sbi:12345678/0",
+      "baseCurrency": "INR",
+      "capability": "snapshot",
+      "externalRef": "12345678/0",
+      "kind": "account",
+      "label": "SBI Mutual Fund · 12345678/0",
+      "origin": {
+        "raw": {
+          "amc": "SBI Mutual Fund",
+          "amcFrom": "isin",
+          "folio": "12345678/0",
+          "identity": "mf-folio:sbi:12345678/0"
+        },
+        "ref": "mf-folio:sbi:12345678/0"
+      }
+    },
+    {
+      "accountKey": "mf-folio:sbi:12345678/0",
+      "asOf": "2025-03-31T00:00:00+05:30",
+      "asOfDate": "2025-03-31",
+      "asOfTz": "Asia/Kolkata",
+      "currency": "INR",
+      "instrument": {
+        "assetClassHint": "mutual_fund",
+        "isin": "INF200K01UT8",
+        "name": "SBI Bluechip Fund - Growth"
+      },
+      "kind": "position",
+      "marketValueMinor": "2483200",
+      "origin": {
+        "raw": {
+          "folio": "12345678/0",
+          "isin": "INF200K01UT8",
+          "name": "SBI Bluechip Fund - Growth",
+          "quantity": "310.400",
+          "value": "24,832.00"
+        },
+        "ref": "p.1 r.19"
+      },
+      "quantity": {
+        "scale": 3,
+        "value": "310.400"
       }
     }
   ],

@@ -155,6 +155,7 @@
       "origin": {
         "raw": {
           "amc": "HDFC Asset Management Company Limited",
+          "amcFrom": "roster",
           "folio": "12345678/0",
           "identity": "mf-folio:hdfc:12345678/0"
         },
