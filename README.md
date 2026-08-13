@@ -19,35 +19,34 @@ own character.
 
 Misal is **early**. It is built and tested, but it has not been used in anger by anyone.
 
-> **Do not import statements you cannot re-download.** A review completed on 2026-08-13 found two
-> ways an imported statement's transactions can be permanently and silently discarded, with the
-> screen reporting that nothing happened — and re-importing the file, the obvious recovery, is the
-> path that is closed. Fixes are in progress. Until they land, treat any import as potentially
-> one-way.
+> **Keep the statements you import.** The ways an import could silently discard transactions are
+> fixed, but nothing here has yet been run against a real statement by anyone but its author. Keep
+> the original file until you have checked the figures it produced.
 
 | | |
 |---|---|
 | **Reasonable to look at** | What you own and where, allocation, quantities from a single import |
-| **Known wrong in specific cases** | Net worth doubles if you reconnect an exchange after rotating a key |
-| **Recently fixed, not field-tested** | Realised gains, XIRR, the 12-month history chart |
-| **Do not use for** | Filing a tax return; importing anything you cannot obtain again |
+| **Recently fixed, not field-tested** | Import recovery, exchange key rotation, realised gains, XIRR, the 12-month history chart, native-currency labelling |
+| **Known imprecise** | A transfer pending longer than a week is still missed; CoinDCX transfer history is unverified |
+| **Do not use for** | Filing a tax return |
 
 Three independent adversarial reviews have run over this codebase. They found **27 confirmed
 defects** between them, including a mutual fund redemption that inverted realised profit into a
 loss, foreign disposals understated roughly 87-fold, and a history chart converting past months at
-today's exchange rate. Those are fixed, each with a test that fails without the fix.
+today's exchange rate. All 27 are fixed, each with a test that fails without the fix.
 
-The third review found seven more, **two of them inside the fix the second review's findings
-produced** — the mechanism added to prevent permanent statement loss has holes that cause it. That
-is the honest state of this project: each pass finds real defects, including in the previous pass's
-repairs.
+The third review found seven, **two of them inside the fix the second review's findings produced** —
+the mechanism added to prevent permanent statement loss had holes that caused it. That is the
+honest state of this project: each pass finds real defects, including in the previous pass's
+repairs. So the count above is a floor, not a ceiling, and a fourth pass is what the next one will
+be measured against.
 
 Every one of these existed under a passing suite of well over a thousand tests. In nearly every
 case the cause was the same — a missing fixture, not a missing assertion. The suite was dense over
-the shapes it happened to contain.
+the shapes it happened to contain and blind to the ones it did not: no fixture had a negative sell
+amount, a foreign disposal, a partially priced month, or two accounts holding the same instrument.
 
-So: use it to see what you own, from statements you can download again. Check anything you would
-act on.
+So: use it to see what you own. Check anything you would act on.
 
 ---
 
