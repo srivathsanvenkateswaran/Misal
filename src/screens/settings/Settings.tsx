@@ -383,6 +383,7 @@ function SettingField({
   readonly onSaved: () => void
 }): ReactNode {
   const [draft, setDraft] = useState(stored)
+  const [applied, setApplied] = useState(stored)
   const [note, setNote] = useState<string | null>(null)
   const [failed, setFailed] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -390,9 +391,19 @@ function SettingField({
 
   // The stored value wins whenever the core reports a new one: a save that was normalised — " usd "
   // to "USD" — must show what was stored rather than what was typed.
-  useEffect(() => {
+  //
+  // Adjusted while rendering, against the value last applied, rather than from an effect keyed on
+  // `stored`. An effect would also run on mount, where it re-applies the value `useState` was just
+  // initialised with — a no-op only if it runs before the field is touched. React flushes passive
+  // effects at the start of its next unit of work, and a keystroke is such a unit, so a mount
+  // effect still pending when the user types queues its reset *behind* the keystroke and wins:
+  // what was typed is discarded, `draft === stored` disables Save again, and the save never
+  // reaches the core. Whether the effect had run yet was down to the machine's load, which is
+  // exactly the shape of bug that reads as a flaky test rather than as the lost keystroke it is.
+  if (applied !== stored) {
+    setApplied(stored)
     setDraft(stored)
-  }, [stored])
+  }
 
   const submit = (event: FormEvent): void => {
     event.preventDefault()
