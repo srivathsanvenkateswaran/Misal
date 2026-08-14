@@ -1,46 +1,88 @@
 <!--
-  Misal app icon — "Sev".
+  Misal app icon — a katori of misal at three-quarter angle, farsan heaped proud of the rim.
 
-  The heap of fine crisp strands piled over the rim of the bowl. Chosen over an allocation ring
-  because an icon's job is retrieval, not explanation: in a dock full of finance apps every
-  competitor is a coloured donut, and the one food mark is the one you find without looking. A ring
-  is also always full, which is the single claim this app spends its whole design refusing to make.
+  The angle is the decision. Top-down shows the food and hides the vessel; side-on shows the vessel
+  and hides the food. Three-quarter is the only view that carries both, and the steel katori
+  identifies the dish as much as the sev does - a steel bowl with an orange slick on red is not
+  served anywhere else.
 
-  Authored at 1024. The mark itself is drawn in a 64 unit space and placed with one transform, so
-  the geometry stays legible and can be re-scaled without redrawing:
+  The heap is the reason this one and not the flat-topped variant. At small sizes colour blurs first
+  and outline survives longest, and every other arrangement of these parts has the same outline: an
+  ellipse sitting on a bowl, which is equally minestrone. Breaking the rim line with the heap is what
+  gives the mark a profile no other icon in a dock has. It is also simply what the dish looks like -
+  farsan is piled on top, never stirred in.
 
-      scale 13       -> the 50x38 unit mark becomes 650x494
-      translate      -> its bounding box centre (32,37) lands on the canvas centre (512,512)
+  Two things are deliberate rather than decorative, and both stop the heap reading as an egg:
+  red stays visible right around the base of the heap, and crumbs overhang its edge so the silhouette
+  is pieces piled up rather than one smooth solid. Crumbs come in two golds for the same reason.
 
-  Everything downstream (icns, ico, the PNG ladder, Android, the favicon) is rendered from this file.
+  Authored at 1024. The mark is drawn in a 64 unit space and placed with a single transform:
+
+      scale 16.5     -> the 42x33.5 unit mark becomes 693x553, about 68% of the tile
+      translate      -> its bounding box centre (32, 33.75) lands on the canvas centre (512,512)
+
+  Everything downstream - icns, ico, the PNG ladder, Android, the favicon - is rendered from this
+  file. src/assets/mark.svg is the same drawing without the tile; keep the two in step.
 -->
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>
-    <clipPath id="bowl">
-      <path d="M10 34h44a22 22 0 0 1-44 0z"/>
-    </clipPath>
+    <clipPath id="rassa"><ellipse cx="32" cy="30" rx="18" ry="7.2"/></clipPath>
   </defs>
 
-  <!-- The tile. Rounded at 22.5%, which is the macOS proportion; Windows and Android crop or mask
-       it themselves and the corner radius is invisible to them. -->
+  <!-- The tile. Rounded at 22.5%, the macOS proportion; Windows and Android mask it themselves. -->
   <rect width="1024" height="1024" rx="230" fill="#2B1A12"/>
 
-  <g transform="translate(96 31) scale(13)">
-    <!-- The bowl: a dark half disc, clipped so the fill cannot escape the silhouette. -->
-    <g clip-path="url(#bowl)">
-      <rect x="10" y="34" width="44" height="24" fill="#7A3B1E"/>
+  <g transform="translate(-16 -44.9) scale(16.5)">
+    <!-- The bowl, seen from above the rim: body first, then a darker underside so the steel turns. -->
+    <path d="M11 30A21 20.5 0 0 0 53 30Z" fill="#A7AFB6"/>
+    <path d="M15 38A17 12.5 0 0 0 49 38Z" fill="#8B939A"/>
+
+    <!-- The rim ellipse, and the rassa inset from it so a ring of steel always shows. -->
+    <ellipse cx="32" cy="30" rx="21" ry="9.4" fill="#D9DFE4"/>
+    <ellipse cx="32" cy="30" rx="18" ry="7.2" fill="#AE2517"/>
+
+    <!-- The tarri, pooled off-centre the way oil actually sits rather than filling the surface. -->
+    <g clip-path="url(#rassa)">
+      <ellipse cx="30" cy="27" rx="13" ry="4" fill="#E0641C"/>
+      <g fill="#F0E4EE">
+        <rect x="21" y="31" width="2.4" height="2" rx=".6"/>
+        <rect x="40" y="30" width="2.4" height="2" rx=".6"/>
+      </g>
     </g>
 
-    <!-- The sev. Four strands only, and thick: texture is the first thing to die when an icon is
-         shrunk, and at 16px a finer tangle turns to mush. These survive it. -->
-    <g fill="none" stroke="#EFB02E" stroke-width="3.4" stroke-linecap="round">
-      <path d="M13 33c5-11 14-16 23-15"/>
-      <path d="M20 33c4-8 12-12 20-10"/>
-      <path d="M28 33c5-9 13-11 20-7"/>
-      <path d="M38 33c4-5 9-7 13-6"/>
+    <!-- The heap. Its base stops short of the rassa's edge on both sides, so red frames it. -->
+    <path d="M19 28c3-9 10-13 17-11 6 2 9 6 9 11-8 3-18 3-26 0z" fill="#E8A828"/>
+
+    <!--
+      Crumbs in two golds. The ones in the second group straddle the heap's outline rather than
+      sitting inside it: a smooth dome of this size reads as mash or an omelette, and the only thing
+      that stops it is pieces visibly breaking the edge. They are what makes the silhouette crisp.
+    -->
+    <g fill="#F2C049">
+      <rect x="29" y="19.6" width="7.5" height="2.1" rx="1.05" transform="rotate(-3 29 19.6)"/>
+      <rect x="21" y="24" width="7" height="2.1" rx="1.05" transform="rotate(-16 21 24)"/>
+      <rect x="36" y="23" width="6.6" height="2.1" rx="1.05" transform="rotate(14 36 23)"/>
+      <rect x="25" y="27" width="6.6" height="2.1" rx="1.05" transform="rotate(5 25 27)"/>
+    </g>
+    <g fill="#CE8A1B">
+      <rect x="16.5" y="26.2" width="6" height="2" rx="1" transform="rotate(-30 16.5 26.2)"/>
+      <rect x="42" y="25.6" width="6" height="2" rx="1" transform="rotate(24 42 25.6)"/>
+      <rect x="28.6" y="15.4" width="6" height="2" rx="1" transform="rotate(-8 28.6 15.4)"/>
+      <rect x="23.4" y="19.4" width="5.4" height="1.9" rx=".95" transform="rotate(-42 23.4 19.4)"/>
+      <rect x="37.4" y="18.4" width="5.4" height="1.9" rx=".95" transform="rotate(38 37.4 18.4)"/>
+      <rect x="19.6" y="23" width="5" height="1.9" rx=".95" transform="rotate(-52 19.6 23)"/>
     </g>
 
-    <!-- The rim, last so it sits over the strands' feet and reads as the bowl's edge. -->
-    <rect x="7" y="31" width="50" height="4.6" rx="2.3" fill="#EFD9A9"/>
+    <!-- Onion and coriander, on the heap rather than beside it. Turned off-square, because two
+         upright white boxes on a mound read as dice. -->
+    <g fill="#F0E4EE">
+      <rect x="30.6" y="24" width="2.3" height="2" rx=".55" transform="rotate(18 30.6 24)"/>
+      <rect x="24" y="21.6" width="2.1" height="1.9" rx=".5" transform="rotate(-14 24 21.6)"/>
+      <rect x="36.4" y="25.6" width="2.1" height="1.9" rx=".5" transform="rotate(9 36.4 25.6)"/>
+    </g>
+    <g fill="#5DAF43">
+      <circle cx="34.4" cy="20.6" r="1.4"/>
+      <circle cx="26.6" cy="25.2" r="1.2"/>
+    </g>
   </g>
 </svg>

@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Misal — icon at three-quarter angle</title>
+<style>
+  :root{
+    --ink:#17120F; --ink-2:#241C17; --paper:#F7F2E9;
+    --line:rgba(247,242,233,.14); --line-dark:rgba(23,18,15,.14);
+    --muted:#A79A8C; --tarri:#F4791F; --sev:#EFB02E;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{background:var(--ink);color:var(--paper);font-family:var(--sans);line-height:1.55;
+    -webkit-font-smoothing:antialiased}
+  .wrap{max-width:1060px;margin:0 auto;padding:56px 28px 96px}
+  header{border-bottom:1px solid var(--line);padding-bottom:30px}
+  .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--tarri);margin:0 0 14px}
+  h1{font-size:clamp(28px,4vw,38px);margin:0 0 16px;font-weight:600;letter-spacing:-.02em;line-height:1.1}
+  .lede{max-width:62ch;color:#CBBFB1;margin:0 0 12px;font-size:16px}
+  .lede strong{color:var(--paper);font-weight:600}
+  .note{background:var(--ink-2);border:1px solid var(--line);border-left:3px solid var(--tarri);
+    border-radius:10px;padding:20px 22px;margin-top:26px}
+  .note p{margin:0;color:#CBBFB1;max-width:60ch;font-size:15px}
+  .note p + p{margin-top:10px}
+
+  .opt{padding:46px 0;border-bottom:1px solid var(--line)}
+  .opt-head{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:6px}
+  .tag{font-family:var(--mono);font-size:12px;letter-spacing:.14em;color:var(--ink);
+    background:var(--tarri);border-radius:3px;padding:3px 9px;font-weight:600}
+  .opt h2{font-size:23px;margin:0;font-weight:600;letter-spacing:-.01em}
+  .why{max-width:62ch;color:#CBBFB1;margin:10px 0 0;font-size:15px}
+
+  .row{margin-top:24px;background:var(--ink-2);border:1px solid var(--line);border-radius:12px;
+    padding:24px;display:flex;align-items:flex-end;gap:30px;flex-wrap:wrap}
+  .row.light{background:var(--paper);border-color:var(--line-dark)}
+  .rung{display:flex;flex-direction:column;align-items:center;gap:9px}
+  .cap{font-family:var(--mono);font-size:9px;letter-spacing:.13em;text-transform:uppercase;color:var(--muted)}
+  .row.light .cap{color:#8A7F71}
+  .s16{width:16px;height:16px}.s24{width:24px;height:24px}.s32{width:32px;height:32px}
+  .s48{width:48px;height:48px}.s64{width:64px;height:64px}.s160{width:160px;height:160px}
+  .dockstrip{display:flex;gap:14px;align-items:center;flex-wrap:wrap;
+    background:linear-gradient(180deg,#2E2622,#1D1714);border:1px solid var(--line);
+    border-radius:12px;padding:20px;margin-top:16px}
+  footer{padding-top:44px;color:#8E8377;font-size:14px;max-width:62ch}
+  footer strong{color:var(--paper)}
+  code{font-family:var(--mono);font-size:.9em;background:rgba(255,255,255,.07);padding:1px 5px;border-radius:3px}
+  @media (max-width:640px){.wrap{padding:36px 18px 70px}.row{gap:20px}}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <clipPath id="fillA"><ellipse cx="32" cy="28" rx="18" ry="7.2"/></clipPath>
+  <clipPath id="fillB"><ellipse cx="32" cy="30" rx="18" ry="7.2"/></clipPath>
+  <clipPath id="fillC"><ellipse cx="30" cy="36" rx="16.5" ry="6.6"/></clipPath>
+  <clipPath id="fillD"><ellipse cx="32" cy="31" rx="16.5" ry="6.6"/></clipPath>
+
+  <!-- 1 · the bowl, three-quarter -->
+  <symbol id="p1" viewBox="0 0 64 64">
+    <rect width="64" height="64" rx="14" fill="#2B1A12"/>
+    <path d="M11 28A21 21.5 0 0 0 53 28Z" fill="#A7AFB6"/>
+    <path d="M15 37A17 13 0 0 0 49 37Z" fill="#8B939A"/>
+    <ellipse cx="32" cy="28" rx="21" ry="9.4" fill="#D9DFE4"/>
+    <ellipse cx="32" cy="28" rx="18" ry="7.2" fill="#AE2517"/>
+    <g clip-path="url(#fillA)">
+      <ellipse cx="30" cy="25" rx="13" ry="4" fill="#E0641C"/>
+      <g fill="#F2B12E">
+        <rect x="20" y="27" width="6.4" height="2" rx="1" transform="rotate(-9 20 27)"/>
+        <rect x="29" y="24" width="7" height="2" rx="1" transform="rotate(6 29 24)"/>
+        <rect x="37" y="28" width="6.4" height="2" rx="1" transform="rotate(-12 37 28)"/>
+        <rect x="24" y="31" width="6" height="2" rx="1" transform="rotate(4 24 31)"/>
+        <rect x="34" y="32" width="6" height="2" rx="1" transform="rotate(-5 34 32)"/>
+      </g>
+      <g fill="#F0E4EE">
+        <rect x="27" y="29" width="2.6" height="2.2" rx=".6"/>
+        <rect x="40" y="25" width="2.4" height="2" rx=".6"/>
+        <rect x="19" y="30" width="2.4" height="2" rx=".6"/>
+        <rect x="33" y="27" width="2.4" height="2" rx=".6"/>
+      </g>
+      <g fill="#5DAF43"><circle cx="24" cy="26" r="1.4"/><circle cx="38" cy="31" r="1.3"/><circle cx="31" cy="30.5" r="1.1"/></g>
+    </g>
+  </symbol>
+
+  <!-- 2 · heaped proud of the rim -->
+  <symbol id="p2" viewBox="0 0 64 64">
+    <rect width="64" height="64" rx="14" fill="#2B1A12"/>
+    <path d="M11 30A21 20.5 0 0 0 53 30Z" fill="#A7AFB6"/>
+    <path d="M15 38A17 12.5 0 0 0 49 38Z" fill="#8B939A"/>
+    <ellipse cx="32" cy="30" rx="21" ry="9.4" fill="#D9DFE4"/>
+    <ellipse cx="32" cy="30" rx="18" ry="7.2" fill="#AE2517"/>
+    <g clip-path="url(#fillB)">
+      <ellipse cx="30" cy="27" rx="13" ry="4" fill="#E0641C"/>
+      <g fill="#F0E4EE"><rect x="21" y="31" width="2.4" height="2" rx=".6"/><rect x="40" y="30" width="2.4" height="2" rx=".6"/></g>
+    </g>
+    <!-- the heap, breaking the rim line the way farsan actually sits -->
+    <path d="M19 28c3-9 10-13 17-11 6 2 9 6 9 11-8 3-18 3-26 0z" fill="#E8A828"/>
+    <g fill="#F2C049">
+      <rect x="21" y="24" width="7" height="2.1" rx="1.05" transform="rotate(-16 21 24)"/>
+      <rect x="29" y="20" width="7.5" height="2.1" rx="1.05" transform="rotate(-3 29 20)"/>
+      <rect x="36" y="23" width="6.6" height="2.1" rx="1.05" transform="rotate(14 36 23)"/>
+      <rect x="25" y="27" width="6.6" height="2.1" rx="1.05" transform="rotate(5 25 27)"/>
+    </g>
+    <g fill="#F0E4EE"><rect x="31" y="24" width="2.6" height="2.2" rx=".6"/><rect x="24" y="21" width="2.4" height="2" rx=".6"/></g>
+    <g fill="#5DAF43"><circle cx="35" cy="19" r="1.5"/><circle cx="27" cy="24" r="1.3"/></g>
+  </symbol>
+
+  <!-- 3 · with the pav behind -->
+  <symbol id="p3" viewBox="0 0 64 64">
+    <rect width="64" height="64" rx="14" fill="#2B1A12"/>
+    <g>
+      <rect x="33" y="12" width="17" height="13" rx="4.5" fill="#E8CE9A"/>
+      <path d="M33 17.5a8.5 5.5 0 0 1 17 0z" fill="#C9974F"/>
+      <rect x="45" y="17" width="15" height="12" rx="4.5" fill="#EFD9A9"/>
+      <path d="M45 22a7.5 5 0 0 1 15 0z" fill="#D2A55E"/>
+    </g>
+    <path d="M11 36A19 19 0 0 0 49 36Z" fill="#A7AFB6"/>
+    <path d="M15 43A15 11 0 0 0 45 43Z" fill="#8B939A"/>
+    <ellipse cx="30" cy="36" rx="19.5" ry="8.6" fill="#D9DFE4"/>
+    <ellipse cx="30" cy="36" rx="16.5" ry="6.6" fill="#AE2517"/>
+    <g clip-path="url(#fillC)">
+      <ellipse cx="28" cy="33.5" rx="12" ry="3.6" fill="#E0641C"/>
+      <g fill="#F2B12E">
+        <rect x="19" y="35" width="6" height="1.9" rx=".95" transform="rotate(-8 19 35)"/>
+        <rect x="27" y="32.5" width="6.6" height="1.9" rx=".95" transform="rotate(5 27 32.5)"/>
+        <rect x="34" y="36" width="6" height="1.9" rx=".95" transform="rotate(-10 34 36)"/>
+        <rect x="23" y="38.5" width="6" height="1.9" rx=".95" transform="rotate(3 23 38.5)"/>
+      </g>
+      <g fill="#F0E4EE"><rect x="25" y="36.5" width="2.4" height="2" rx=".6"/><rect x="36" y="33" width="2.2" height="1.9" rx=".6"/></g>
+      <g fill="#5DAF43"><circle cx="22" cy="34" r="1.3"/><circle cx="34" cy="38.5" r="1.2"/></g>
+    </g>
+  </symbol>
+
+  <!-- 4 · on a steel thali -->
+  <symbol id="p4" viewBox="0 0 64 64">
+    <rect width="64" height="64" rx="14" fill="#2B1A12"/>
+    <ellipse cx="32" cy="40" rx="27" ry="13" fill="#8B939A"/>
+    <ellipse cx="32" cy="38.5" rx="27" ry="13" fill="#C3CAD0"/>
+    <ellipse cx="32" cy="38.5" rx="21" ry="9.6" fill="#A7AFB6"/>
+    <path d="M14 31A18 18 0 0 0 50 31Z" fill="#9AA2A9"/>
+    <path d="M17 38A15 11 0 0 0 47 38Z" fill="#7F878E"/>
+    <ellipse cx="32" cy="31" rx="19" ry="8.4" fill="#DDE3E8"/>
+    <ellipse cx="32" cy="31" rx="16.5" ry="6.6" fill="#AE2517"/>
+    <g clip-path="url(#fillD)">
+      <ellipse cx="30" cy="28.5" rx="12" ry="3.6" fill="#E0641C"/>
+      <g fill="#F2B12E">
+        <rect x="21" y="30" width="6" height="1.9" rx=".95" transform="rotate(-8 21 30)"/>
+        <rect x="29" y="27.5" width="6.6" height="1.9" rx=".95" transform="rotate(6 29 27.5)"/>
+        <rect x="35" y="31" width="5.6" height="1.9" rx=".95" transform="rotate(-11 35 31)"/>
+        <rect x="25" y="33.5" width="6" height="1.9" rx=".95" transform="rotate(3 25 33.5)"/>
+      </g>
+      <g fill="#F0E4EE"><rect x="27" y="31.5" width="2.4" height="2" rx=".6"/><rect x="37" y="28" width="2.2" height="1.9" rx=".6"/></g>
+      <g fill="#5DAF43"><circle cx="24" cy="29" r="1.3"/><circle cx="35" cy="33.5" r="1.2"/></g>
+    </g>
+  </symbol>
+</defs></svg>
+
+<div class="wrap">
+
+<header>
+  <p class="eyebrow">Misal · app icon · round three</p>
+  <h1>At the angle you actually meet a bowl</h1>
+  <p class="lede">Four marks at the three-quarter angle of your fourth reference — the elliptical steel
+  rim, the body of the bowl falling away beneath it, and the toppings sitting on red.</p>
+  <div class="note">
+    <p><strong>Why this angle does more work than either flat one.</strong> Top-down shows the food
+    and hides the vessel; side-on shows the vessel and hides the food. Three-quarter is the only view
+    that carries both — and the steel katori is doing as much identifying here as the sev is, because
+    a steel bowl with an orange rim of oil is not a dish from anywhere else.</p>
+    <p>The cost is honest: this is the most detailed thing I have drawn for you, and detail is what
+    dies at 16&nbsp;px. Judge these on the small rungs, not the large ones.</p>
+  </div>
+</header>
+
+<section class="opt">
+  <div class="opt-head"><span class="tag">1</span><h2>The bowl</h2></div>
+  <p class="why">The plainest statement of the angle. Steel rim as a bright ellipse, the darker body
+  below it, rassa with the tarri pooling off-centre, and sev, onion and coriander scattered across
+  the surface rather than heaped.</p>
+  <div class="row">
+    <div class="rung"><svg class="s160"><use href="#p1"/></svg><span class="cap">160</span></div>
+    <div class="rung"><svg class="s64"><use href="#p1"/></svg><span class="cap">64</span></div>
+    <div class="rung"><svg class="s32"><use href="#p1"/></svg><span class="cap">32 · dock</span></div>
+    <div class="rung"><svg class="s24"><use href="#p1"/></svg><span class="cap">24</span></div>
+    <div class="rung"><svg class="s16"><use href="#p1"/></svg><span class="cap">16 · tab</span></div>
+  </div>
+</section>
+
+<section class="opt">
+  <div class="opt-head"><span class="tag">2</span><h2>Heaped</h2></div>
+  <p class="why">The farsan piled proud of the rim, breaking the ellipse — which is exactly what your
+  first and fourth references show, and what stops a bowl of red looking like soup. The heap also
+  gives the mark a silhouette above the rim line, which is the part that survives shrinking.</p>
+  <div class="row">
+    <div class="rung"><svg class="s160"><use href="#p2"/></svg><span class="cap">160</span></div>
+    <div class="rung"><svg class="s64"><use href="#p2"/></svg><span class="cap">64</span></div>
+    <div class="rung"><svg class="s32"><use href="#p2"/></svg><span class="cap">32 · dock</span></div>
+    <div class="rung"><svg class="s24"><use href="#p2"/></svg><span class="cap">24</span></div>
+    <div class="rung"><svg class="s16"><use href="#p2"/></svg><span class="cap">16 · tab</span></div>
+  </div>
+</section>
+
+<section class="opt">
+  <div class="opt-head"><span class="tag">3</span><h2>With the pav</h2></div>
+  <p class="why">Your fourth reference in full: the bowl in front, two pav sitting behind it. The most
+  unmistakable of everything I have drawn — nothing else in the world looks like this — and the most
+  at risk small, because it asks a 16&nbsp;px square to hold three objects.</p>
+  <div class="row">
+    <div class="rung"><svg class="s160"><use href="#p3"/></svg><span class="cap">160</span></div>
+    <div class="rung"><svg class="s64"><use href="#p3"/></svg><span class="cap">64</span></div>
+    <div class="rung"><svg class="s32"><use href="#p3"/></svg><span class="cap">32 · dock</span></div>
+    <div class="rung"><svg class="s24"><use href="#p3"/></svg><span class="cap">24</span></div>
+    <div class="rung"><svg class="s16"><use href="#p3"/></svg><span class="cap">16 · tab</span></div>
+  </div>
+</section>
+
+<section class="opt">
+  <div class="opt-head"><span class="tag">4</span><h2>On the thali</h2></div>
+  <p class="why">The bowl standing on a steel plate, as it arrives. The plate gives the mark a wide
+  stable base and a second ring of steel, which reads at small sizes even after the toppings have
+  blurred — the composition still says “something served”.</p>
+  <div class="row">
+    <div class="rung"><svg class="s160"><use href="#p4"/></svg><span class="cap">160</span></div>
+    <div class="rung"><svg class="s64"><use href="#p4"/></svg><span class="cap">64</span></div>
+    <div class="rung"><svg class="s32"><use href="#p4"/></svg><span class="cap">32 · dock</span></div>
+    <div class="rung"><svg class="s24"><use href="#p4"/></svg><span class="cap">24</span></div>
+    <div class="rung"><svg class="s16"><use href="#p4"/></svg><span class="cap">16 · tab</span></div>
+  </div>
+</section>
+
+<section class="opt" style="border-bottom:none">
+  <div class="opt-head"><span class="tag" style="background:#EFB02E">ALL</span><h2>Small, and in a dock</h2></div>
+  <p class="why">The rung that decides it. At 32&nbsp;px a dock icon is all most people ever see of a
+  mark.</p>
+  <div class="row" style="justify-content:space-around">
+    <div class="rung"><svg class="s64"><use href="#p1"/></svg><svg class="s32"><use href="#p1"/></svg><svg class="s16"><use href="#p1"/></svg><span class="cap">1 · bowl</span></div>
+    <div class="rung"><svg class="s64"><use href="#p2"/></svg><svg class="s32"><use href="#p2"/></svg><svg class="s16"><use href="#p2"/></svg><span class="cap">2 · heaped</span></div>
+    <div class="rung"><svg class="s64"><use href="#p3"/></svg><svg class="s32"><use href="#p3"/></svg><svg class="s16"><use href="#p3"/></svg><span class="cap">3 · pav</span></div>
+    <div class="rung"><svg class="s64"><use href="#p4"/></svg><svg class="s32"><use href="#p4"/></svg><svg class="s16"><use href="#p4"/></svg><span class="cap">4 · thali</span></div>
+  </div>
+  <div class="dockstrip">
+    <svg class="s48" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#1E3A8A"/><circle cx="32" cy="32" r="14" fill="none" stroke="#93B4FF" stroke-width="7"/></svg>
+    <svg class="s48"><use href="#p1"/></svg>
+    <svg class="s48"><use href="#p2"/></svg>
+    <svg class="s48"><use href="#p3"/></svg>
+    <svg class="s48"><use href="#p4"/></svg>
+    <svg class="s48" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#0F766E"/><path d="M16 42l12-13 9 8 14-18" fill="none" stroke="#7FF0DC" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </div>
+</section>
+
+<footer>
+  <p>Say a number and I’ll cut the set from it and replace what is on <code>main</code>. Nothing here
+  is wired in yet.</p>
+  <p><strong>If the angle is right but the drawing is not</strong>, tell me which part — rim too thick,
+  bowl too shallow, toppings too sparse, steel too grey — and I will adjust that rather than start
+  over. The angle is the decision; the rest is tuning.</p>
+</footer>
+
+</div>
+</body>
+</html>

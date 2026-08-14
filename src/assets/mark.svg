@@ -1,26 +1,58 @@
 <!--
-  Misal mark, without a tile — for the browser favicon and anywhere the app needs its own symbol on
-  a background it does not own. The app-icon version, which carries the rounded tile and is the
-  source for every packaged icon, lives at src-tauri/icons/source/icon.svg. Keep the two in step:
-  the geometry below is the same drawing, only the tile is missing.
+  Misal mark, for the browser favicon and anywhere the app needs its own symbol.
 
-  The bowl is drawn in the pav cream rather than the near-black used inside the tile, so the mark
-  survives on a dark browser theme as well as a light one.
+  Same drawing as the app icon at src-tauri/icons/source/icon.svg, at 1/16th the scale - keep the
+  two in step. It carries the tile rather than standing bare: the bowl is steel, and steel on a
+  white browser tab is very nearly invisible. Its own ground is the only way it reads on both a
+  light and a dark theme.
 -->
 <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
   <defs>
-    <clipPath id="bowl">
-      <path d="M10 34h44a22 22 0 0 1-44 0z"/>
-    </clipPath>
+    <clipPath id="rassa"><ellipse cx="32" cy="30" rx="18" ry="7.2"/></clipPath>
   </defs>
-  <g clip-path="url(#bowl)">
-    <rect x="10" y="34" width="44" height="24" fill="#7A3B1E"/>
+
+  <rect width="64" height="64" rx="14.4" fill="#2B1A12"/>
+
+  <g transform="translate(-1 -2.806) scale(1.031)">
+    <path d="M11 30A21 20.5 0 0 0 53 30Z" fill="#A7AFB6"/>
+    <path d="M15 38A17 12.5 0 0 0 49 38Z" fill="#8B939A"/>
+
+    <ellipse cx="32" cy="30" rx="21" ry="9.4" fill="#D9DFE4"/>
+    <ellipse cx="32" cy="30" rx="18" ry="7.2" fill="#AE2517"/>
+
+    <g clip-path="url(#rassa)">
+      <ellipse cx="30" cy="27" rx="13" ry="4" fill="#E0641C"/>
+      <g fill="#F0E4EE">
+        <rect x="21" y="31" width="2.4" height="2" rx=".6"/>
+        <rect x="40" y="30" width="2.4" height="2" rx=".6"/>
+      </g>
+    </g>
+
+    <path d="M19 28c3-9 10-13 17-11 6 2 9 6 9 11-8 3-18 3-26 0z" fill="#E8A828"/>
+
+    <g fill="#F2C049">
+      <rect x="29" y="19.6" width="7.5" height="2.1" rx="1.05" transform="rotate(-3 29 19.6)"/>
+      <rect x="21" y="24" width="7" height="2.1" rx="1.05" transform="rotate(-16 21 24)"/>
+      <rect x="36" y="23" width="6.6" height="2.1" rx="1.05" transform="rotate(14 36 23)"/>
+      <rect x="25" y="27" width="6.6" height="2.1" rx="1.05" transform="rotate(5 25 27)"/>
+    </g>
+    <g fill="#CE8A1B">
+      <rect x="16.5" y="26.2" width="6" height="2" rx="1" transform="rotate(-30 16.5 26.2)"/>
+      <rect x="42" y="25.6" width="6" height="2" rx="1" transform="rotate(24 42 25.6)"/>
+      <rect x="28.6" y="15.4" width="6" height="2" rx="1" transform="rotate(-8 28.6 15.4)"/>
+      <rect x="23.4" y="19.4" width="5.4" height="1.9" rx=".95" transform="rotate(-42 23.4 19.4)"/>
+      <rect x="37.4" y="18.4" width="5.4" height="1.9" rx=".95" transform="rotate(38 37.4 18.4)"/>
+      <rect x="19.6" y="23" width="5" height="1.9" rx=".95" transform="rotate(-52 19.6 23)"/>
+    </g>
+
+    <g fill="#F0E4EE">
+      <rect x="30.6" y="24" width="2.3" height="2" rx=".55" transform="rotate(18 30.6 24)"/>
+      <rect x="24" y="21.6" width="2.1" height="1.9" rx=".5" transform="rotate(-14 24 21.6)"/>
+      <rect x="36.4" y="25.6" width="2.1" height="1.9" rx=".5" transform="rotate(9 36.4 25.6)"/>
+    </g>
+    <g fill="#5DAF43">
+      <circle cx="34.4" cy="20.6" r="1.4"/>
+      <circle cx="26.6" cy="25.2" r="1.2"/>
+    </g>
   </g>
-  <g fill="none" stroke="#EFB02E" stroke-width="3.4" stroke-linecap="round">
-    <path d="M13 33c5-11 14-16 23-15"/>
-    <path d="M20 33c4-8 12-12 20-10"/>
-    <path d="M28 33c5-9 13-11 20-7"/>
-    <path d="M38 33c4-5 9-7 13-6"/>
-  </g>
-  <rect x="7" y="31" width="50" height="4.6" rx="2.3" fill="#EFD9A9"/>
 </svg>
