@@ -11,7 +11,10 @@ Your data stays on your machine. There is no account, no cloud, and no server.
 Named after the dish: many components prepared separately, assembled into one bowl, each keeping its
 own character.
 
-**[Install](docs/INSTALL.md)** · **[How to use it](docs/USING.md)** · **[Known issues](docs/known-issues.md)**
+**[Download and try it](docs/TESTING.md)** · **[Install](docs/INSTALL.md)** · **[How to use it](docs/USING.md)** · **[Known issues](docs/known-issues.md)**
+
+> Been handed this to test? Start at **[Trying Misal](docs/TESTING.md)** — install, one statement,
+> fifteen minutes.
 
 ---
 

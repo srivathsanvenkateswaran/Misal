@@ -123,8 +123,8 @@ you forget it.** Nothing anywhere can decrypt the file without it.
 | System | Location |
 |---|---|
 | macOS | `~/Library/Application Support/dev.misal.Misal/` |
-| Windows | `%APPDATA%\dev.misal.Misal\` |
-| Linux | `~/.local/share/dev.misal.Misal/` |
+| Windows | `%APPDATA%\misal\Misal\data\` |
+| Linux | `~/.local/share/misal/` (or `$XDG_DATA_HOME/misal/`) |
 
 One file, `misal.db`, encrypted. Back it up like any other file — but **the backup is useless
 without the keychain entry**, so if you are moving to a new machine, copy both or export your data
