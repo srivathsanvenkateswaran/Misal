@@ -42,6 +42,20 @@ export default defineConfig({
      */
     testTimeout: 30_000,
     hookTimeout: 30_000,
+    /**
+     * UTC, deliberately, and specifically *not* IST.
+     *
+     * This engine dates everything in Asia/Kolkata on purpose, so almost every author of this
+     * codebase runs the suite in the one zone where forgetting to say so still passes. That is how
+     * `ttlGate` shipped two bare `DateTime.fromISO` calls: correct instant, system-zone rendering,
+     * green on every Indian machine and red on every CI runner - which is why CI had never passed.
+     *
+     * Running the tests in a zone the product does not use means a date that depends on the
+     * machine's zone fails here, at the point it is written, rather than in a runner nobody reads.
+     * Tests that assert Indian output still assert Indian output; they just have to get it from
+     * code that says so.
+     */
+    env: { TZ: 'UTC' },
     environment: 'jsdom',
     setupFiles: ['./tests/setup.ts'],
     include: ['src/**/*.test.ts', 'src/**/*.test.tsx', 'tests/**/*.test.ts'],

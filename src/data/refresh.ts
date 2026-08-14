@@ -415,8 +415,13 @@ export function ttlGate(
   const minutes = settingNumber(settings, PRICE_TTL_SETTING, DEFAULT_PRICE_TTL_MINUTES)
   const last = settings.get(LAST_REFRESH_SETTING)
   if (last === undefined || last === '') return { eligible: true, nextEligibleAt: null }
-  const lastAt = DateTime.fromISO(last)
-  const nowAt = DateTime.fromISO(now)
+  // Zoned to IST rather than left to the machine. The instant is the same either way, but `toISO`
+  // renders in whatever zone the DateTime carries, and a bare `fromISO` carries the system's. Every
+  // other date this app shows is Indian - the fold, the calendar, the panel's own formatter - so on
+  // a laptop set to anything else this one line would print the next refresh in a different zone
+  // from the timestamps beside it, with no offset shown to explain the gap.
+  const lastAt = DateTime.fromISO(last, { zone: IST })
+  const nowAt = DateTime.fromISO(now, { zone: IST })
   if (!lastAt.isValid || !nowAt.isValid) return { eligible: true, nextEligibleAt: null }
   const next = lastAt.plus({ minutes })
   if (next <= nowAt) return { eligible: true, nextEligibleAt: null }

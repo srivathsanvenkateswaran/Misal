@@ -22,9 +22,20 @@ tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
-# bundled-sqlcipher gives encryption at rest without depending on a system SQLite build,
-# which matters when shipping a single binary to three operating systems.
-rusqlite = { version = "0.32", features = ["bundled-sqlcipher", "chrono", "backup"] }
+# Encryption at rest without depending on a system SQLite build, which matters when shipping a
+# single binary to three operating systems.
+#
+# The OpenSSL is vendored rather than borrowed from the host. `bundled-sqlcipher` alone builds
+# SQLCipher against whatever crypto library the platform happens to provide, and Windows provides
+# none - which is why the Windows job was the only one of the three that could not compile this
+# crate. Vendoring makes the build hermetic on every platform and pins the crypto behind the
+# database to a known version rather than to whatever the build machine had installed. It costs
+# binary size and build time, both of which are worth paying for a file holding someone's holdings.
+rusqlite = { version = "0.32", features = [
+  "bundled-sqlcipher-vendored-openssl",
+  "chrono",
+  "backup",
+] }
 
 # OS keychain: Keychain on macOS, Credential Manager on Windows, Secret Service on Linux.
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
