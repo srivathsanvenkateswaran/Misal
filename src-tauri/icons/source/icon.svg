@@ -1,0 +1,46 @@
+<!--
+  Misal app icon — "Sev".
+
+  The heap of fine crisp strands piled over the rim of the bowl. Chosen over an allocation ring
+  because an icon's job is retrieval, not explanation: in a dock full of finance apps every
+  competitor is a coloured donut, and the one food mark is the one you find without looking. A ring
+  is also always full, which is the single claim this app spends its whole design refusing to make.
+
+  Authored at 1024. The mark itself is drawn in a 64 unit space and placed with one transform, so
+  the geometry stays legible and can be re-scaled without redrawing:
+
+      scale 13       -> the 50x38 unit mark becomes 650x494
+      translate      -> its bounding box centre (32,37) lands on the canvas centre (512,512)
+
+  Everything downstream (icns, ico, the PNG ladder, Android, the favicon) is rendered from this file.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <clipPath id="bowl">
+      <path d="M10 34h44a22 22 0 0 1-44 0z"/>
+    </clipPath>
+  </defs>
+
+  <!-- The tile. Rounded at 22.5%, which is the macOS proportion; Windows and Android crop or mask
+       it themselves and the corner radius is invisible to them. -->
+  <rect width="1024" height="1024" rx="230" fill="#2B1A12"/>
+
+  <g transform="translate(96 31) scale(13)">
+    <!-- The bowl: a dark half disc, clipped so the fill cannot escape the silhouette. -->
+    <g clip-path="url(#bowl)">
+      <rect x="10" y="34" width="44" height="24" fill="#7A3B1E"/>
+    </g>
+
+    <!-- The sev. Four strands only, and thick: texture is the first thing to die when an icon is
+         shrunk, and at 16px a finer tangle turns to mush. These survive it. -->
+    <g fill="none" stroke="#EFB02E" stroke-width="3.4" stroke-linecap="round">
+      <path d="M13 33c5-11 14-16 23-15"/>
+      <path d="M20 33c4-8 12-12 20-10"/>
+      <path d="M28 33c5-9 13-11 20-7"/>
+      <path d="M38 33c4-5 9-7 13-6"/>
+    </g>
+
+    <!-- The rim, last so it sits over the strands' feet and reads as the bowl's edge. -->
+    <rect x="7" y="31" width="50" height="4.6" rx="2.3" fill="#EFD9A9"/>
+  </g>
+</svg>

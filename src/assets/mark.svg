@@ -1,0 +1,26 @@
+<!--
+  Misal mark, without a tile — for the browser favicon and anywhere the app needs its own symbol on
+  a background it does not own. The app-icon version, which carries the rounded tile and is the
+  source for every packaged icon, lives at src-tauri/icons/source/icon.svg. Keep the two in step:
+  the geometry below is the same drawing, only the tile is missing.
+
+  The bowl is drawn in the pav cream rather than the near-black used inside the tile, so the mark
+  survives on a dark browser theme as well as a light one.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <defs>
+    <clipPath id="bowl">
+      <path d="M10 34h44a22 22 0 0 1-44 0z"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#bowl)">
+    <rect x="10" y="34" width="44" height="24" fill="#7A3B1E"/>
+  </g>
+  <g fill="none" stroke="#EFB02E" stroke-width="3.4" stroke-linecap="round">
+    <path d="M13 33c5-11 14-16 23-15"/>
+    <path d="M20 33c4-8 12-12 20-10"/>
+    <path d="M28 33c5-9 13-11 20-7"/>
+    <path d="M38 33c4-5 9-7 13-6"/>
+  </g>
+  <rect x="7" y="31" width="50" height="4.6" rx="2.3" fill="#EFD9A9"/>
+</svg>

@@ -24,6 +24,10 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test
+      # The production build is a separate failure surface from typecheck: Vite resolves imports,
+      # inlines assets and runs the plugin chain here and nowhere else. Without this step the first
+      # place a broken build appears is the release workflow, i.e. at the moment it matters most.
+      - run: pnpm build
 
   core:
     name: Core (${{ matrix.os }})
@@ -49,6 +53,21 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+
+      # `tauri::generate_context!` reads `frontendDist` at compile time and panics if the directory
+      # is absent, so the core crate does not compile at all without one — which is why every Core
+      # job on this workflow had failed since the day it was written, while the same commands passed
+      # on any developer machine that had ever run `pnpm build`.
+      #
+      # A stub rather than a real build: these are the Rust library tests. They never serve the
+      # frontend, and building it on three platforms would add a Node toolchain and several minutes
+      # to each for a directory nothing here reads. The real build is verified once, in the Frontend
+      # job above.
+      - name: Stub the frontend bundle
+        shell: bash
+        run: |
+          mkdir -p dist
+          echo '<!doctype html><title>stub</title>' > dist/index.html
 
       - name: Format
         working-directory: src-tauri

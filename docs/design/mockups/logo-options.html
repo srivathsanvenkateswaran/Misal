@@ -1,0 +1,482 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Misal — logo options</title>
+<style>
+  :root{
+    --ink:#17120F;
+    --ink-2:#241C17;
+    --paper:#F7F2E9;
+    --paper-2:#EFE7D8;
+    --line:rgba(247,242,233,.14);
+    --line-dark:rgba(23,18,15,.14);
+    --muted:#A79A8C;
+    --tarri:#F4791F;
+    --sev:#EFB02E;
+    --rassa:#C4331D;
+    --usal:#7A3B1E;
+    --coriander:#4E8C4A;
+    --pav:#EFD9A9;
+    --steel:#C9CFD4;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--ink);
+    color:var(--paper);
+    font-family:var(--sans);
+    -webkit-font-smoothing:antialiased;
+    line-height:1.55;
+  }
+  .wrap{max-width:1080px;margin:0 auto;padding:56px 28px 96px}
+
+  header{border-bottom:1px solid var(--line);padding-bottom:32px;margin-bottom:8px}
+  .eyebrow{
+    font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--tarri);margin:0 0 14px
+  }
+  h1{font-size:clamp(28px,4vw,40px);line-height:1.1;margin:0 0 16px;font-weight:600;letter-spacing:-.02em}
+  .lede{max-width:60ch;color:#CBBFB1;margin:0;font-size:16px}
+  .lede + .lede{margin-top:12px}
+
+  /* ---- option card ---- */
+  .opt{padding:56px 0;border-bottom:1px solid var(--line)}
+  .opt-head{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:8px}
+  .tag{
+    font-family:var(--mono);font-size:12px;letter-spacing:.14em;
+    color:var(--ink);background:var(--tarri);border-radius:3px;padding:3px 9px;font-weight:600
+  }
+  .opt h2{font-size:24px;margin:0;font-weight:600;letter-spacing:-.01em}
+  .why{max-width:62ch;color:#CBBFB1;margin:10px 0 0;font-size:15px}
+  .risk{max-width:62ch;color:#8E8377;margin:8px 0 0;font-size:14px;font-style:italic}
+
+  .stage{
+    display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));
+    gap:18px;margin-top:30px
+  }
+  .panel{
+    border-radius:12px;padding:26px 22px;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:16px;min-height:190px
+  }
+  .panel.dark{background:var(--ink-2);border:1px solid var(--line)}
+  .panel.light{background:var(--paper);border:1px solid var(--line-dark)}
+  .panel.mono-d{background:var(--ink-2);border:1px solid var(--line);color:var(--paper)}
+  .panel.mono-l{background:var(--paper);border:1px solid var(--line-dark);color:var(--ink)}
+  .cap{
+    font-family:var(--mono);font-size:10px;letter-spacing:.13em;text-transform:uppercase;
+    color:var(--muted)
+  }
+  .panel.light .cap{color:#8A7F71}
+  .panel.mono-l .cap{color:#8A7F71}
+
+  /* ---- size ladder ---- */
+  .ladder{
+    margin-top:18px;background:var(--ink-2);border:1px solid var(--line);border-radius:12px;
+    padding:22px;display:flex;align-items:flex-end;gap:26px;flex-wrap:wrap
+  }
+  .rung{display:flex;flex-direction:column;align-items:center;gap:9px}
+  .rung .cap{font-size:9px}
+
+  /* ---- in context ---- */
+  .context{margin-top:18px;display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px}
+  .dock{
+    background:linear-gradient(180deg,#2E2622,#1D1714);border:1px solid var(--line);
+    border-radius:12px;padding:22px;display:flex;align-items:center;justify-content:center;gap:14px
+  }
+  .tile{
+    width:76px;height:76px;border-radius:18px;display:grid;place-items:center;
+    box-shadow:0 8px 22px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.09)
+  }
+  .tile.other{background:#3A3330;opacity:.4}
+  .tabbar{
+    background:var(--paper-2);border:1px solid var(--line-dark);border-radius:12px;padding:14px;
+    display:flex;gap:8px;align-items:flex-end
+  }
+  .tab{
+    background:var(--paper);border-radius:8px 8px 0 0;padding:9px 13px;display:flex;align-items:center;
+    gap:8px;font-size:12px;color:#3A322C;box-shadow:0 -1px 0 rgba(0,0,0,.06) inset;white-space:nowrap
+  }
+  .tab.ghost{background:rgba(0,0,0,.05);color:#8A7F71}
+
+  /* svg sizing */
+  .s16{width:16px;height:16px}.s20{width:20px;height:20px}.s24{width:24px;height:24px}
+  .s32{width:32px;height:32px}.s48{width:48px;height:48px}.s64{width:64px;height:64px}
+  .s96{width:96px;height:96px}.s128{width:128px;height:128px}.s56{width:56px;height:56px}
+
+  footer{padding-top:46px;color:#8E8377;font-size:14px;max-width:62ch}
+  footer strong{color:var(--paper);font-weight:600}
+  code{font-family:var(--mono);font-size:.9em;background:rgba(255,255,255,.07);padding:1px 5px;border-radius:3px}
+  @media (max-width:640px){ .wrap{padding:36px 18px 70px} .ladder{gap:18px} }
+</style>
+</head>
+<body>
+
+<!-- ============ symbols: colour ============ -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <clipPath id="clipBowlB"><path d="M8 24h48a24 24 0 0 1-48 0z"/></clipPath>
+    <clipPath id="clipDiscA"><circle cx="32" cy="32" r="26"/></clipPath>
+    <clipPath id="clipBowlC"><path d="M10 34h44a22 22 0 0 1-44 0z"/></clipPath>
+    <clipPath id="clipBowlD"><path d="M4 28h36a18 18 0 0 1-36 0z"/></clipPath>
+  </defs>
+
+  <!-- A · Tarri -->
+  <symbol id="a" viewBox="0 0 64 64">
+    <circle cx="32" cy="32" r="26" fill="#4A2214"/>
+    <g clip-path="url(#clipDiscA)">
+      <ellipse cx="37" cy="25" rx="18" ry="10" transform="rotate(-13 37 25)" fill="#F4791F"/>
+      <circle cx="17" cy="41" r="4.2" fill="#F4791F"/>
+      <circle cx="26" cy="47" r="2.6" fill="#F4791F"/>
+      <circle cx="35" cy="43" r="1.8" fill="#EFB02E"/>
+    </g>
+  </symbol>
+
+  <!-- B · Katori -->
+  <symbol id="b" viewBox="0 0 64 64">
+    <g clip-path="url(#clipBowlB)">
+      <rect x="8" y="24" width="48" height="7" fill="#EFB02E"/>
+      <rect x="8" y="31" width="48" height="7" fill="#F4791F"/>
+      <rect x="8" y="38" width="48" height="8" fill="#C4331D"/>
+      <rect x="8" y="46" width="48" height="12" fill="#7A3B1E"/>
+    </g>
+    <rect x="5" y="20" width="54" height="5" rx="2.5" fill="#EFD9A9"/>
+  </symbol>
+
+  <!-- C · Sev -->
+  <symbol id="c" viewBox="0 0 64 64">
+    <g clip-path="url(#clipBowlC)"><rect x="10" y="34" width="44" height="24" fill="#4A2214"/></g>
+    <g fill="none" stroke="#EFB02E" stroke-width="3.4" stroke-linecap="round">
+      <path d="M13 33c5-11 14-16 23-15"/>
+      <path d="M20 33c4-8 12-12 20-10"/>
+      <path d="M28 33c5-9 13-11 20-7"/>
+      <path d="M38 33c4-5 9-7 13-6"/>
+    </g>
+    <rect x="7" y="31" width="50" height="4.6" rx="2.3" fill="#EFD9A9"/>
+  </symbol>
+
+  <!-- D · Bowl & pav -->
+  <symbol id="d" viewBox="0 0 64 64">
+    <circle cx="52" cy="34" r="11" fill="#EFD9A9"/>
+    <path d="M44 30a8 8 0 0 1 16 0" fill="none" stroke="#D9B87C" stroke-width="1.8" stroke-linecap="round"/>
+    <g clip-path="url(#clipBowlD)">
+      <rect x="4" y="28" width="36" height="7" fill="#F4791F"/>
+      <rect x="4" y="35" width="36" height="7" fill="#C4331D"/>
+      <rect x="4" y="42" width="36" height="10" fill="#7A3B1E"/>
+    </g>
+    <rect x="2" y="24" width="40" height="4.6" rx="2.3" fill="#EFD9A9"/>
+  </symbol>
+
+  <!-- E · Rim -->
+  <symbol id="e" viewBox="0 0 64 64">
+    <circle cx="32" cy="32" r="26" fill="none" stroke="#C9CFD4" stroke-width="4"/>
+    <g transform="rotate(-90 32 32)" fill="none" stroke-width="11">
+      <circle cx="32" cy="32" r="17" stroke="#EFB02E" stroke-dasharray="42.7 64.1"/>
+      <circle cx="32" cy="32" r="17" stroke="#F4791F" stroke-dasharray="32.0 74.8" stroke-dashoffset="-42.7"/>
+      <circle cx="32" cy="32" r="17" stroke="#C4331D" stroke-dasharray="19.2 87.6" stroke-dashoffset="-74.7"/>
+      <circle cx="32" cy="32" r="17" stroke="#4E8C4A" stroke-dasharray="12.9 93.9" stroke-dashoffset="-93.9"/>
+    </g>
+    <circle cx="32" cy="32" r="11.5" fill="#4A2214"/>
+  </symbol>
+
+  <!-- ============ symbols: single colour ============ -->
+  <symbol id="a-m" viewBox="0 0 64 64">
+    <circle cx="32" cy="32" r="26" fill="none" stroke="currentColor" stroke-width="4"/>
+    <ellipse cx="35" cy="25" rx="15" ry="8.5" transform="rotate(-13 35 25)" fill="currentColor"/>
+    <circle cx="19" cy="42" r="3.6" fill="currentColor"/>
+    <circle cx="28" cy="47" r="2.2" fill="currentColor"/>
+  </symbol>
+  <symbol id="b-m" viewBox="0 0 64 64">
+    <path d="M8 26h48a24 24 0 0 1-48 0z" fill="currentColor"/>
+    <rect x="5" y="19" width="54" height="5" rx="2.5" fill="currentColor"/>
+  </symbol>
+  <symbol id="c-m" viewBox="0 0 64 64">
+    <path d="M10 36h44a22 22 0 0 1-44 0z" fill="currentColor"/>
+    <g fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round">
+      <path d="M13 33c5-11 14-16 23-15"/><path d="M22 33c4-8 12-12 20-10"/><path d="M32 33c5-8 12-10 19-6"/>
+    </g>
+  </symbol>
+  <symbol id="d-m" viewBox="0 0 64 64">
+    <circle cx="52" cy="34" r="11" fill="none" stroke="currentColor" stroke-width="3.4"/>
+    <path d="M4 30h36a18 18 0 0 1-36 0z" fill="currentColor"/>
+    <rect x="2" y="24" width="40" height="4.6" rx="2.3" fill="currentColor"/>
+  </symbol>
+  <symbol id="e-m" viewBox="0 0 64 64">
+    <circle cx="32" cy="32" r="26" fill="none" stroke="currentColor" stroke-width="4"/>
+    <g transform="rotate(-90 32 32)" fill="none" stroke="currentColor" stroke-width="11">
+      <circle cx="32" cy="32" r="17" stroke-dasharray="42.7 64.1"/>
+      <circle cx="32" cy="32" r="17" stroke-dasharray="19.2 87.6" stroke-dashoffset="-74.7"/>
+    </g>
+  </symbol>
+</svg>
+
+<div class="wrap">
+
+<header>
+  <p class="eyebrow">Misal · app mark · five directions</p>
+  <h1>Pick a logo</h1>
+  <p class="lede">Five marks, each drawn from something actually distinctive about a misal rather than
+  from “bowl of food”. Reply with a letter. Mixing is fine — “D but with B’s layers” is a useful answer.</p>
+  <p class="lede">Judge them small. An app mark spends its life at 32&nbsp;px in a dock and 16&nbsp;px in a
+  tab, so the size ladder under each option matters more than the big version. The single-colour row
+  is the real test: a mark that only works in five colours is a weak mark.</p>
+</header>
+
+<!-- ================= DECIDER ================= -->
+<section class="opt" id="decider">
+  <div class="opt-head"><span class="tag" style="background:#EFB02E">C vs E</span><h2>The dock test</h2></div>
+  <p class="why">The question isn’t which mark is nicer in isolation — both are. It’s which one you can
+  find in a quarter of a second. An icon never has to explain the product, because nobody meets it
+  before installing; its whole job is <em>retrieval</em>. So the honest test is each mark among the apps
+  it will actually sit beside, which are all finance apps.</p>
+
+  <div class="dock" style="justify-content:flex-start;gap:16px;overflow-x:auto;margin-top:26px">
+    <div class="tile" style="background:#1E3A8A"><svg class="s56" viewBox="0 0 64 64"><circle cx="32" cy="32" r="19" fill="none" stroke="#93B4FF" stroke-width="9"/><circle cx="32" cy="32" r="19" fill="none" stroke="#4ADE80" stroke-width="9" stroke-dasharray="40 200" transform="rotate(-90 32 32)"/></svg></div>
+    <div class="tile" style="background:#0F766E"><svg class="s56" viewBox="0 0 64 64"><path d="M14 42l12-13 9 8 15-19" fill="none" stroke="#7FF0DC" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+    <div class="tile" style="background:#2B1A12;outline:2px solid var(--sev);outline-offset:3px"><svg class="s56"><use href="#e"/></svg></div>
+    <div class="tile" style="background:#5B21B6"><svg class="s56" viewBox="0 0 64 64"><circle cx="32" cy="32" r="18" fill="none" stroke="#C4B5FD" stroke-width="10"/><circle cx="32" cy="32" r="18" fill="none" stroke="#F0ABFC" stroke-width="10" stroke-dasharray="62 200" transform="rotate(-90 32 32)"/></svg></div>
+    <div class="tile" style="background:#164E63"><svg class="s56" viewBox="0 0 64 64"><rect x="14" y="34" width="8" height="16" rx="2" fill="#67E8F9"/><rect x="28" y="24" width="8" height="26" rx="2" fill="#67E8F9"/><rect x="42" y="16" width="8" height="34" rx="2" fill="#A5F3FC"/></svg></div>
+  </div>
+  <p class="cap" style="display:block;margin-top:12px">E · outlined, third from left — and you had to look for the outline to find it.</p>
+
+  <div class="dock" style="justify-content:flex-start;gap:16px;overflow-x:auto;margin-top:22px">
+    <div class="tile" style="background:#1E3A8A"><svg class="s56" viewBox="0 0 64 64"><circle cx="32" cy="32" r="19" fill="none" stroke="#93B4FF" stroke-width="9"/><circle cx="32" cy="32" r="19" fill="none" stroke="#4ADE80" stroke-width="9" stroke-dasharray="40 200" transform="rotate(-90 32 32)"/></svg></div>
+    <div class="tile" style="background:#0F766E"><svg class="s56" viewBox="0 0 64 64"><path d="M14 42l12-13 9 8 15-19" fill="none" stroke="#7FF0DC" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+    <div class="tile" style="background:#2B1A12;outline:2px solid var(--sev);outline-offset:3px"><svg class="s56"><use href="#c"/></svg></div>
+    <div class="tile" style="background:#5B21B6"><svg class="s56" viewBox="0 0 64 64"><circle cx="32" cy="32" r="18" fill="none" stroke="#C4B5FD" stroke-width="10"/><circle cx="32" cy="32" r="18" fill="none" stroke="#F0ABFC" stroke-width="10" stroke-dasharray="62 200" transform="rotate(-90 32 32)"/></svg></div>
+    <div class="tile" style="background:#164E63"><svg class="s56" viewBox="0 0 64 64"><rect x="14" y="34" width="8" height="16" rx="2" fill="#67E8F9"/><rect x="28" y="24" width="8" height="26" rx="2" fill="#67E8F9"/><rect x="42" y="16" width="8" height="34" rx="2" fill="#A5F3FC"/></svg></div>
+  </div>
+  <p class="cap" style="display:block;margin-top:12px">C · same position. You found it before you read this line.</p>
+
+  <p class="why" style="margin-top:30px">There is also an argument against E that has nothing to do with
+  taste. <strong style="color:var(--paper)">A ring is always full.</strong> A donut icon quietly promises
+  that everything is accounted for — that the whole circle is known. Misal’s entire stance is the
+  opposite: it withholds figures it cannot support, shows hatching where a holding is snapshot-only,
+  and says “not priced” rather than <span style="white-space:nowrap">₹0</span>. The one mark that
+  states completeness on every screen would be the icon.</p>
+
+  <p class="why">The counter-argument for E is real: it tells a stranger on GitHub that this is a
+  portfolio tool. But Misal isn’t discovered in an app store — it’s handed to people who already know
+  what it is. Category-signalling buys little; memorability buys a lot. And the name is already the
+  hook. “Misal” is a food word, and a bowl of sev finishes that sentence where an abstract ring argues
+  with it.</p>
+
+  <p class="risk" style="color:#CBBFB1;font-style:normal">Nothing is wasted either way: <strong
+  style="color:var(--paper)">E’s ring is a better in-app motif than an app icon</strong>. Keep it for
+  the allocation view, where a ring drawn from real data — and visibly incomplete when the data is —
+  says something true. Different jobs, both filled.</p>
+</section>
+
+<!-- ================= A ================= -->
+<section class="opt">
+  <div class="opt-head"><span class="tag">A</span><h2>Tarri</h2></div>
+  <p class="why">The oil slick. That fiery layer floating on the surface is the one thing nothing else in
+  Indian food looks like — you can identify a misal from it alone, from across a room. Read as data:
+  the things sitting on top of everything else, and the small separate beads that haven’t merged in.</p>
+  <p class="risk">Risk: the most abstract of the five. Someone who doesn’t know the dish sees a dark
+  disc with an orange shape — pleasant, but not obviously anything.</p>
+
+  <div class="stage">
+    <div class="panel dark"><svg class="s96"><use href="#a"/></svg><span class="cap">on dark</span></div>
+    <div class="panel light"><svg class="s96"><use href="#a"/></svg><span class="cap">on light</span></div>
+    <div class="panel mono-d"><svg class="s96"><use href="#a-m"/></svg><span class="cap">one colour</span></div>
+    <div class="panel mono-l"><svg class="s96"><use href="#a-m"/></svg><span class="cap">one colour</span></div>
+  </div>
+  <div class="ladder">
+    <div class="rung"><svg class="s128"><use href="#a"/></svg><span class="cap">128</span></div>
+    <div class="rung"><svg class="s64"><use href="#a"/></svg><span class="cap">64</span></div>
+    <div class="rung"><svg class="s32"><use href="#a"/></svg><span class="cap">32 · dock</span></div>
+    <div class="rung"><svg class="s24"><use href="#a"/></svg><span class="cap">24</span></div>
+    <div class="rung"><svg class="s16"><use href="#a"/></svg><span class="cap">16 · tab</span></div>
+  </div>
+  <div class="context">
+    <div class="dock">
+      <div class="tile other"></div>
+      <div class="tile" style="background:#F7F2E9"><svg class="s56"><use href="#a"/></svg></div>
+      <div class="tile other"></div>
+    </div>
+    <div class="tabbar">
+      <div class="tab"><svg class="s16"><use href="#a"/></svg> Misal</div>
+      <div class="tab ghost">Zerodha</div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= B ================= -->
+<section class="opt">
+  <div class="opt-head"><span class="tag">B</span><h2>Katori</h2></div>
+  <p class="why">The layers, but held in a bowl so they read as a serving rather than as a colour chart.
+  This is the metaphor the project already commits to in its own README — components prepared
+  separately, assembled into one bowl, each keeping its character — and the bands are also, exactly,
+  an allocation. The closest thing here to a literal picture of the product.</p>
+  <p class="risk">Risk: closest to the icon you already have, so it may feel like a refinement rather
+  than a redesign. The rim is doing a lot of work — without it, it’s the current icon again.</p>
+
+  <div class="stage">
+    <div class="panel dark"><svg class="s96"><use href="#b"/></svg><span class="cap">on dark</span></div>
+    <div class="panel light"><svg class="s96"><use href="#b"/></svg><span class="cap">on light</span></div>
+    <div class="panel mono-d"><svg class="s96"><use href="#b-m"/></svg><span class="cap">one colour</span></div>
+    <div class="panel mono-l"><svg class="s96"><use href="#b-m"/></svg><span class="cap">one colour</span></div>
+  </div>
+  <div class="ladder">
+    <div class="rung"><svg class="s128"><use href="#b"/></svg><span class="cap">128</span></div>
+    <div class="rung"><svg class="s64"><use href="#b"/></svg><span class="cap">64</span></div>
+    <div class="rung"><svg class="s32"><use href="#b"/></svg><span class="cap">32 · dock</span></div>
+    <div class="rung"><svg class="s24"><use href="#b"/></svg><span class="cap">24</span></div>
+    <div class="rung"><svg class="s16"><use href="#b"/></svg><span class="cap">16 · tab</span></div>
+  </div>
+  <div class="context">
+    <div class="dock">
+      <div class="tile other"></div>
+      <div class="tile" style="background:#2B1A12"><svg class="s56"><use href="#b"/></svg></div>
+      <div class="tile other"></div>
+    </div>
+    <div class="tabbar">
+      <div class="tab"><svg class="s16"><use href="#b"/></svg> Misal</div>
+      <div class="tab ghost">Zerodha</div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= C ================= -->
+<section class="opt">
+  <div class="opt-head"><span class="tag">C</span><h2>Sev</h2></div>
+  <p class="why">The heap of fine crisp strands piled over the rim — the texture that makes a misal
+  photograph look like a misal. Overflowing the bowl is the point: more than the container holds.
+  The one mark here with any energy in it; the others are all static.</p>
+  <p class="risk">Risk: texture is the first thing to die when you shrink something. Check the 16&nbsp;px
+  rung honestly — if the strands turn to mush there, this is a wordmark companion, not an app icon.</p>
+
+  <div class="stage">
+    <div class="panel dark"><svg class="s96"><use href="#c"/></svg><span class="cap">on dark</span></div>
+    <div class="panel light"><svg class="s96"><use href="#c"/></svg><span class="cap">on light</span></div>
+    <div class="panel mono-d"><svg class="s96"><use href="#c-m"/></svg><span class="cap">one colour</span></div>
+    <div class="panel mono-l"><svg class="s96"><use href="#c-m"/></svg><span class="cap">one colour</span></div>
+  </div>
+  <div class="ladder">
+    <div class="rung"><svg class="s128"><use href="#c"/></svg><span class="cap">128</span></div>
+    <div class="rung"><svg class="s64"><use href="#c"/></svg><span class="cap">64</span></div>
+    <div class="rung"><svg class="s32"><use href="#c"/></svg><span class="cap">32 · dock</span></div>
+    <div class="rung"><svg class="s24"><use href="#c"/></svg><span class="cap">24</span></div>
+    <div class="rung"><svg class="s16"><use href="#c"/></svg><span class="cap">16 · tab</span></div>
+  </div>
+  <div class="context">
+    <div class="dock">
+      <div class="tile other"></div>
+      <div class="tile" style="background:#2B1A12"><svg class="s56"><use href="#c"/></svg></div>
+      <div class="tile other"></div>
+    </div>
+    <div class="tabbar">
+      <div class="tab"><svg class="s16"><use href="#c"/></svg> Misal</div>
+      <div class="tab ghost">Zerodha</div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= D ================= -->
+<section class="opt">
+  <div class="opt-head"><span class="tag">D</span><h2>Misal pav</h2></div>
+  <p class="why">The bowl and the pav — because it is never just the bowl. Two objects of different
+  size and weight is the most logo-like arrangement of the five: it has a subject and a counterweight,
+  which is what makes a mark stick. The pav also happens to be the only circle, so it reads as the
+  round total beside the stacked parts.</p>
+  <p class="risk">Risk: two objects halve the size of each. At 16&nbsp;px the pav becomes a dot and the
+  layers collapse into a smudge.</p>
+
+  <div class="stage">
+    <div class="panel dark"><svg class="s96"><use href="#d"/></svg><span class="cap">on dark</span></div>
+    <div class="panel light"><svg class="s96"><use href="#d"/></svg><span class="cap">on light</span></div>
+    <div class="panel mono-d"><svg class="s96"><use href="#d-m"/></svg><span class="cap">one colour</span></div>
+    <div class="panel mono-l"><svg class="s96"><use href="#d-m"/></svg><span class="cap">one colour</span></div>
+  </div>
+  <div class="ladder">
+    <div class="rung"><svg class="s128"><use href="#d"/></svg><span class="cap">128</span></div>
+    <div class="rung"><svg class="s64"><use href="#d"/></svg><span class="cap">64</span></div>
+    <div class="rung"><svg class="s32"><use href="#d"/></svg><span class="cap">32 · dock</span></div>
+    <div class="rung"><svg class="s24"><use href="#d"/></svg><span class="cap">24</span></div>
+    <div class="rung"><svg class="s16"><use href="#d"/></svg><span class="cap">16 · tab</span></div>
+  </div>
+  <div class="context">
+    <div class="dock">
+      <div class="tile other"></div>
+      <div class="tile" style="background:#F7F2E9"><svg class="s56"><use href="#d"/></svg></div>
+      <div class="tile other"></div>
+    </div>
+    <div class="tabbar">
+      <div class="tab"><svg class="s16"><use href="#d"/></svg> Misal</div>
+      <div class="tab ghost">Zerodha</div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= E ================= -->
+<section class="opt">
+  <div class="opt-head"><span class="tag">E</span><h2>Rim</h2></div>
+  <p class="why">The bowl from directly above: a steel katori rim, the toppings as unequal arcs, the
+  dark depth of the usal in the middle. This is the one place where the dish and the chart are
+  genuinely the same drawing — it is an allocation ring because a misal seen from above <em>is</em> one.
+  Steel is also the most Indian detail available: everything is served in it.</p>
+  <p class="risk">Risk: a donut chart is the single most used shape in fintech. The steel rim and the
+  palette are what keep it from being every other portfolio app’s icon — decide whether that’s enough.</p>
+
+  <div class="stage">
+    <div class="panel dark"><svg class="s96"><use href="#e"/></svg><span class="cap">on dark</span></div>
+    <div class="panel light"><svg class="s96"><use href="#e"/></svg><span class="cap">on light</span></div>
+    <div class="panel mono-d"><svg class="s96"><use href="#e-m"/></svg><span class="cap">one colour</span></div>
+    <div class="panel mono-l"><svg class="s96"><use href="#e-m"/></svg><span class="cap">one colour</span></div>
+  </div>
+  <div class="ladder">
+    <div class="rung"><svg class="s128"><use href="#e"/></svg><span class="cap">128</span></div>
+    <div class="rung"><svg class="s64"><use href="#e"/></svg><span class="cap">64</span></div>
+    <div class="rung"><svg class="s32"><use href="#e"/></svg><span class="cap">32 · dock</span></div>
+    <div class="rung"><svg class="s24"><use href="#e"/></svg><span class="cap">24</span></div>
+    <div class="rung"><svg class="s16"><use href="#e"/></svg><span class="cap">16 · tab</span></div>
+  </div>
+  <div class="context">
+    <div class="dock">
+      <div class="tile other"></div>
+      <div class="tile" style="background:#2B1A12"><svg class="s56"><use href="#e"/></svg></div>
+      <div class="tile other"></div>
+    </div>
+    <div class="tabbar">
+      <div class="tab"><svg class="s16"><use href="#e"/></svg> Misal</div>
+      <div class="tab ghost">Zerodha</div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= side by side ================= -->
+<section class="opt" style="border-bottom:none">
+  <div class="opt-head"><span class="tag">ALL</span><h2>Side by side, small</h2></div>
+  <p class="why">The comparison that decides it. Squint at this row — whichever one you can still name
+  with your eyes half shut is the answer.</p>
+  <div class="ladder" style="justify-content:space-around">
+    <div class="rung"><svg class="s48"><use href="#a"/></svg><svg class="s32"><use href="#a"/></svg><svg class="s16"><use href="#a"/></svg><span class="cap">A · tarri</span></div>
+    <div class="rung"><svg class="s48"><use href="#b"/></svg><svg class="s32"><use href="#b"/></svg><svg class="s16"><use href="#b"/></svg><span class="cap">B · katori</span></div>
+    <div class="rung"><svg class="s48"><use href="#c"/></svg><svg class="s32"><use href="#c"/></svg><svg class="s16"><use href="#c"/></svg><span class="cap">C · sev</span></div>
+    <div class="rung"><svg class="s48"><use href="#d"/></svg><svg class="s32"><use href="#d"/></svg><svg class="s16"><use href="#d"/></svg><span class="cap">D · misal pav</span></div>
+    <div class="rung"><svg class="s48"><use href="#e"/></svg><svg class="s32"><use href="#e"/></svg><svg class="s16"><use href="#e"/></svg><span class="cap">E · rim</span></div>
+  </div>
+  <div class="ladder" style="justify-content:space-around;background:var(--paper);border-color:var(--line-dark)">
+    <div class="rung" style="color:#17120F"><svg class="s48"><use href="#a-m"/></svg><span class="cap" style="color:#8A7F71">A</span></div>
+    <div class="rung" style="color:#17120F"><svg class="s48"><use href="#b-m"/></svg><span class="cap" style="color:#8A7F71">B</span></div>
+    <div class="rung" style="color:#17120F"><svg class="s48"><use href="#c-m"/></svg><span class="cap" style="color:#8A7F71">C</span></div>
+    <div class="rung" style="color:#17120F"><svg class="s48"><use href="#d-m"/></svg><span class="cap" style="color:#8A7F71">D</span></div>
+    <div class="rung" style="color:#17120F"><svg class="s48"><use href="#e-m"/></svg><span class="cap" style="color:#8A7F71">E</span></div>
+  </div>
+</section>
+
+<footer>
+  <p>Nothing is committed to the app yet. Tell me a letter and I’ll cut the full icon set — macOS
+  <code>.icns</code>, Windows <code>.ico</code>, the PNG ladder, Android adaptive icons and the favicon —
+  wire it into <code>tauri.conf.json</code>, and replace the mark in the app shell.</p>
+  <p><strong>If none of them land</strong>, say which part of which one you liked and I’ll draw another
+  round. That is a normal outcome for a first pass, not a failure.</p>
+</footer>
+
+</div>
+</body>
+</html>

@@ -70,6 +70,12 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test
+
+      # Ahead of the core tests, not merely before the bundle: `tauri::generate_context!` reads
+      # `frontendDist` at compile time, so the crate will not compile until dist/ exists. Leaving
+      # this to tauri-action's own beforeBuildCommand puts it after the step that needs it.
+      - run: pnpm build
+
       - name: Core tests
         working-directory: src-tauri
         run: cargo test --lib
