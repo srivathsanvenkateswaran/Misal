@@ -1,0 +1,23 @@
+# Line endings are LF in the working tree on every platform, not just in the repository.
+#
+# Without this, Git on Windows checks text files out as CRLF, and the golden-file tests compare
+# freshly generated output (LF) against a committed fixture (CRLF) and fail - nine of them, in the
+# parsers for CAMS, NSDL and the Zerodha tradebook. That is exactly how the v0.1.0 Windows release
+# build died: it never reached the bundling step because `pnpm test` failed first. The CI frontend
+# job runs on Linux only, so nothing caught it until a release was attempted.
+#
+# `eol=lf` rather than leaving it to each contributor's core.autocrlf, because a repository-level
+# rule cannot be forgotten and does not depend on how anyone configured their machine.
+#
+# This also protects the CI check that rejects NUL bytes in source: that check reads files as bytes,
+# and normalising them here keeps what is committed identical to what is tested.
+* text=auto eol=lf
+
+# Fixtures whose bytes are the point. A golden file is compared byte for byte, and a statement
+# fixture is parsed as bytes; neither may be rewritten by an end-of-line rule.
+*.png binary
+*.ico binary
+*.icns binary
+*.pdf binary
+*.woff binary
+*.woff2 binary

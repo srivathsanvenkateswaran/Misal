@@ -11,8 +11,16 @@ concurrency:
 
 jobs:
   frontend:
-    name: Frontend
-    runs-on: ubuntu-latest
+    name: Frontend (${{ matrix.os }})
+    # Windows as well as Linux, because the two disagree about things this suite depends on:
+    # end-of-line handling and path separators. The golden-file parser tests failed on Windows and
+    # nowhere else, and a Linux-only frontend job could not see it - the first thing that noticed
+    # was a release build, which died before it bundled anything.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
